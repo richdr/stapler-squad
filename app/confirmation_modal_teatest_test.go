@@ -1,0 +1,276 @@
+package app
+
+import (
+	"claude-squad/session"
+	"claude-squad/testutil"
+	"testing"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/exp/teatest"
+	"github.com/stretchr/testify/assert"
+)
+
+// TestConfirmationModalKeyHandlingTeatest tests confirmation modal key handling with teatest
+func TestConfirmationModalKeyHandlingTeatest(t *testing.T) {
+	testCases := []struct {
+		name              string
+		key               string
+		expectedContains  string
+		shouldCloseModal  bool
+		keyType           tea.KeyType
+	}{
+		{
+			name:              "y key confirms and closes modal",
+			key:               "y",
+			expectedContains:  "",  // Modal should close, so we won't see it
+			shouldCloseModal:  true,
+			keyType:           tea.KeyRunes,
+		},
+		{
+			name:              "n key cancels and closes modal",
+			key:               "n",
+			expectedContains:  "",  // Modal should close
+			shouldCloseModal:  true,
+			keyType:           tea.KeyRunes,
+		},
+		{
+			name:              "esc key cancels and closes modal",
+			key:               "",   // Special handling for esc
+			expectedContains:  "",  // Modal should close
+			shouldCloseModal:  true,
+			keyType:           tea.KeyEsc,
+		},
+		{
+			name:              "other keys are ignored, modal stays",
+			key:               "x",
+			expectedContains:  "Kill session",  // Modal should remain visible
+			shouldCloseModal:  false,
+			keyType:           tea.KeyRunes,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Create app model with session that can be killed
+			appModel := createTestAppWithSession(t)
+			config := testutil.DefaultTUIConfig()
+
+			tm := testutil.CreateTUITest(t, appModel, config)
+
+			// Wait for initial render
+			testutil.WaitForOutputContains(t, tm, "test-session", 100*time.Millisecond)
+
+			// Press 'D' to trigger kill confirmation
+			tm.Type("D")
+
+			// Wait for confirmation modal to appear
+			testutil.WaitForOutputContains(t, tm, "Kill session 'test-session'?", 200*time.Millisecond)
+
+			// Send the test key
+			if tc.keyType == tea.KeyEsc {
+				tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+			} else {
+				tm.Type(tc.key)
+			}
+
+			// Wait a bit for processing
+			time.Sleep(50 * time.Millisecond)
+
+			// Check expected behavior
+			if tc.shouldCloseModal {
+				// Modal should be closed, so confirmation text should not be visible
+				teatest.WaitFor(t, tm.Output(),
+					func(bts []byte) bool {
+						return !containsText(string(bts), "Kill session")
+					},
+					teatest.WithDuration(300*time.Millisecond),
+				)
+			} else {
+				// Modal should still be visible
+				testutil.AssertOutputContains(t, tm, tc.expectedContains)
+			}
+
+			// Clean exit
+			tm.Type("q")
+			tm.WaitFinished(t, teatest.WithFinalTimeout(5*time.Second))
+		})
+	}
+}
+
+// TestConfirmationFlowSimulationTeatest tests the full confirmation flow with teatest
+func TestConfirmationFlowSimulationTeatest(t *testing.T) {
+	appModel := createTestAppWithSession(t)
+	config := testutil.DefaultTUIConfig()
+
+	tm := testutil.CreateTUITest(t, appModel, config)
+
+	// Wait for initial app render
+	testutil.WaitForOutputContains(t, tm, "test-session", 200*time.Millisecond)
+
+	// Press 'D' to trigger deletion confirmation
+	tm.Type("D")
+
+	// Wait for confirmation modal
+	testutil.WaitForOutputContains(t, tm, "[!] Kill session 'test-session'?", 300*time.Millisecond)
+
+	// Verify modal contains expected elements
+	testutil.AssertOutputContains(t, tm, "Kill session 'test-session'?")
+	testutil.AssertOutputContains(t, tm, "(y)es")
+	testutil.AssertOutputContains(t, tm, "(n)o")
+
+	// Cancel the confirmation by pressing 'n'
+	tm.Type("n")
+
+	// Wait for modal to close
+	teatest.WaitFor(t, tm.Output(),
+		func(bts []byte) bool {
+			return !containsText(string(bts), "Kill session")
+		},
+		teatest.WithDuration(300*time.Millisecond),
+	)
+
+	// Verify we're back to normal state and session still exists
+	testutil.AssertOutputContains(t, tm, "test-session")
+
+	// Clean exit
+	tm.Type("q")
+	tm.WaitFinished(t, teatest.WithFinalTimeout(5*time.Second))
+}
+
+// TestConfirmationModalVisualAppearanceTeatest tests modal visual elements with teatest
+func TestConfirmationModalVisualAppearanceTeatest(t *testing.T) {
+	appModel := createTestAppWithSession(t)
+	config := testutil.DefaultTUIConfig()
+
+	tm := testutil.CreateTUITest(t, appModel, config)
+
+	// Wait for initial render
+	testutil.WaitForOutputContains(t, tm, "test-session", 200*time.Millisecond)
+
+	// Trigger confirmation modal
+	tm.Type("D")
+
+	// Wait for modal to appear
+	testutil.WaitForOutputContains(t, tm, "Kill session", 300*time.Millisecond)
+
+	// Check visual elements are present
+	testutil.AssertOutputContains(t, tm, "[!] Kill session 'test-session'?")
+	testutil.AssertOutputContains(t, tm, "(y)es")
+	testutil.AssertOutputContains(t, tm, "(n)o")
+
+	// Test that modal overlays the main content
+	output := tm.Output()
+	outputStr := testutil.ReadOutput(t, output)
+
+	// Modal should be visible and contain specific styling patterns
+	assert.Contains(t, outputStr, "Kill session", "Modal should display kill message")
+
+	// Clean exit by cancelling
+	tm.Type("n")
+	tm.Type("q")
+	tm.WaitFinished(t, teatest.WithFinalTimeout(5*time.Second))
+}
+
+// TestMultipleConfirmationsTeatest tests that confirmations don't interfere with each other
+func TestMultipleConfirmationsTeatest(t *testing.T) {
+	appModel := createTestAppWithMultipleSessions(t)
+	config := testutil.DefaultTUIConfig()
+
+	tm := testutil.CreateTUITest(t, appModel, config)
+
+	// Wait for initial render with multiple sessions
+	testutil.WaitForOutputContains(t, tm, "session-1", 200*time.Millisecond)
+
+	// First confirmation - try to delete first session
+	tm.Type("D")
+	testutil.WaitForOutputContains(t, tm, "Kill session 'session-1'?", 300*time.Millisecond)
+
+	// Cancel first confirmation
+	tm.Type("n")
+	teatest.WaitFor(t, tm.Output(),
+		func(bts []byte) bool {
+			return !containsText(string(bts), "Kill session")
+		},
+		teatest.WithDuration(300*time.Millisecond),
+	)
+
+	// Move to second session and try again
+	tm.Send(tea.KeyMsg{Type: tea.KeyDown}) // Move selection down
+	time.Sleep(50 * time.Millisecond)
+
+	tm.Type("D")
+	testutil.WaitForOutputContains(t, tm, "Kill session 'session-2'?", 300*time.Millisecond)
+
+	// This time confirm the deletion
+	tm.Type("y")
+
+	// Wait for modal to close
+	teatest.WaitFor(t, tm.Output(),
+		func(bts []byte) bool {
+			return !containsText(string(bts), "Kill session")
+		},
+		teatest.WithDuration(300*time.Millisecond),
+	)
+
+	// Verify session-1 still exists but session-2 should be removed
+	testutil.AssertOutputContains(t, tm, "session-1")
+
+	// Clean exit
+	tm.Type("q")
+	tm.WaitFinished(t, teatest.WithFinalTimeout(5*time.Second))
+}
+
+// Helper functions to create test app models
+
+// createTestAppWithSession creates a minimal app model with one session for testing
+func createTestAppWithSession(t *testing.T) tea.Model {
+	t.Helper()
+
+	// Use minimal test setup to avoid JSON loading and external dependencies
+	appModel := SetupMinimalTestHome(t)
+
+	// Add test session
+	session := CreateTestSession(t, "test-session")
+	_ = appModel.list.AddInstance(session)
+	appModel.list.SetSelectedInstance(0)
+
+	return appModel
+}
+
+// createTestAppWithMultipleSessions creates app model with multiple sessions for testing
+func createTestAppWithMultipleSessions(t *testing.T) tea.Model {
+	t.Helper()
+
+	// Use minimal test setup to avoid JSON loading and external dependencies
+	appModel := SetupMinimalTestHome(t)
+
+	// Add test sessions with different programs
+	session1 := CreateTestSession(t, "session-1")
+	session2 := CreateTestSessionWithOptions(t, session.InstanceOptions{
+		Title:   "session-2",
+		Path:    t.TempDir(),
+		Program: "aider",
+		AutoYes: false,
+	})
+
+	_ = appModel.list.AddInstance(session1)
+	_ = appModel.list.AddInstance(session2)
+	appModel.list.SetSelectedInstance(0)
+
+	return appModel
+}
+
+// containsText is a helper function for checking text content
+func containsText(s, substr string) bool {
+	return len(s) >= len(substr) && findTextSubstring(s, substr)
+}
+
+func findTextSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

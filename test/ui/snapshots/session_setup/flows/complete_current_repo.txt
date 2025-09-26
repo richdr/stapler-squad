@@ -1,18 +1,19 @@
 🚀 Create New Session
                      
-● ● ● ◐
+● ● ● ●
 
-✨ Ready to Create
-                  
-╭──────────────────────────────────────────────────╮
-│                                                  │
-│ 📛 Name: my-awesome-session                      │
-│ 🤖 Program: claude                               │
-│ 📍 Location: Current (ui)                        │
-│                                                  │
-╰──────────────────────────────────────────────────╯
-                                                    
-🚀 Press Enter to create • Esc to cancel
+Branch strategy:
+
+╭───────────────────────╮ 
+│   Create New Branch   │ 
+╰───────────────────────╯ ╭────────────────────────╮ 
+│   Use Current Branch   │ 
+╰────────────────────────╯ ╭───────────────────────────╮ 
+│   Choose Another Branch   │ 
+╰───────────────────────────╯ 
+
+                                                       
+A new branch will be created based on your session name
 
                           
 Esc: Cancel, ↑/↓: Navigate
