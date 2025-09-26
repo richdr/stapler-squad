@@ -1,16 +1,19 @@
 # Claude Squad - Current Priority Tasks
 
-## EMERGENCY: Critical Build Failures 🚨
+## EMERGENCY: Critical Test Timeouts 🚨
 
-**Status**: BLOCKING - Project cannot compile
+**Status**: BLOCKING - Test suite hangs indefinitely
 **Priority**: P0 - Must fix immediately before any other work
 
-### Immediate Actions Required:
-- [ ] **CRITICAL**: Fix missing `pendingInstanceOptions` field compilation error
-- [ ] **URGENT**: Verify all import dependencies resolve correctly
-- [ ] **VALIDATION**: Ensure clean build with `go build .`
+### Root Cause: External Command Dependencies in Tests
+Tests hang in `config.GetClaudeCommand()` which executes shell commands during setup.
 
-**See**: [Critical Build Failures Task](docs/tasks/critical-build-failures.md)
+### Immediate Actions Required:
+- [ ] **CRITICAL**: Mock external command dependencies in test environment
+- [ ] **URGENT**: Fix UI test snapshot mismatches
+- [ ] **VALIDATION**: Ensure clean test execution with `go test ./... -timeout=30s`
+
+**See**: [Emergency Test Timeouts Task](docs/tasks/emergency-test-timeouts.md)
 
 ---
 
