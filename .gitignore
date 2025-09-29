@@ -4,3 +4,7 @@ claude-squad
 **.DS_Store
 cs
 claude-squad-test
+
+# Generated protocol buffer code
+gen/
+web/src/gen/
