@@ -141,7 +141,15 @@ func (g *GitWorktree) setupNewWorktree() error {
 		return fmt.Errorf("failed to open repository: %w", err)
 	}
 
-	// Clean up any existing branch or reference
+	// Check if the branch already exists - if so, use it instead of cleaning up
+	branchRef := plumbing.NewBranchReferenceName(g.branchName)
+	if _, err := repo.Reference(branchRef, false); err == nil {
+		// Branch exists - use setupFromExistingBranch instead
+		log.InfoLog.Printf("Branch '%s' already exists, using existing branch for worktree", g.branchName)
+		return g.setupFromExistingBranch()
+	}
+
+	// Branch doesn't exist - clean up any orphaned references and create new branch
 	if err := g.cleanupExistingBranch(repo); err != nil {
 		return fmt.Errorf("failed to cleanup existing branch: %w", err)
 	}
