@@ -5,6 +5,7 @@ import (
 	"claude-squad/log"
 	"claude-squad/server/middleware"
 	"claude-squad/server/services"
+	"claude-squad/server/web"
 	"context"
 	"errors"
 	"net/http"
@@ -44,6 +45,16 @@ func NewServer(addr string) *Server {
 	} else {
 		path, handler := sessionv1connect.NewSessionServiceHandler(sessionService, ConnectOptions()...)
 		srv.RegisterConnectHandler(path, handler)
+	}
+
+	// Serve web UI static files
+	distFS, err := web.GetDistFS()
+	if err != nil {
+		log.ErrorLog.Printf("Failed to load web UI filesystem: %v", err)
+	} else {
+		staticHandler := middleware.StaticFileServer(distFS, "index.html")
+		srv.mux.Handle("/", staticHandler)
+		log.InfoLog.Printf("Registered web UI static file server at /")
 	}
 
 	return srv
