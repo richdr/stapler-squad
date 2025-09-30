@@ -18,7 +18,7 @@ plugins:
       - paths=source_relative
 
   # TypeScript protobuf message types generation (for Next.js frontend)
-  - remote: buf.build/bufbuild/es:v2.4.0
+  - remote: buf.build/bufbuild/es:v1.10.0
     out: web/src/gen
     opt:
       - target=ts

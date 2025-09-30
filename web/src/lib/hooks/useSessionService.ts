@@ -1,15 +1,13 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { createClient } from "@connectrpc/connect";
+import { createPromiseClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 import { SessionService } from "@/gen/session/v1/session_connect";
+import { Session, SessionStatus } from "@/gen/session/v1/types_pb";
 import {
-  Session,
-  SessionStatus,
   CreateSessionRequest,
   UpdateSessionRequest,
-  DeleteSessionRequest,
 } from "@/gen/session/v1/session_pb";
 import { SessionEvent } from "@/gen/session/v1/events_pb";
 
@@ -48,7 +46,7 @@ export function useSessionService(
   const [error, setError] = useState<Error | null>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
-  const clientRef = useRef<ReturnType<typeof createClient> | null>(null);
+  const clientRef = useRef<any>(null);
 
   // Initialize ConnectRPC client
   useEffect(() => {
@@ -56,7 +54,7 @@ export function useSessionService(
       baseUrl,
     });
 
-    clientRef.current = createClient(SessionService, transport);
+    clientRef.current = createPromiseClient(SessionService, transport);
   }, [baseUrl]);
 
   // List sessions
@@ -192,7 +190,7 @@ export function useSessionService(
   const pauseSession = useCallback(
     async (id: string): Promise<Session | null> => {
       return updateSession(id, {
-        status: SessionStatus.SESSION_STATUS_PAUSED,
+        status: SessionStatus.PAUSED,
       });
     },
     [updateSession]
@@ -202,11 +200,59 @@ export function useSessionService(
   const resumeSession = useCallback(
     async (id: string): Promise<Session | null> => {
       return updateSession(id, {
-        status: SessionStatus.SESSION_STATUS_RUNNING,
+        status: SessionStatus.RUNNING,
       });
     },
     [updateSession]
   );
+
+  // Handle session events from watch stream
+  const handleSessionEvent = useCallback((event: SessionEvent) => {
+    // Handle different event types based on oneof case
+    switch (event.event.case) {
+      case "sessionCreated": {
+        const session = event.event.value.session;
+        if (!session) return;
+        setSessions((prev) => {
+          // Avoid duplicates
+          if (prev.some((s) => s.id === session.id)) {
+            return prev;
+          }
+          return [...prev, session];
+        });
+        break;
+      }
+      case "sessionUpdated": {
+        const session = event.event.value.session;
+        if (!session) return;
+        setSessions((prev) =>
+          prev.map((s) => (s.id === session.id ? session : s))
+        );
+        break;
+      }
+      case "sessionDeleted": {
+        const sessionId = event.event.value.sessionId;
+        setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+        break;
+      }
+      case "statusChanged": {
+        const { sessionId, newStatus } = event.event.value;
+        setSessions((prev) =>
+          prev.map((s) => {
+            if (s.id === sessionId) {
+              // Create new Session with updated status
+              return new Session({
+                ...s,
+                status: newStatus,
+              });
+            }
+            return s;
+          })
+        );
+        break;
+      }
+    }
+  }, []);
 
   // Watch sessions for real-time updates
   const watchSessions = useCallback(
@@ -241,7 +287,7 @@ export function useSessionService(
         }
       })();
     },
-    []
+    [handleSessionEvent]
   );
 
   // Stop watching sessions
@@ -249,33 +295,6 @@ export function useSessionService(
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
-    }
-  }, []);
-
-  // Handle session events from watch stream
-  const handleSessionEvent = useCallback((event: SessionEvent) => {
-    if (!event.session) return;
-
-    switch (event.eventType) {
-      case "created":
-        setSessions((prev) => {
-          // Avoid duplicates
-          if (prev.some((s) => s.id === event.session!.id)) {
-            return prev;
-          }
-          return [...prev, event.session!];
-        });
-        break;
-
-      case "updated":
-        setSessions((prev) =>
-          prev.map((s) => (s.id === event.session!.id ? event.session! : s))
-        );
-        break;
-
-      case "deleted":
-        setSessions((prev) => prev.filter((s) => s.id !== event.sessionId));
-        break;
     }
   }, []);
 

@@ -20,15 +20,15 @@ export function SessionCard({
 }: SessionCardProps) {
   const getStatusColor = (status: SessionStatus): string => {
     switch (status) {
-      case SessionStatus.SESSION_STATUS_RUNNING:
+      case SessionStatus.RUNNING:
         return styles.statusRunning;
-      case SessionStatus.SESSION_STATUS_READY:
+      case SessionStatus.READY:
         return styles.statusReady;
-      case SessionStatus.SESSION_STATUS_PAUSED:
+      case SessionStatus.PAUSED:
         return styles.statusPaused;
-      case SessionStatus.SESSION_STATUS_LOADING:
+      case SessionStatus.LOADING:
         return styles.statusLoading;
-      case SessionStatus.SESSION_STATUS_NEEDS_APPROVAL:
+      case SessionStatus.NEEDS_APPROVAL:
         return styles.statusNeedsApproval;
       default:
         return styles.statusUnknown;
@@ -37,15 +37,15 @@ export function SessionCard({
 
   const getStatusText = (status: SessionStatus): string => {
     switch (status) {
-      case SessionStatus.SESSION_STATUS_RUNNING:
+      case SessionStatus.RUNNING:
         return "Running";
-      case SessionStatus.SESSION_STATUS_READY:
+      case SessionStatus.READY:
         return "Ready";
-      case SessionStatus.SESSION_STATUS_PAUSED:
+      case SessionStatus.PAUSED:
         return "Paused";
-      case SessionStatus.SESSION_STATUS_LOADING:
+      case SessionStatus.LOADING:
         return "Loading";
-      case SessionStatus.SESSION_STATUS_NEEDS_APPROVAL:
+      case SessionStatus.NEEDS_APPROVAL:
         return "Needs Approval";
       default:
         return "Unknown";
@@ -58,7 +58,7 @@ export function SessionCard({
     return date.toLocaleString();
   };
 
-  const isPaused = session.status === SessionStatus.SESSION_STATUS_PAUSED;
+  const isPaused = session.status === SessionStatus.PAUSED;
 
   return (
     <div className={styles.card} onClick={onClick}>

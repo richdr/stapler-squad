@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { Session, SessionStatus } from "@/gen/session/v1/types_pb";
 import { SessionCard } from "./SessionCard";
 import styles from "./SessionList.module.css";
@@ -62,7 +62,7 @@ export function SessionList({
       }
 
       // Hide paused filter
-      if (hidePaused && session.status === SessionStatus.SESSION_STATUS_PAUSED) {
+      if (hidePaused && session.status === SessionStatus.PAUSED) {
         return false;
       }
 
@@ -121,11 +121,11 @@ export function SessionList({
             className={styles.select}
           >
             <option value="all">All Statuses</option>
-            <option value={SessionStatus.SESSION_STATUS_RUNNING}>Running</option>
-            <option value={SessionStatus.SESSION_STATUS_READY}>Ready</option>
-            <option value={SessionStatus.SESSION_STATUS_PAUSED}>Paused</option>
-            <option value={SessionStatus.SESSION_STATUS_LOADING}>Loading</option>
-            <option value={SessionStatus.SESSION_STATUS_NEEDS_APPROVAL}>
+            <option value={SessionStatus.RUNNING}>Running</option>
+            <option value={SessionStatus.READY}>Ready</option>
+            <option value={SessionStatus.PAUSED}>Paused</option>
+            <option value={SessionStatus.LOADING}>Loading</option>
+            <option value={SessionStatus.NEEDS_APPROVAL}>
               Needs Approval
             </option>
           </select>
