@@ -34,6 +34,11 @@ type GitWorktree struct {
 }
 
 func NewGitWorktreeFromStorage(repoPath string, worktreePath string, sessionName string, branchName string, baseCommitSHA string) *GitWorktree {
+	// Return nil if the worktree has no actual paths (empty/invalid worktree)
+	if repoPath == "" && worktreePath == "" && branchName == "" {
+		return nil
+	}
+
 	return &GitWorktree{
 		repoPath:      repoPath,
 		worktreePath:  worktreePath,

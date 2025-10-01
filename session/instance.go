@@ -806,18 +806,27 @@ func (i *Instance) Resume() error {
 		return fmt.Errorf("can only resume paused instances")
 	}
 
-	// Check if branch is checked out
-	if checked, err := i.gitWorktree.IsBranchCheckedOut(); err != nil {
-		log.ErrorLog.Print(err)
-		return fmt.Errorf("failed to check if branch is checked out: %w", err)
-	} else if checked {
-		return fmt.Errorf("cannot resume: branch is checked out, please switch to a different branch")
-	}
+	// Setup git worktree if this session has one
+	var worktreePath string
+	if i.gitWorktree != nil {
+		// Check if branch is checked out
+		if checked, err := i.gitWorktree.IsBranchCheckedOut(); err != nil {
+			log.ErrorLog.Print(err)
+			return fmt.Errorf("failed to check if branch is checked out: %w", err)
+		} else if checked {
+			return fmt.Errorf("cannot resume: branch is checked out, please switch to a different branch")
+		}
 
-	// Setup git worktree
-	if err := i.gitWorktree.Setup(); err != nil {
-		log.ErrorLog.Print(err)
-		return fmt.Errorf("failed to setup git worktree: %w", err)
+		// Setup git worktree
+		if err := i.gitWorktree.Setup(); err != nil {
+			log.ErrorLog.Print(err)
+			return fmt.Errorf("failed to setup git worktree: %w", err)
+		}
+
+		worktreePath = i.gitWorktree.GetWorktreePath()
+	} else {
+		// No git worktree, use the original path
+		worktreePath = i.Path
 	}
 
 	// Handle Claude Code session re-attachment if configured
@@ -827,7 +836,6 @@ func (i *Instance) Resume() error {
 	}
 
 	// Check if tmux session still exists from pause, otherwise create new one
-	worktreePath := i.gitWorktree.GetWorktreePath()
 	if i.tmuxSession.DoesSessionExist() {
 		// Session exists, just restore PTY connection to it (retains stdout from before pause)
 		if err := i.tmuxSession.RestoreWithWorkDir(worktreePath); err != nil {
@@ -836,21 +844,25 @@ func (i *Instance) Resume() error {
 			if err := i.tmuxSession.Start(worktreePath); err != nil {
 				log.ErrorLog.Print(err)
 				// Cleanup git worktree if tmux session creation fails
-				if cleanupErr := i.gitWorktree.Cleanup(); cleanupErr != nil {
-					err = fmt.Errorf("%v (cleanup error: %v)", err, cleanupErr)
-					log.ErrorLog.Print(err)
+				if i.gitWorktree != nil {
+					if cleanupErr := i.gitWorktree.Cleanup(); cleanupErr != nil {
+						err = fmt.Errorf("%v (cleanup error: %v)", err, cleanupErr)
+						log.ErrorLog.Print(err)
+					}
 				}
 				return fmt.Errorf("failed to start new session: %w", err)
 			}
 		}
 	} else {
 		// Create new tmux session
-		if err := i.tmuxSession.Start(i.gitWorktree.GetWorktreePath()); err != nil {
+		if err := i.tmuxSession.Start(worktreePath); err != nil {
 			log.ErrorLog.Print(err)
 			// Cleanup git worktree if tmux session creation fails
-			if cleanupErr := i.gitWorktree.Cleanup(); cleanupErr != nil {
-				err = fmt.Errorf("%v (cleanup error: %v)", err, cleanupErr)
-				log.ErrorLog.Print(err)
+			if i.gitWorktree != nil {
+				if cleanupErr := i.gitWorktree.Cleanup(); cleanupErr != nil {
+					err = fmt.Errorf("%v (cleanup error: %v)", err, cleanupErr)
+					log.ErrorLog.Print(err)
+				}
 			}
 			return fmt.Errorf("failed to start new session: %w", err)
 		}
