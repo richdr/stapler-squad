@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
+import { useTerminalStream } from "@/lib/hooks/useTerminalStream";
+import Convert from "ansi-to-html";
 import styles from "./TerminalOutput.module.css";
 
 interface TerminalOutputProps {
@@ -9,11 +11,23 @@ interface TerminalOutputProps {
 }
 
 export function TerminalOutput({ sessionId, baseUrl }: TerminalOutputProps) {
-  const [output, setOutput] = useState<string>("");
-  const [isConnected, setIsConnected] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const terminalRef = useRef<HTMLPreElement>(null);
+  const terminalRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
+  const converterRef = useRef(
+    new Convert({
+      fg: "#d4d4d4",
+      bg: "#1e1e1e",
+      newline: true,
+      escapeXML: true,
+      stream: false,
+    })
+  );
+
+  const { output, isConnected, error } = useTerminalStream({
+    baseUrl,
+    sessionId,
+    onError: (err) => console.error("Terminal stream error:", err),
+  });
 
   // Auto-scroll to bottom when new output arrives
   useEffect(() => {
@@ -31,35 +45,8 @@ export function TerminalOutput({ sessionId, baseUrl }: TerminalOutputProps) {
     autoScrollRef.current = isAtBottom;
   };
 
-  // Placeholder for streaming terminal output
-  useEffect(() => {
-    setIsConnected(true);
-    setOutput(
-      "Terminal output streaming coming soon...\n\n" +
-      "This will display real-time terminal output from the session.\n" +
-      "Features:\n" +
-      "  • Real-time streaming via Server-Sent Events (SSE)\n" +
-      "  • ANSI color code support\n" +
-      "  • Auto-scroll with manual override\n" +
-      "  • Copy output to clipboard\n" +
-      "  • Search within output\n" +
-      "  • Export to file\n\n" +
-      `Session ID: ${sessionId}\n` +
-      `Connected to: ${baseUrl}`
-    );
-
-    // Cleanup
-    return () => {
-      setIsConnected(false);
-    };
-  }, [sessionId, baseUrl]);
-
   const handleCopyOutput = () => {
     navigator.clipboard.writeText(output);
-  };
-
-  const handleClearOutput = () => {
-    setOutput("");
   };
 
   const handleScrollToBottom = () => {
@@ -69,22 +56,29 @@ export function TerminalOutput({ sessionId, baseUrl }: TerminalOutputProps) {
     }
   };
 
+  // Convert ANSI codes to HTML
+  const htmlOutput = output ? converterRef.current.toHtml(output) : "";
+
   return (
     <div className={styles.container}>
       <div className={styles.toolbar}>
         <div className={styles.status}>
           <span
-            className={`${styles.statusIndicator} ${isConnected ? styles.connected : styles.disconnected}`}
+            className={`${styles.statusIndicator} ${
+              isConnected ? styles.connected : styles.disconnected
+            }`}
           />
           <span className={styles.statusText}>
             {isConnected ? "Connected" : "Disconnected"}
           </span>
+          {error && <span className={styles.errorText}>{error.message}</span>}
         </div>
         <div className={styles.actions}>
           <button
             className={styles.toolbarButton}
             onClick={handleScrollToBottom}
             title="Scroll to bottom"
+            aria-label="Scroll to bottom"
           >
             ↓ Bottom
           </button>
@@ -92,26 +86,23 @@ export function TerminalOutput({ sessionId, baseUrl }: TerminalOutputProps) {
             className={styles.toolbarButton}
             onClick={handleCopyOutput}
             title="Copy output"
+            aria-label="Copy terminal output to clipboard"
           >
             📋 Copy
           </button>
-          <button
-            className={styles.toolbarButton}
-            onClick={handleClearOutput}
-            title="Clear output"
-          >
-            🗑️ Clear
-          </button>
         </div>
       </div>
-      {error && <div className={styles.error}>{error}</div>}
-      <pre
+      <div
         ref={terminalRef}
         className={styles.terminal}
         onScroll={handleScroll}
-      >
-        {output || "No output yet..."}
-      </pre>
+        role="log"
+        aria-live="polite"
+        aria-label="Terminal output"
+        dangerouslySetInnerHTML={{
+          __html: htmlOutput || "<span style='opacity: 0.5'>Waiting for terminal output...</span>",
+        }}
+      />
     </div>
   );
 }

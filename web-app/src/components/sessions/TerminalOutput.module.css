@@ -55,6 +55,12 @@
   color: #cccccc;
 }
 
+.errorText {
+  font-size: 0.875rem;
+  color: #f48771;
+  margin-left: 0.5rem;
+}
+
 .actions {
   display: flex;
   gap: 0.5rem;
