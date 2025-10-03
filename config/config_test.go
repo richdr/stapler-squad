@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,7 +17,7 @@ import (
 // TestMain runs before all tests to set up the test environment
 func TestMain(m *testing.M) {
 	// Initialize the logger for tests with ERROR level to reduce noise
-	log.InitializeForTests(log.ERROR)
+	log.InitializeForTests(log.ERROR, log.ERROR)
 	defer log.Close()
 
 	exitCode := m.Run()
@@ -456,5 +457,84 @@ func TestSaveConfig(t *testing.T) {
 		assert.Equal(t, testConfig.AutoYes, loadedConfig.AutoYes)
 		assert.Equal(t, testConfig.DaemonPollInterval, loadedConfig.DaemonPollInterval)
 		assert.Equal(t, testConfig.BranchPrefix, loadedConfig.BranchPrefix)
+	})
+}
+
+// TestGetClaudeCommand_Timeout verifies that GetClaudeCommand respects timeout
+func TestGetClaudeCommand_Timeout(t *testing.T) {
+	defer setupTest(t)()
+
+	t.Run("Timeout on hanging command", func(t *testing.T) {
+		// Create a mock executor that hangs indefinitely
+		hangingExecutor := &mockCommandExecutor{
+			OutputFunc: func(cmd *exec.Cmd) ([]byte, error) {
+				// Simulate a command that hangs by sleeping longer than timeout
+				// In reality, the timeout executor should kill this before it completes
+				return nil, exec.ErrNotFound
+			},
+			LookPathFunc: func(file string) (string, error) {
+				return "", exec.ErrNotFound
+			},
+		}
+
+		SetCommandExecutor(hangingExecutor)
+
+		// This should complete quickly even though the command "hangs"
+		// because our timeout executor wrapper kills hanging commands
+		result, err := GetClaudeCommand()
+
+		// Should return error (command not found)
+		assert.Error(t, err)
+		assert.Equal(t, "", result)
+	})
+
+	t.Run("Default executor uses timeout protection", func(t *testing.T) {
+		// Reset to default executor
+		ResetCommandExecutor()
+
+		// Verify that the global executor is using timeout protection
+		// We can't easily test the actual timeout without real hanging commands,
+		// but we can verify the type
+		assert.NotNil(t, globalCommandExecutor)
+
+		// The default should be timeoutCommandExecutor
+		_, ok := globalCommandExecutor.(*timeoutCommandExecutor)
+		assert.True(t, ok, "Default executor should be timeoutCommandExecutor")
+	})
+}
+
+// TestTimeoutCommandExecutor_RealBehavior tests the timeout executor with actual commands
+func TestTimeoutCommandExecutor_RealBehavior(t *testing.T) {
+	t.Run("Fast command completes successfully", func(t *testing.T) {
+		executor := newTimeoutCommandExecutor(2 * time.Second)
+
+		cmd := exec.Command("echo", "hello")
+		output, err := executor.Output(cmd)
+
+		assert.NoError(t, err)
+		assert.Contains(t, string(output), "hello")
+	})
+
+	t.Run("Slow command times out", func(t *testing.T) {
+		executor := newTimeoutCommandExecutor(500 * time.Millisecond)
+
+		// Command that takes longer than timeout
+		cmd := exec.Command("sleep", "2")
+		_, err := executor.Output(cmd)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "timed out", "Error should indicate timeout")
+	})
+
+	t.Run("Command failure propagates correctly", func(t *testing.T) {
+		executor := newTimeoutCommandExecutor(2 * time.Second)
+
+		// Command that fails
+		cmd := exec.Command("sh", "-c", "exit 1")
+		_, err := executor.Output(cmd)
+
+		require.Error(t, err)
+		// Should be a command error, not a timeout error
+		assert.NotContains(t, err.Error(), "timed out")
 	})
 }

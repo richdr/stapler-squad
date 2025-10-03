@@ -1,6 +1,7 @@
 package overlay
 
 import (
+	"claude-squad/session"
 	"fmt"
 	"os"
 	"os/exec"
@@ -24,7 +25,7 @@ func TestCrossShellCompatibility(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	overlay := NewSessionSetupOverlay()
+	overlay := NewSessionSetupOverlay(SessionSetupCallbacks{OnComplete: func(session.InstanceOptions) {}})
 
 	// Create a test Git repository structure
 	testRepo := filepath.Join(tempDir, "test-repo")
@@ -44,7 +45,7 @@ func TestPerformanceAcrossDirectorySizes(t *testing.T) {
 		t.Skip("Skipping performance integration test in short mode")
 	}
 
-	overlay := NewSessionSetupOverlay()
+	overlay := NewSessionSetupOverlay(SessionSetupCallbacks{OnComplete: func(session.InstanceOptions) {}})
 	tempDir := t.TempDir()
 
 	testCases := []struct {
@@ -90,7 +91,7 @@ func TestNetworkPathIntegration(t *testing.T) {
 		t.Skip("Skipping network path integration test in short mode")
 	}
 
-	overlay := NewSessionSetupOverlay()
+	overlay := NewSessionSetupOverlay(SessionSetupCallbacks{OnComplete: func(session.InstanceOptions) {}})
 
 	testCases := []struct {
 		name                string
@@ -150,7 +151,7 @@ func TestGitCommandIntegration(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	overlay := NewSessionSetupOverlay()
+	overlay := NewSessionSetupOverlay(SessionSetupCallbacks{OnComplete: func(session.InstanceOptions) {}})
 
 	// Create a real Git repository with multiple branches
 	testRepo := filepath.Join(tempDir, "integration-repo")
@@ -220,7 +221,7 @@ func TestPermissionHandlingIntegration(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	overlay := NewSessionSetupOverlay()
+	overlay := NewSessionSetupOverlay(SessionSetupCallbacks{OnComplete: func(session.InstanceOptions) {}})
 
 	// Create directories with different permissions
 	testDirs := map[string]os.FileMode{
@@ -451,7 +452,7 @@ func createTestDirectoryStructure(t *testing.T, rootPath string, dirCount, repoC
 
 // BenchmarkCrossShellDiscovery benchmarks contextual discovery across different shells
 func BenchmarkCrossShellDiscovery(b *testing.B) {
-	overlay := NewSessionSetupOverlay()
+	overlay := NewSessionSetupOverlay(SessionSetupCallbacks{OnComplete: func(session.InstanceOptions) {}})
 	testPath := "~/dev"
 
 	b.ResetTimer()

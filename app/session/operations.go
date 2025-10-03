@@ -22,42 +22,39 @@ func (c *controller) NewSession() SessionOperation {
 		return result
 	}
 
-	// Create the new instance overlay
-	newInstanceOverlay := overlay.NewSessionSetupOverlay()
+	// Create the new instance overlay with required callbacks
+	newInstanceOverlay := overlay.NewSessionSetupOverlay(overlay.SessionSetupCallbacks{
+		OnComplete: func(options session.InstanceOptions) {
+			// Set the tmux prefix from configuration
+			options.TmuxPrefix = c.deps.TmuxPrefix
 
-	// Set completion callback
-	newInstanceOverlay.SetOnComplete(func(options session.InstanceOptions) {
-		// Set the tmux prefix from configuration
-		options.TmuxPrefix = c.deps.TmuxPrefix
+			// Create the instance with the configured options
+			instance, err := session.NewInstance(options)
+			if err != nil {
+				c.deps.ErrorHandler(err)()
+				c.deps.StateTransition("Default")
+				c.deps.SetSessionSetupOverlay(nil)
+				return
+			}
 
-		// Create the instance with the configured options
-		instance, err := session.NewInstance(options)
-		if err != nil {
-			c.deps.ErrorHandler(err)()
-			c.deps.StateTransition("Default")
+			// Add the instance to the list
+			finalizer := c.deps.List.AddInstance(instance)
+			c.deps.SetNewInstanceFinalizer(finalizer)
+			c.deps.List.SetSelectedInstance(c.deps.List.NumInstances() - 1)
+
+			// Switch to creating session state
+			c.deps.StateTransition("CreatingSession")
+
+			// Close the setup overlay
 			c.deps.SetSessionSetupOverlay(nil)
-			return
-		}
 
-		// Add the instance to the list
-		finalizer := c.deps.List.AddInstance(instance)
-		c.deps.SetNewInstanceFinalizer(finalizer)
-		c.deps.List.SetSelectedInstance(c.deps.List.NumInstances() - 1)
-
-		// Switch to creating session state
-		c.deps.StateTransition("CreatingSession")
-
-		// Close the setup overlay
-		c.deps.SetSessionSetupOverlay(nil)
-
-		// Set up the state for async session creation
-		c.deps.SetPendingSession(instance, c.deps.AutoYes)
-	})
-
-	// Set cancellation callback
-	newInstanceOverlay.SetOnCancel(func() {
-		c.deps.SetSessionSetupOverlay(nil)
-		c.deps.StateTransition("Default")
+			// Set up the state for async session creation
+			c.deps.SetPendingSession(instance, c.deps.AutoYes)
+		},
+		OnCancel: func() {
+			c.deps.SetSessionSetupOverlay(nil)
+			c.deps.StateTransition("Default")
+		},
 	})
 
 	// Set the overlay and transition state

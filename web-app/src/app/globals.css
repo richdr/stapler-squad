@@ -4,6 +4,15 @@
   --card-background: #1a1a1a;
   --border-color: #333;
   --hover-background: #2a2a2a;
+
+  /* Responsive breakpoints */
+  --breakpoint-sm: 640px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1280px;
+
+  /* Touch target sizes (WCAG 2.1 AA) */
+  --min-touch-target: 44px;
 }
 
 * {

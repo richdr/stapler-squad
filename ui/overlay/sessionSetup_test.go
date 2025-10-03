@@ -1,6 +1,7 @@
 package overlay
 
 import (
+	"claude-squad/session"
 	"claude-squad/ui/fuzzy"
 	"fmt"
 	"os"
@@ -41,7 +42,7 @@ func TestSessionSetupGitIntegrationFunctions(t *testing.T) {
 
 	// Test isGitRepository function
 	t.Run("isGitRepository", func(t *testing.T) {
-		overlay := NewSessionSetupOverlay()
+		overlay := NewSessionSetupOverlay(SessionSetupCallbacks{OnComplete: func(session.InstanceOptions) {}})
 
 		if !overlay.isGitRepository(mockRepo1) {
 			t.Errorf("Expected %s to be detected as Git repository", mockRepo1)
@@ -58,7 +59,7 @@ func TestSessionSetupGitIntegrationFunctions(t *testing.T) {
 
 	// Test findGitRepositoriesInDirectory function
 	t.Run("findGitRepositoriesInDirectory", func(t *testing.T) {
-		overlay := NewSessionSetupOverlay()
+		overlay := NewSessionSetupOverlay(SessionSetupCallbacks{OnComplete: func(session.InstanceOptions) {}})
 
 		items := overlay.findGitRepositoriesInDirectory(mockProjectsDir, 2)
 
@@ -87,7 +88,7 @@ func TestSessionSetupGitIntegrationFunctions(t *testing.T) {
 
 	// Test getDisplayPath function
 	t.Run("getDisplayPath", func(t *testing.T) {
-		overlay := NewSessionSetupOverlay()
+		overlay := NewSessionSetupOverlay(SessionSetupCallbacks{OnComplete: func(session.InstanceOptions) {}})
 
 		homeDir, _ := os.UserHomeDir()
 		testPath := filepath.Join(homeDir, "test", "path")
@@ -143,7 +144,7 @@ func TestSessionSetupGitCommandIntegration(t *testing.T) {
 	exec.Command("git", "checkout", "-b", "another-branch").Run()
 	exec.Command("git", "checkout", "main").Run() // Switch back to main
 
-	overlay := NewSessionSetupOverlay()
+	overlay := NewSessionSetupOverlay(SessionSetupCallbacks{OnComplete: func(session.InstanceOptions) {}})
 
 	t.Run("loadGitBranches", func(t *testing.T) {
 		branches := overlay.loadGitBranches(tempDir)
@@ -184,7 +185,7 @@ func TestSessionSetupGitCommandIntegration(t *testing.T) {
 }
 
 func TestSessionSetupOverlayInitialization(t *testing.T) {
-	overlay := NewSessionSetupOverlay()
+	overlay := NewSessionSetupOverlay(SessionSetupCallbacks{OnComplete: func(session.InstanceOptions) {}})
 
 	if overlay == nil {
 		t.Fatal("Expected overlay to be created")
@@ -215,7 +216,7 @@ func TestSessionSetupOverlayInitialization(t *testing.T) {
 }
 
 func TestSessionSetupNavigation(t *testing.T) {
-	overlay := NewSessionSetupOverlay()
+	overlay := NewSessionSetupOverlay(SessionSetupCallbacks{OnComplete: func(session.InstanceOptions) {}})
 	overlay.SetSize(80, 20)
 
 	// Test direct step manipulation (since nextStep() requires input overlay setup)
@@ -262,7 +263,7 @@ func TestSessionSetupNavigation(t *testing.T) {
 }
 
 func TestSessionSetupValidation(t *testing.T) {
-	overlay := NewSessionSetupOverlay()
+	overlay := NewSessionSetupOverlay(SessionSetupCallbacks{OnComplete: func(session.InstanceOptions) {}})
 	overlay.SetSize(80, 20)
 
 	t.Run("initial state validation", func(t *testing.T) {
@@ -313,7 +314,7 @@ func TestSessionSetupValidation(t *testing.T) {
 
 func TestContextualGitRepositoryDiscovery(t *testing.T) {
 	tempDir := t.TempDir()
-	overlay := NewSessionSetupOverlay()
+	overlay := NewSessionSetupOverlay(SessionSetupCallbacks{OnComplete: func(session.InstanceOptions) {}})
 
 	// Create comprehensive mock directory structure
 	homeDir := filepath.Join(tempDir, "mock-home")
@@ -550,7 +551,7 @@ func TestContextualGitRepositoryDiscovery(t *testing.T) {
 }
 
 func TestContextualDiscoveryPathHandling(t *testing.T) {
-	overlay := NewSessionSetupOverlay()
+	overlay := NewSessionSetupOverlay(SessionSetupCallbacks{OnComplete: func(session.InstanceOptions) {}})
 
 	t.Run("path expansion", func(t *testing.T) {
 		// Test with ~ expansion
@@ -627,7 +628,7 @@ func TestContextualDiscoveryPathHandling(t *testing.T) {
 
 func TestContextualDiscoveryEdgeCases(t *testing.T) {
 	tempDir := t.TempDir()
-	overlay := NewSessionSetupOverlay()
+	overlay := NewSessionSetupOverlay(SessionSetupCallbacks{OnComplete: func(session.InstanceOptions) {}})
 
 	// Create test directory structure for edge cases
 	homeDir := filepath.Join(tempDir, "edge-case-home")
@@ -741,7 +742,7 @@ func TestFuzzyInputRawPathEntry(t *testing.T) {
 
 // Benchmark the Git discovery operations
 func BenchmarkGitRepositoryDiscovery(b *testing.B) {
-	overlay := NewSessionSetupOverlay()
+	overlay := NewSessionSetupOverlay(SessionSetupCallbacks{OnComplete: func(session.InstanceOptions) {}})
 	tempDir := b.TempDir()
 
 	// Create some mock Git repositories
@@ -758,7 +759,7 @@ func BenchmarkGitRepositoryDiscovery(b *testing.B) {
 }
 
 func BenchmarkContextualDiscovery(b *testing.B) {
-	overlay := NewSessionSetupOverlay()
+	overlay := NewSessionSetupOverlay(SessionSetupCallbacks{OnComplete: func(session.InstanceOptions) {}})
 	tempDir := b.TempDir()
 
 	// Create mock directory structure with repositories
@@ -786,7 +787,7 @@ func BenchmarkContextualDiscovery(b *testing.B) {
 // TestPathValidationIntegration tests the integration between path validation and contextual discovery
 func TestPathValidationIntegration(t *testing.T) {
 	tempDir := t.TempDir()
-	overlay := NewSessionSetupOverlay()
+	overlay := NewSessionSetupOverlay(SessionSetupCallbacks{OnComplete: func(session.InstanceOptions) {}})
 
 	// Create test directory structure
 	validDir := filepath.Join(tempDir, "valid-dir")
@@ -858,7 +859,7 @@ func TestPathValidationIntegration(t *testing.T) {
 
 // TestContextualDiscoveryPerformanceLimits tests that results are properly limited
 func TestContextualDiscoveryPerformanceLimits(t *testing.T) {
-	overlay := NewSessionSetupOverlay()
+	overlay := NewSessionSetupOverlay(SessionSetupCallbacks{OnComplete: func(session.InstanceOptions) {}})
 
 	// Test with a very long path that might cause performance issues
 	longPath := strings.Repeat("very-long-path-component/", 20)
@@ -885,7 +886,7 @@ func TestContextualDiscoveryPerformanceLimits(t *testing.T) {
 
 // TestContextualDiscoveryNilSafety tests nil safety and error handling
 func TestContextualDiscoveryNilSafety(t *testing.T) {
-	overlay := NewSessionSetupOverlay()
+	overlay := NewSessionSetupOverlay(SessionSetupCallbacks{OnComplete: func(session.InstanceOptions) {}})
 
 	// Test with various potentially problematic inputs
 	problematicInputs := []string{
@@ -925,7 +926,7 @@ func TestContextualDiscoveryNilSafety(t *testing.T) {
 // TestValidatePathFunctionIntegration tests the integration with path validation utilities
 func TestValidatePathFunctionIntegration(t *testing.T) {
 	tempDir := t.TempDir()
-	overlay := NewSessionSetupOverlay()
+	overlay := NewSessionSetupOverlay(SessionSetupCallbacks{OnComplete: func(session.InstanceOptions) {}})
 
 	// Create a test Git repository
 	gitRepo := filepath.Join(tempDir, "test-repo")
@@ -986,7 +987,7 @@ func TestValidatePathFunctionIntegration(t *testing.T) {
 
 // TestContextualDiscoveryErrorRecovery tests error recovery scenarios
 func TestContextualDiscoveryErrorRecovery(t *testing.T) {
-	overlay := NewSessionSetupOverlay()
+	overlay := NewSessionSetupOverlay(SessionSetupCallbacks{OnComplete: func(session.InstanceOptions) {}})
 
 	// Test recovery from path expansion errors
 	if runtime.GOOS != "windows" {

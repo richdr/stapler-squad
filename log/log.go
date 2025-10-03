@@ -597,8 +597,13 @@ func ConfigToLogConfig(externalConfig interface{}) *LogConfig {
 		return DefaultLogConfig()
 	}
 
-	// Try to access the log-related fields using reflection
-	return DefaultLogConfig() // Fallback
+	// If it's already a LogConfig, return it directly
+	if logCfg, ok := externalConfig.(*LogConfig); ok {
+		return logCfg
+	}
+
+	// Fallback to default if type doesn't match
+	return DefaultLogConfig()
 }
 
 // InitializeWithConfig sets up logging with the provided configuration.
@@ -683,9 +688,6 @@ func initializeWithConfig(daemon bool, cfg *LogConfig) {
 	// Console writer (if enabled)
 	if cfg.ConsoleEnabled {
 		writers = append(writers, os.Stderr)
-		fmt.Fprintf(os.Stderr, "[LOG INIT] Console output ENABLED - adding stderr to writers\n")
-	} else {
-		fmt.Fprintf(os.Stderr, "[LOG INIT] Console output DISABLED - stderr will NOT be used\n")
 	}
 
 	// Combine writers - if no writers enabled, use discard
@@ -697,8 +699,6 @@ func initializeWithConfig(daemon bool, cfg *LogConfig) {
 	} else {
 		combinedWriter = io.MultiWriter(writers...)
 	}
-
-	fmt.Fprintf(os.Stderr, "[LOG INIT] Number of writers: %d\n", len(writers))
 
 	// Initialize traditional loggers with level filtering for each stream
 	// For dual-stream, we need separate filtering per stream

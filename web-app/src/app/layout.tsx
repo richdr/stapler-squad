@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { Navigation } from "@/components/ui/Navigation";
+import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -13,7 +15,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <ErrorBoundary>
+          <Navigation />
+          <main>{children}</main>
+        </ErrorBoundary>
+      </body>
     </html>
   );
 }

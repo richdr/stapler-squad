@@ -32,23 +32,22 @@ func TestSessionCreationFlow(t *testing.T) {
 		t.Errorf("Instance program = %q, expected %q", instance.Program, "echo hello")
 	}
 
-	// Test session setup overlay creation
-	overlay := overlay.NewSessionSetupOverlay()
-	if overlay == nil {
+	// Test session setup overlay creation with required callbacks
+	var callbackCalled bool
+	overlayInstance := overlay.NewSessionSetupOverlay(overlay.SessionSetupCallbacks{
+		OnComplete: func(opts session.InstanceOptions) {
+			callbackCalled = true
+			// In real usage, this creates and sets up the pending session
+		},
+	})
+	if overlayInstance == nil {
 		t.Fatal("Failed to create session setup overlay")
 	}
-
-	// Test callback registration (this should not panic)
-	var callbackCalled bool
-	overlay.SetOnComplete(func(opts session.InstanceOptions) {
-		callbackCalled = true
-		// In real usage, this creates and sets up the pending session
-	})
 
 	// We can't easily trigger the callback without going through the UI flow,
 	// but we can verify the setup doesn't crash
 	if callbackCalled {
-		t.Error("Callback was called unexpectedly")
+		t.Error("Callback was called unexpectedly during initialization")
 	}
 }
 

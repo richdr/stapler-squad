@@ -3,6 +3,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   output: "export",
   basePath: "",
+  trailingSlash: true,
   eslint: {
     // Ignore eslint warnings during build (generated files have warnings)
     ignoreDuringBuilds: true,

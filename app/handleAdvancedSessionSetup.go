@@ -6,6 +6,7 @@ import (
 	"claude-squad/config"
 	"claude-squad/session"
 	"claude-squad/ui"
+	"claude-squad/ui/overlay"
 	"fmt"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -19,22 +20,10 @@ func (m *home) handleAdvancedSessionSetup() (tea.Model, tea.Cmd) {
 			fmt.Errorf("you can't create more than %d instances", GlobalInstanceLimit))
 	}
 
-	// Create the session setup overlay using coordinator
-	if err := m.uiCoordinator.CreateSessionSetupOverlay(); err != nil {
-		return m, m.handleError(fmt.Errorf("failed to create session setup overlay: %w", err))
-	}
-
-	// Set up the callbacks for the session setup overlay
-	sessionSetupOverlay := m.uiCoordinator.GetSessionSetupOverlay()
-	if sessionSetupOverlay != nil {
-		// Set up the cancel callback for escape key handling
-		sessionSetupOverlay.SetOnCancel(func() {
-			m.transitionToDefault()
-			m.uiCoordinator.HideOverlay(appui.ComponentSessionSetupOverlay)
-		})
-
-		// Set up the completion callback for enter key handling
-		sessionSetupOverlay.SetOnComplete(func(options session.InstanceOptions) {
+	// Create the session setup overlay WITH callbacks at construction time
+	// This is the proper way - callbacks are required and cannot be nil
+	if err := m.uiCoordinator.CreateSessionSetupOverlay(overlay.SessionSetupCallbacks{
+		OnComplete: func(options session.InstanceOptions) {
 			// Set the tmux prefix from configuration
 			cfg := config.LoadConfig()
 			options.TmuxPrefix = cfg.TmuxSessionPrefix
@@ -54,14 +43,39 @@ func (m *home) handleAdvancedSessionSetup() (tea.Model, tea.Cmd) {
 			// Hide the overlay and transition to creating session state to show spinner
 			m.uiCoordinator.HideOverlay(appui.ComponentSessionSetupOverlay)
 			m.transitionToCreatingSession()
-		})
-
-		// Ensure the overlay is focused so it can receive key events
-		sessionSetupOverlay.Focus()
+		},
+		OnCancel: func() {
+			m.transitionToDefault()
+			m.uiCoordinator.HideOverlay(appui.ComponentSessionSetupOverlay)
+		},
+	}); err != nil {
+		return m, m.handleError(fmt.Errorf("failed to create session setup overlay: %w", err))
 	}
 
-	// Transition to advanced new state
-	m.transitionToState(state.AdvancedNew)
+	// Get the overlay for focus control
+	sessionSetupOverlay := m.uiCoordinator.GetSessionSetupOverlay()
+	if sessionSetupOverlay == nil {
+		return m, m.handleError(fmt.Errorf("failed to get session setup overlay after creation"))
+	}
+
+	// Ensure the overlay is focused so it can receive key events
+	sessionSetupOverlay.Focus()
+
+	// NOW show the overlay after callbacks are configured
+	// This marks it as active in the coordinator so RenderOverlay will work
+	if err := m.uiCoordinator.ShowOverlay(appui.ComponentSessionSetupOverlay); err != nil {
+		return m, m.handleError(fmt.Errorf("failed to show session setup overlay: %w", err))
+	}
+
+	// Transition to advanced new state with overlay configuration
+	// IMPORTANT: Use transitionToOverlay to properly set up the view directive
+	// that will call RenderOverlay on the now-active overlay
+	if err := m.transitionToOverlay(state.AdvancedNew, "Default", "sessionSetup"); err != nil {
+		return m, m.handleError(fmt.Errorf("failed to transition to session setup: %w", err))
+	}
+
+	// Menu state is set by transitionToOverlay's PostTransitionAction, but we
+	// need to explicitly set it to StateNewInstance for proper command availability
 	m.menu.SetState(ui.StateNewInstance)
 
 	return m, nil

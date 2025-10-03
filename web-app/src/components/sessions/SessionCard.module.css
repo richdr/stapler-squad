@@ -6,11 +6,34 @@
   margin-bottom: 12px;
   cursor: pointer;
   transition: all 0.2s ease;
+  position: relative;
 }
 
 .card:hover {
   border-color: var(--card-border-hover);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.card.selectMode {
+  padding-left: 52px;
+}
+
+.card.selected {
+  border-color: var(--primary, #0070f3);
+  background: rgba(0, 112, 243, 0.05);
+}
+
+.checkbox {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.checkbox input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
 }
 
 .header {

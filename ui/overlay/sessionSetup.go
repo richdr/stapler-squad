@@ -39,6 +39,19 @@ const (
 	BranchChoiceExisting BranchChoice = "existing"
 )
 
+// SessionSetupCallbacks contains the required callbacks for SessionSetupOverlay
+// This struct ensures that all necessary callbacks are provided at construction time,
+// preventing runtime errors from missing callbacks.
+type SessionSetupCallbacks struct {
+	// OnComplete is called when the user confirms the session setup
+	// This callback is REQUIRED and will cause a panic if nil
+	OnComplete func(session.InstanceOptions)
+
+	// OnCancel is called when the user cancels the session setup (presses Esc)
+	// This callback is optional - if nil, the overlay will use the base cancel handler
+	OnCancel func()
+}
+
 // SessionSetupOverlay is a multi-step modal for configuring a new session
 type SessionSetupOverlay struct {
 	BaseOverlay // Embed base for common overlay functionality
@@ -92,8 +105,15 @@ type SessionSetupOverlay struct {
 	onComplete func(session.InstanceOptions)
 }
 
-// NewSessionSetupOverlay creates a new session setup wizard overlay
-func NewSessionSetupOverlay() *SessionSetupOverlay {
+// NewSessionSetupOverlay creates a new session setup wizard overlay with required callbacks.
+// The OnComplete callback is required and will cause a panic if not provided.
+// This design prevents the "completion callback not set" runtime error by requiring
+// callbacks at construction time instead of through setter methods.
+func NewSessionSetupOverlay(callbacks SessionSetupCallbacks) *SessionSetupOverlay {
+	// Validate that the required OnComplete callback is provided
+	if callbacks.OnComplete == nil {
+		panic("SessionSetupOverlay requires OnComplete callback - use SessionSetupCallbacks{OnComplete: func(opts session.InstanceOptions){...}}")
+	}
 	// Create styles
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
@@ -174,6 +194,14 @@ func NewSessionSetupOverlay() *SessionSetupOverlay {
 		buttonStyle:   buttonStyle,
 		selectedStyle: selectedStyle,
 		infoStyle:     infoStyle,
+
+		// Set the required callback from construction parameter
+		onComplete: callbacks.OnComplete,
+	}
+
+	// Set optional cancel callback if provided
+	if callbacks.OnCancel != nil {
+		overlay.BaseOverlay.SetOnCancel(callbacks.OnCancel)
 	}
 
 	// Initialize BaseOverlay
@@ -224,17 +252,6 @@ func (s *SessionSetupOverlay) SetSize(width, height int) {
 		s.branchSelector.SetSize(width-10, height-10)
 	}
 }
-
-// SetOnComplete sets the callback function when the session setup is complete
-func (s *SessionSetupOverlay) SetOnComplete(callback func(session.InstanceOptions)) {
-	s.onComplete = callback
-}
-
-// SetOnCancel sets the callback function when setup is cancelled
-func (s *SessionSetupOverlay) SetOnCancel(callback func()) {
-	s.BaseOverlay.SetOnCancel(callback)
-}
-
 // Focus gives focus to the overlay
 func (s *SessionSetupOverlay) Focus() {
 	s.BaseOverlay.Focus()
@@ -386,51 +403,54 @@ func (s *SessionSetupOverlay) nextStep() {
 
 	case StepConfirm:
 		// Complete the setup
-		if s.onComplete != nil {
-			// Ensure all paths are properly expanded
-			repoPath := s.repoPath
-			expandedRepoPath, err := ExpandPath(repoPath)
+		if s.onComplete == nil {
+			s.error = "Internal error: completion callback not set. Please cancel and try again."
+			return
+		}
+
+		// Ensure all paths are properly expanded
+		repoPath := s.repoPath
+		expandedRepoPath, err := ExpandPath(repoPath)
+		if err == nil {
+			repoPath = expandedRepoPath
+		}
+
+		existingWorktree := s.existingWorktree
+		if existingWorktree != "" {
+			expandedWorktree, err := ExpandPath(existingWorktree)
 			if err == nil {
-				repoPath = expandedRepoPath
+				existingWorktree = expandedWorktree
 			}
+		}
 
-			existingWorktree := s.existingWorktree
-			if existingWorktree != "" {
-				expandedWorktree, err := ExpandPath(existingWorktree)
-				if err == nil {
-					existingWorktree = expandedWorktree
-				}
-			}
-
-			// Determine session type based on location choice
-			var sessionType session.SessionType
-			switch s.locationChoice {
-			case "current", "different":
-				// For current directory or different directory, check if we're creating a new branch
-				if s.branchChoice == BranchChoiceNew {
-					sessionType = session.SessionTypeNewWorktree
-				} else {
-					sessionType = session.SessionTypeDirectory
-				}
-			case "existing":
-				sessionType = session.SessionTypeExistingWorktree
-			default:
-				// Default to directory session for backward compatibility
+		// Determine session type based on location choice
+		var sessionType session.SessionType
+		switch s.locationChoice {
+		case "current", "different":
+			// For current directory or different directory, check if we're creating a new branch
+			if s.branchChoice == BranchChoiceNew {
+				sessionType = session.SessionTypeNewWorktree
+			} else {
 				sessionType = session.SessionTypeDirectory
 			}
-
-			instance := session.InstanceOptions{
-				Title:            s.sessionName,
-				Path:             repoPath,
-				WorkingDir:       s.workingDir,
-				Program:          s.program,
-				ExistingWorktree: existingWorktree,
-				Category:         s.category,
-				SessionType:      sessionType,
-			}
-
-			s.onComplete(instance)
+		case "existing":
+			sessionType = session.SessionTypeExistingWorktree
+		default:
+			// Default to directory session for backward compatibility
+			sessionType = session.SessionTypeDirectory
 		}
+
+		instance := session.InstanceOptions{
+			Title:            s.sessionName,
+			Path:             repoPath,
+			WorkingDir:       s.workingDir,
+			Program:          s.program,
+			ExistingWorktree: existingWorktree,
+			Category:         s.category,
+			SessionType:      sessionType,
+		}
+
+		s.onComplete(instance)
 	}
 
 	// Clear any error when advancing steps
@@ -824,7 +844,11 @@ func (s *SessionSetupOverlay) Update(msg tea.Msg) tea.Cmd {
 
 // View renders the overlay based on the current step
 func (s *SessionSetupOverlay) View() string {
+	// Debug: Log focus state
+	fmt.Printf("DEBUG SessionSetupOverlay.View(): focused=%v, width=%d, height=%d\n", s.focused, s.width, s.height)
+
 	if !s.focused {
+		fmt.Println("DEBUG: Returning empty string because !s.focused")
 		return ""
 	}
 

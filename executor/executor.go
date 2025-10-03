@@ -3,6 +3,7 @@ package executor
 import (
 	"os/exec"
 	"strings"
+	"time"
 )
 
 type Executor interface {
@@ -22,6 +23,13 @@ func (e Exec) Output(cmd *exec.Cmd) ([]byte, error) {
 
 func MakeExecutor() Executor {
 	return Exec{}
+}
+
+// MakeTimeoutExecutor creates an executor with timeout protection.
+// This prevents commands from hanging indefinitely, which is critical for
+// preventing test hangs and production issues with external commands.
+func MakeTimeoutExecutor(timeout time.Duration) Executor {
+	return NewTimeoutExecutor(timeout)
 }
 
 func ToString(cmd *exec.Cmd) string {

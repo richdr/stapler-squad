@@ -40,7 +40,7 @@ type Coordinator interface {
 	CreateTextInputOverlay(title, initialValue string) error
 	CreateLiveSearchOverlay(title, initialQuery string) error
 	CreateConfirmationOverlay(message string) error
-	CreateSessionSetupOverlay() error
+	CreateSessionSetupOverlay(callbacks overlay.SessionSetupCallbacks) error
 	CreateMessagesOverlay(messages []overlay.StatusMessage) error
 	CreateZFSearchOverlay(title, placeholder string, directories []string) error
 	CreateGitStatusOverlay() error
@@ -344,11 +344,18 @@ func (c *coordinator) CreateConfirmationOverlay(message string) error {
 	return c.ShowOverlay(ComponentConfirmationOverlay)
 }
 
-// CreateSessionSetupOverlay creates and shows a session setup overlay
-func (c *coordinator) CreateSessionSetupOverlay() error {
-	sessionSetupOverlay := overlay.NewSessionSetupOverlay()
+// CreateSessionSetupOverlay creates a session setup overlay with required callbacks
+// The overlay is NOT shown automatically - caller must call ShowOverlay explicitly
+func (c *coordinator) CreateSessionSetupOverlay(callbacks overlay.SessionSetupCallbacks) error {
+	sessionSetupOverlay := overlay.NewSessionSetupOverlay(callbacks)
 	c.registry.SessionSetupOverlay = sessionSetupOverlay
-	return c.ShowOverlay(ComponentSessionSetupOverlay)
+
+	// Initialize the component state so it exists in the registry
+	// This prevents GetState from creating a default state later
+	c.InitializeComponent(ComponentSessionSetupOverlay)
+
+	// DO NOT call ShowOverlay here - let the caller control when to show it
+	return nil
 }
 
 // CreateMessagesOverlay creates and shows a messages overlay
@@ -406,12 +413,10 @@ func (c *coordinator) GetConfirmationOverlay() *overlay.ConfirmationOverlay {
 	return nil
 }
 
-// GetSessionSetupOverlay returns the session setup overlay if active
+// GetSessionSetupOverlay returns the session setup overlay
+// Note: Returns the overlay directly without visibility check to allow callback configuration
 func (c *coordinator) GetSessionSetupOverlay() *overlay.SessionSetupOverlay {
-	if c.IsOverlayVisible(ComponentSessionSetupOverlay) {
-		return c.registry.SessionSetupOverlay
-	}
-	return nil
+	return c.registry.SessionSetupOverlay
 }
 
 // GetMessagesOverlay returns the messages overlay if active
@@ -526,7 +531,10 @@ func (c *coordinator) RenderMain() string {
 
 // RenderOverlay renders the specified overlay
 func (c *coordinator) RenderOverlay(componentType ComponentType) string {
-	if !componentType.IsOverlay() || !c.IsOverlayVisible(componentType) {
+	if !componentType.IsOverlay() {
+		return ""
+	}
+	if !c.IsOverlayVisible(componentType) {
 		return ""
 	}
 

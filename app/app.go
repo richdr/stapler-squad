@@ -27,11 +27,21 @@ const GlobalInstanceLimit = 100
 
 // Run is the main entrypoint into the application.
 func Run(ctx context.Context, program string, autoYes bool) error {
+	// Create cancellable context so both BubbleTea and our app can be cancelled together
+	// The parent context from main is Background() which can't be cancelled
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel() // Clean up context when Run() exits
+
+	// Create home model and set its cancel function so handleQuit can cancel BubbleTea
+	homeModel := newHome(ctx, program, autoYes)
+	homeModel.cancelFunc = cancel
+
 	// Use alt screen for proper rendering, but with corrected size detection
 	p := tea.NewProgram(
-		newHome(ctx, program, autoYes),
+		homeModel,
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(), // Mouse scroll
+		tea.WithContext(ctx),      // Share cancellable context with BubbleTea
 	)
 	_, err := p.Run()
 	return err
@@ -39,7 +49,8 @@ func Run(ctx context.Context, program string, autoYes bool) error {
 
 
 type home struct {
-	ctx context.Context
+	ctx        context.Context
+	cancelFunc context.CancelFunc
 
 	// -- Storage and Configuration --
 
@@ -115,9 +126,15 @@ type home struct {
 // newHomeWithDependencies creates a home instance using dependency injection
 // This constructor follows clean architecture principles and makes testing easier
 func newHomeWithDependencies(deps Dependencies) *home {
+	// Use parent context directly - cancel function will be set by caller if needed
+	// For production, Run() creates the cancellable context and passes its cancel function
+	// For tests, test code can create its own cancellable context
+	ctx := deps.GetContext()
+
 	// Create home instance with injected dependencies
 	h := &home{
-		ctx:                  deps.GetContext(),
+		ctx:                  ctx,
+		cancelFunc:           nil, // Will be set by Run() for production use
 		program:              deps.GetProgram(),
 		autoYes:              deps.GetAutoYes(),
 		storage:              deps.GetStorage(),
@@ -173,13 +190,14 @@ func newHomeWithDependencies(deps Dependencies) *home {
 			}
 		},
 		SetSessionSetupOverlay: func(overlay *overlay.SessionSetupOverlay) {
-			// Update: Use coordinator's CreateSessionSetupOverlay method for proper initialization
-			// This follows the same pattern as other overlays (CreateConfirmationOverlay, etc.)
+			// DEPRECATED: This bridge method is legacy - modern code uses
+			// handleAdvancedSessionSetup() which creates the overlay with callbacks
+			// directly via uiCoordinator.CreateSessionSetupOverlay(callbacks)
 			if overlay != nil {
-				// Create and show the session setup overlay using coordinator's method
-				if err := h.uiCoordinator.CreateSessionSetupOverlay(); err != nil {
-					log.ErrorLog.Printf("Failed to create session setup overlay: %v", err)
-				}
+				// Overlays must now be created with callbacks at construction time
+				log.WarningLog.Printf("SetSessionSetupOverlay called with non-nil overlay - this is deprecated")
+				// The overlay is already created with callbacks, just store it
+				// Note: This code path should not be used in modern code
 			} else {
 				// Clear the overlay
 				h.uiCoordinator.HideOverlay(appui.ComponentSessionSetupOverlay)
@@ -258,9 +276,6 @@ func (h *home) initializeWithSavedData() {
 func (h *home) startBackgroundHealthChecker() {
 	healthChecker := session.NewSessionHealthChecker(h.storage)
 
-	// Wait 30 seconds after startup before first check to avoid startup contention
-	time.Sleep(30 * time.Second)
-
 	// Create stop channel tied to app context
 	stopChan := make(chan struct{})
 	go func() {
@@ -268,9 +283,21 @@ func (h *home) startBackgroundHealthChecker() {
 		close(stopChan)
 	}()
 
-	// Run health checks every 5 minutes in background
-	log.DebugLog.Printf("Starting background health checker")
-	healthChecker.ScheduledHealthCheck(5*time.Minute, stopChan)
+	// Wait 30 seconds after startup before first check to avoid startup contention
+	// Use timer that can be interrupted by context cancellation
+	timer := time.NewTimer(30 * time.Second)
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+		// Normal startup delay completed
+		log.DebugLog.Printf("Starting background health checker")
+		healthChecker.ScheduledHealthCheck(5*time.Minute, stopChan)
+	case <-h.ctx.Done():
+		// Context cancelled during startup delay - exit immediately
+		log.DebugLog.Printf("Health checker cancelled during startup delay")
+		return
+	}
 }
 
 // ensureSessionHealthy performs lazy health checking on a specific session when accessed
@@ -451,11 +478,8 @@ func (m *home) updateMenuFromContext() {
 // Command handler methods for the centralized command bridge
 
 func (m *home) handleNewSession() (tea.Model, tea.Cmd) {
-	result := m.sessionController.NewSession()
-	if result.Error != nil {
-		return m, result.Cmd
-	}
-	return m, result.Cmd
+	// Use the advanced session setup flow with proper callback initialization
+	return m.handleAdvancedSessionSetup()
 }
 
 func (m *home) handleKillSession() (tea.Model, tea.Cmd) {
@@ -973,6 +997,13 @@ func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case hideErrMsg:
 		m.errBox.Clear()
 	case previewTickMsg:
+		// Check if context is cancelled (app is quitting)
+		select {
+		case <-m.ctx.Done():
+			return m, nil
+		default:
+		}
+
 		// First check if the selected instance exists and isn't paused before updating
 		selected := m.list.GetSelectedInstance()
 		if selected == nil || selected.Paused() {
@@ -992,6 +1023,13 @@ func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}),
 		)
 	case previewResultsMsg:
+		// Check if context is cancelled (app is quitting)
+		select {
+		case <-m.ctx.Done():
+			return m, nil
+		default:
+		}
+
 		// Process any pending async results (both preview and diff)
 		if err := m.tabbedWindow.ProcessAllResults(); err != nil {
 			return m, m.handleError(err)
@@ -1006,6 +1044,13 @@ func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.menu.ClearKeydown()
 		return m, nil
 	case tickUpdateMetadataMessage:
+		// Check if context is cancelled (app is quitting)
+		select {
+		case <-m.ctx.Done():
+			return m, nil
+		default:
+		}
+
 		for _, instance := range m.list.GetInstances() {
 			if !instance.Started() {
 				continue
@@ -1053,6 +1098,13 @@ func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tickUpdateMetadataCmd
 	case tickSessionDetectionMessage:
+		// Check if context is cancelled (app is quitting)
+		select {
+		case <-m.ctx.Done():
+			return m, nil
+		default:
+		}
+
 		// Check for new sessions created by other instances
 		if m.appConfig.DetectNewSessions {
 			if err := m.detectAndLoadNewSessions(); err != nil {
@@ -1130,6 +1182,13 @@ func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.instanceChanged()
 	// instanceExpensiveUpdateMsg handler removed - now handled by ResponsiveNavigationManager
 	case spinner.TickMsg:
+		// Check if context is cancelled (app is quitting)
+		select {
+		case <-m.ctx.Done():
+			return m, nil
+		default:
+		}
+
 		var spinnerCmd tea.Cmd
 		m.spinner, spinnerCmd = m.spinner.Update(msg)
 		return m, spinnerCmd
@@ -1140,6 +1199,12 @@ func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *home) handleQuit() (tea.Model, tea.Cmd) {
 	quitStart := time.Now()
 	log.DebugLog.Printf("handleQuit: Starting quit sequence")
+
+	// Cancel context to stop background goroutines
+	if m.cancelFunc != nil {
+		m.cancelFunc()
+		log.DebugLog.Printf("handleQuit: Context cancelled")
+	}
 
 	// Perform final synchronous save before quitting to ensure no data loss
 	saveStart := time.Now()

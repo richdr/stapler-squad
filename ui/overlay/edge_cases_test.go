@@ -1,6 +1,7 @@
 package overlay
 
 import (
+	"claude-squad/session"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,7 +9,7 @@ import (
 )
 
 func TestContextualDiscoveryEmptyQuery(t *testing.T) {
-	overlay := NewSessionSetupOverlay()
+	overlay := NewSessionSetupOverlay(SessionSetupCallbacks{OnComplete: func(session.InstanceOptions) {}})
 
 	// Test with empty query should return contextual suggestions
 	results := overlay.discoverGitRepositoriesContextual("")
@@ -40,7 +41,7 @@ func TestContextualDiscoveryEmptyQuery(t *testing.T) {
 }
 
 func TestContextualDiscoveryInvalidPath(t *testing.T) {
-	overlay := NewSessionSetupOverlay()
+	overlay := NewSessionSetupOverlay(SessionSetupCallbacks{OnComplete: func(session.InstanceOptions) {}})
 
 	// Test with invalid path
 	invalidPath := "/this/path/does/not/exist/anywhere"
@@ -100,7 +101,7 @@ func TestPermissionHandlingGracefulDegradation(t *testing.T) {
 	}
 	defer os.Chmod(restrictedDir, 0755) // Restore for cleanup
 
-	overlay := NewSessionSetupOverlay()
+	overlay := NewSessionSetupOverlay(SessionSetupCallbacks{OnComplete: func(session.InstanceOptions) {}})
 
 	t.Run("normal directory permissions", func(t *testing.T) {
 		perms := checkPathPermissions(normalDir)
@@ -149,7 +150,7 @@ func TestPermissionHandlingGracefulDegradation(t *testing.T) {
 }
 
 func TestShouldSkipDirectory(t *testing.T) {
-	overlay := NewSessionSetupOverlay()
+	overlay := NewSessionSetupOverlay(SessionSetupCallbacks{OnComplete: func(session.InstanceOptions) {}})
 
 	testCases := []struct {
 		name     string
@@ -181,7 +182,7 @@ func TestShouldSkipDirectory(t *testing.T) {
 
 func TestEnhancedGitRepositoryDetection(t *testing.T) {
 	tempDir := t.TempDir()
-	overlay := NewSessionSetupOverlay()
+	overlay := NewSessionSetupOverlay(SessionSetupCallbacks{OnComplete: func(session.InstanceOptions) {}})
 
 	// Create a Git repository
 	gitRepo := filepath.Join(tempDir, "git-repo")
@@ -265,7 +266,7 @@ func TestPathValidationWithNetworkPaths(t *testing.T) {
 
 // BenchmarkEdgeCaseContextualDiscovery benchmarks the performance of contextual discovery with edge cases
 func BenchmarkEdgeCaseContextualDiscovery(b *testing.B) {
-	overlay := NewSessionSetupOverlay()
+	overlay := NewSessionSetupOverlay(SessionSetupCallbacks{OnComplete: func(session.InstanceOptions) {}})
 	testPath := "~/dev"
 
 	b.ResetTimer()

@@ -9,6 +9,9 @@ interface SessionCardProps {
   onDelete?: () => void;
   onPause?: () => void;
   onResume?: () => void;
+  selectMode?: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: () => void;
 }
 
 export function SessionCard({
@@ -17,6 +20,9 @@ export function SessionCard({
   onDelete,
   onPause,
   onResume,
+  selectMode = false,
+  isSelected = false,
+  onToggleSelect,
 }: SessionCardProps) {
   const getStatusColor = (status: SessionStatus): string => {
     switch (status) {
@@ -60,8 +66,37 @@ export function SessionCard({
 
   const isPaused = session.status === SessionStatus.PAUSED;
 
+  const handleCardClick = (e: React.MouseEvent) => {
+    if (selectMode && onToggleSelect) {
+      e.stopPropagation();
+      onToggleSelect();
+    } else if (onClick) {
+      onClick();
+    }
+  };
+
+  const handleCheckboxClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (onToggleSelect) {
+      onToggleSelect();
+    }
+  };
+
   return (
-    <div className={styles.card} onClick={onClick}>
+    <div
+      className={`${styles.card} ${selectMode ? styles.selectMode : ""} ${isSelected ? styles.selected : ""}`}
+      onClick={handleCardClick}
+    >
+      {selectMode && (
+        <div className={styles.checkbox} onClick={handleCheckboxClick}>
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={() => {}} // Controlled by onClick
+            aria-label={`Select ${session.title}`}
+          />
+        </div>
+      )}
       <div className={styles.header}>
         <div className={styles.titleRow}>
           <h3 className={styles.title}>{session.title}</h3>

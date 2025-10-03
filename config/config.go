@@ -1,6 +1,7 @@
 package config
 
 import (
+	"claude-squad/executor"
 	"claude-squad/log"
 	"crypto/sha256"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // CommandExecutor defines the interface for executing external commands
@@ -35,8 +37,37 @@ func (r *realCommandExecutor) LookPath(file string) (string, error) {
 	return exec.LookPath(file)
 }
 
-// Global command executor instance - can be overridden for testing
-var globalCommandExecutor CommandExecutor = &realCommandExecutor{}
+// timeoutCommandExecutor wraps command execution with timeout protection
+// This prevents commands from hanging indefinitely, which is critical for
+// preventing hangs on external commands like 'which claude'
+type timeoutCommandExecutor struct {
+	executor executor.Executor
+	timeout  time.Duration
+}
+
+func newTimeoutCommandExecutor(timeout time.Duration) *timeoutCommandExecutor {
+	return &timeoutCommandExecutor{
+		executor: executor.NewTimeoutExecutor(timeout),
+		timeout:  timeout,
+	}
+}
+
+func (t *timeoutCommandExecutor) Command(name string, args ...string) *exec.Cmd {
+	return exec.Command(name, args...)
+}
+
+func (t *timeoutCommandExecutor) Output(cmd *exec.Cmd) ([]byte, error) {
+	// Use the timeout executor's OutputWithPipes for reliable capture
+	return t.executor.(*executor.TimeoutExecutor).OutputWithPipes(cmd)
+}
+
+func (t *timeoutCommandExecutor) LookPath(file string) (string, error) {
+	return exec.LookPath(file)
+}
+
+// Global command executor instance - uses timeout protection by default
+// 5-second timeout prevents indefinite hangs on external commands
+var globalCommandExecutor CommandExecutor = newTimeoutCommandExecutor(5 * time.Second)
 
 // SetCommandExecutor sets the global command executor (primarily for testing)
 func SetCommandExecutor(executor CommandExecutor) {
@@ -44,8 +75,9 @@ func SetCommandExecutor(executor CommandExecutor) {
 }
 
 // ResetCommandExecutor resets the global command executor to the default implementation
+// Uses timeout protection by default (5 seconds)
 func ResetCommandExecutor() {
-	globalCommandExecutor = &realCommandExecutor{}
+	globalCommandExecutor = newTimeoutCommandExecutor(5 * time.Second)
 }
 
 const (

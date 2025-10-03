@@ -1,6 +1,7 @@
 package overlay
 
 import (
+	"claude-squad/session"
 	"os"
 	"path/filepath"
 	"testing"
@@ -46,7 +47,7 @@ func TestBranchStepFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	overlay := NewSessionSetupOverlay()
+	overlay := NewSessionSetupOverlay(SessionSetupCallbacks{OnComplete: func(session.InstanceOptions) {}})
 	overlay.sessionName = "test-session"
 	overlay.program = "test-program"
 
@@ -96,7 +97,7 @@ func TestBranchStepFlow(t *testing.T) {
 }
 
 func TestLoadGitBranchesWithEmptyPath(t *testing.T) {
-	overlay := NewSessionSetupOverlay()
+	overlay := NewSessionSetupOverlay(SessionSetupCallbacks{OnComplete: func(session.InstanceOptions) {}})
 
 	// Test with empty repo path
 	branches := overlay.loadGitBranches("")
@@ -116,7 +117,7 @@ func TestLoadGitBranchesWithEmptyPath(t *testing.T) {
 }
 
 func TestLoadGitBranchesWithNonGitPath(t *testing.T) {
-	overlay := NewSessionSetupOverlay()
+	overlay := NewSessionSetupOverlay(SessionSetupCallbacks{OnComplete: func(session.InstanceOptions) {}})
 	tempDir := t.TempDir()
 
 	// Test with non-git directory
@@ -138,7 +139,7 @@ func TestLoadGitBranchesWithNonGitPath(t *testing.T) {
 }
 
 func TestBranchChoiceNextStep(t *testing.T) {
-	overlay := NewSessionSetupOverlay()
+	overlay := NewSessionSetupOverlay(SessionSetupCallbacks{OnComplete: func(session.InstanceOptions) {}})
 	overlay.step = StepBranch
 	overlay.sessionName = "test"
 	overlay.program = "test-program"

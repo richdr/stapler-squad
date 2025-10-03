@@ -202,7 +202,8 @@ func (s *StateService) Shutdown() error {
 	case <-done:
 		log.InfoLog.Printf("StateService shutdown complete")
 		return nil
-	case <-time.After(5 * time.Second):
-		return fmt.Errorf("StateService shutdown timed out")
+	case <-time.After(2 * time.Second):
+		log.WarningLog.Printf("StateService shutdown timed out after 2s")
+		return fmt.Errorf("StateService shutdown timed out after 2s")
 	}
 }

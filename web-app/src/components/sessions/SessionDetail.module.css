@@ -1,0 +1,166 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--card-background, white);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.5rem;
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
+  background: var(--header-background, #f9fafb);
+}
+
+.title {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.closeButton {
+  background: transparent;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: var(--gray-500, #6b7280);
+  padding: 0.5rem;
+  line-height: 1;
+  transition: color 0.2s;
+}
+
+.closeButton:hover {
+  color: var(--foreground);
+}
+
+.tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
+  background: var(--tabs-background, #f9fafb);
+  padding: 0 1rem;
+  gap: 0.5rem;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem 1.5rem;
+  border: none;
+  background: transparent;
+  color: var(--gray-600, #4b5563);
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+  border-bottom: 2px solid transparent;
+  position: relative;
+}
+
+.tab:hover {
+  color: var(--foreground);
+}
+
+.tab.active {
+  color: var(--primary, #0070f3);
+  border-bottom-color: var(--primary, #0070f3);
+}
+
+.tabIcon {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.tabLabel {
+  line-height: 1;
+}
+
+.content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem;
+}
+
+.tabContent {
+  height: 100%;
+}
+
+.placeholder {
+  padding: 2rem;
+  text-align: center;
+  color: var(--gray-500, #6b7280);
+  font-style: italic;
+}
+
+.infoGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1.5rem;
+}
+
+.infoItem {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem;
+  background: var(--info-item-background, #f9fafb);
+  border-radius: 8px;
+  border: 1px solid var(--border-color, #e5e7eb);
+}
+
+.infoLabel {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--gray-600, #4b5563);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.infoValue {
+  font-size: 1rem;
+  color: var(--foreground);
+  word-break: break-all;
+}
+
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+  .header {
+    padding: 1rem;
+  }
+
+  .title {
+    font-size: 1.25rem;
+  }
+
+  .tabs {
+    overflow-x: auto;
+    padding: 0 0.5rem;
+    gap: 0.25rem;
+  }
+
+  .tab {
+    padding: 0.75rem 1rem;
+    font-size: 0.875rem;
+    white-space: nowrap;
+  }
+
+  .tabIcon {
+    font-size: 1rem;
+  }
+
+  .content {
+    padding: 1rem;
+  }
+
+  .infoGrid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .infoItem {
+    padding: 0.75rem;
+  }
+}

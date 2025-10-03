@@ -1,0 +1,157 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'source-code-pro', monospace;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: #2d2d30;
+  border-bottom: 1px solid #3e3e42;
+  flex-shrink: 0;
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.statusIndicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  animation: pulse 2s infinite;
+}
+
+.statusIndicator.connected {
+  background: #4ec9b0;
+  box-shadow: 0 0 8px #4ec9b0;
+}
+
+.statusIndicator.disconnected {
+  background: #f48771;
+  box-shadow: 0 0 8px #f48771;
+  animation: none;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.statusText {
+  font-size: 0.875rem;
+  color: #cccccc;
+}
+
+.actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.toolbarButton {
+  padding: 0.5rem 0.75rem;
+  background: #3e3e42;
+  border: 1px solid #555555;
+  border-radius: 4px;
+  color: #cccccc;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.toolbarButton:hover {
+  background: #505050;
+  border-color: #6e6e6e;
+}
+
+.toolbarButton:active {
+  background: #2d2d30;
+}
+
+.error {
+  padding: 1rem;
+  background: rgba(244, 135, 113, 0.1);
+  border-bottom: 1px solid #f48771;
+  color: #f48771;
+  font-size: 0.875rem;
+}
+
+.terminal {
+  flex: 1;
+  margin: 0;
+  padding: 1rem;
+  overflow-y: auto;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-size: 14px;
+  line-height: 1.5;
+  background: #1e1e1e;
+  color: #d4d4d4;
+}
+
+/* Scrollbar styling for dark theme */
+.terminal::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.terminal::-webkit-scrollbar-track {
+  background: #1e1e1e;
+}
+
+.terminal::-webkit-scrollbar-thumb {
+  background: #424242;
+  border-radius: 6px;
+  border: 2px solid #1e1e1e;
+}
+
+.terminal::-webkit-scrollbar-thumb:hover {
+  background: #4e4e4e;
+}
+
+.terminal::-webkit-scrollbar-corner {
+  background: #1e1e1e;
+}
+
+/* Selection styling */
+.terminal::selection {
+  background: #264f78;
+}
+
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+  .toolbar {
+    padding: 0.5rem 0.75rem;
+  }
+
+  .statusText {
+    display: none;
+  }
+
+  .toolbarButton {
+    padding: 0.4rem 0.6rem;
+    font-size: 0.8rem;
+  }
+
+  .terminal {
+    padding: 0.75rem;
+    font-size: 13px;
+  }
+
+  .actions {
+    gap: 0.25rem;
+  }
+}
