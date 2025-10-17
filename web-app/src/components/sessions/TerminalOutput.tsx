@@ -36,6 +36,7 @@ export function TerminalOutput({ sessionId, baseUrl }: TerminalOutputProps) {
   const { isConnected, error, sendInput, resize, connect, disconnect, scrollbackLoaded } = useTerminalStream({
     baseUrl,
     sessionId,
+    terminal: xtermRef.current?.terminal || null, // Pass terminal for delta compression
     scrollbackLines: 1000,
     onError: (err) => {
       console.error("Terminal stream error:", err);

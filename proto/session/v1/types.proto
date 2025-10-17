@@ -36,6 +36,13 @@ message Session {
   google.protobuf.Timestamp created_at = 10;
   google.protobuf.Timestamp updated_at = 11;
 
+  // Terminal activity timestamps for staleness detection.
+  // Last time any terminal output was received (including tmux banners).
+  google.protobuf.Timestamp last_terminal_update = 22;
+  // Last time meaningful terminal output was received (excluding tmux banners).
+  // Used by review queue to detect stale sessions.
+  google.protobuf.Timestamp last_meaningful_output = 23;
+
   // Auto-approve prompts without user interaction.
   bool auto_yes = 12;
 

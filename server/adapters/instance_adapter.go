@@ -30,6 +30,9 @@ func InstanceToProto(inst *session.Instance) *sessionv1.Session {
 		IsExpanded:  inst.IsExpanded,
 		SessionType: sessionTypeToProto(inst.SessionType),
 		TmuxPrefix:  inst.TmuxPrefix,
+		// Terminal activity timestamps for staleness detection
+		LastTerminalUpdate:   timestamppb.New(inst.LastTerminalUpdate),
+		LastMeaningfulOutput: timestamppb.New(inst.LastMeaningfulOutput),
 	}
 
 	// Convert git worktree data if available

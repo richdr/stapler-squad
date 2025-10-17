@@ -5,10 +5,13 @@ import { SessionService } from "@/gen/session/v1/session_connect";
 import { TerminalData, TerminalInput, TerminalResize, ScrollbackRequest } from "@/gen/session/v1/events_pb";
 import { createWebsocketBasedTransport } from "@/lib/transport/websocket-transport";
 import { useEffect, useRef, useState, useCallback } from "react";
+import { DeltaApplicator } from "@/lib/terminal/DeltaApplicator";
+import type { Terminal } from 'xterm';
 
 interface UseTerminalStreamOptions {
   baseUrl: string;
   sessionId: string;
+  terminal?: Terminal | null; // Terminal instance for delta compression
   scrollbackLines?: number; // Number of lines to request from scrollback
   onError?: (error: Error) => void;
   onScrollbackReceived?: (scrollback: string) => void; // Callback when scrollback is received
@@ -69,6 +72,7 @@ class MessageQueue {
 export function useTerminalStream({
   baseUrl,
   sessionId,
+  terminal,
   scrollbackLines = 1000,
   onError,
   onScrollbackReceived,
@@ -84,6 +88,7 @@ export function useTerminalStream({
   const isDisconnectingRef = useRef(false);
   const isConnectedRef = useRef(false); // Track connection state in ref for callbacks
   const lastResizeTimeRef = useRef<number>(0); // Timestamp of last resize message sent
+  const deltaApplicatorRef = useRef<DeltaApplicator | null>(null);
   const clientRef = useRef(createPromiseClient(
     SessionService,
     createWebsocketBasedTransport({
@@ -128,6 +133,12 @@ export function useTerminalStream({
 
     // Reset disconnecting flag on connect
     isDisconnectingRef.current = false;
+
+    // Initialize delta applicator if terminal is available
+    if (terminal && !deltaApplicatorRef.current) {
+      deltaApplicatorRef.current = new DeltaApplicator(terminal);
+      console.log('[useTerminalStream] Delta applicator initialized');
+    }
 
     try {
       abortControllerRef.current = new AbortController();
@@ -176,8 +187,21 @@ export function useTerminalStream({
               firstMessage = false;
             }
 
-            if (msg.data.case === "output") {
-              // Decode bytes to string using shared decoder
+            if (msg.data.case === "delta") {
+              // Handle delta compression
+              if (deltaApplicatorRef.current) {
+                const success = deltaApplicatorRef.current.applyDelta(msg.data.value);
+                if (!success) {
+                  // Desync detected - request full sync by resetting version
+                  console.error('[useTerminalStream] Delta desync detected, terminal may be out of sync');
+                  deltaApplicatorRef.current.resetVersion();
+                  // TODO: Send error message to server to request full sync
+                }
+              } else {
+                console.warn('[useTerminalStream] Received delta but no delta applicator initialized');
+              }
+            } else if (msg.data.case === "output") {
+              // Handle raw output (fallback mode or when delta not available)
               const text = textDecoderRef.current.decode(msg.data.value.data, { stream: true });
               // Only log if debug mode is enabled (toggle with: localStorage.setItem('debug-terminal', 'true'))
               if (typeof window !== "undefined" && localStorage.getItem("debug-terminal") === "true") {
@@ -226,7 +250,7 @@ export function useTerminalStream({
       onError?.(error);
       setIsConnected(false);
     }
-  }, [sessionId, scrollbackLines, onError, onScrollbackReceived, onOutput, scheduleOutputUpdate]); // Include onOutput
+  }, [sessionId, terminal, scrollbackLines, onError, onScrollbackReceived, onOutput, scheduleOutputUpdate]); // Include terminal and onOutput
 
   const disconnect = useCallback(async () => {
     // Prevent double-disconnect

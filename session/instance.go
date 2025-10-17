@@ -1146,7 +1146,15 @@ func (i *Instance) PreviewFullHistory() (string, error) {
 		return "", nil
 	}
 
-	return i.tmuxSession.CapturePaneContentWithOptions("-", "-")
+	content, err := i.tmuxSession.CapturePaneContentWithOptions("-", "-")
+	if err != nil {
+		return "", err
+	}
+
+	// Update terminal activity timestamps based on full history capture
+	i.UpdateTerminalTimestamps(content)
+
+	return content, nil
 }
 
 // SetTmuxSession sets the tmux session for testing purposes

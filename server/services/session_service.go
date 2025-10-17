@@ -411,10 +411,10 @@ func (s *SessionService) WatchSessions(
 	}
 }
 
-// StreamTerminal provides bidirectional streaming for terminal I/O.
+// StreamTerminal provides bidirectional streaming for terminal I/O with delta compression.
 // Implements bidirectional streaming where:
 // - Client sends: terminal input and resize events
-// - Server sends: terminal output from PTY
+// - Server sends: terminal deltas (compressed output) or raw output (fallback)
 func (s *SessionService) StreamTerminal(
 	ctx context.Context,
 	stream *connect.BidiStream[sessionv1.TerminalData, sessionv1.TerminalData],
@@ -473,7 +473,12 @@ func (s *SessionService) StreamTerminal(
 	// Channel for errors from goroutines
 	errCh := make(chan error, 2)
 
-	// Goroutine 1: Read from PTY and send to client (terminal output)
+	// Initialize terminal state for delta compression (default 80x25)
+	// Will be resized when client sends first resize message
+	terminalState := session.NewTerminalState(25, 80)
+	var previousState *session.TerminalState
+
+	// Goroutine 1: Read from PTY and send deltas to client (terminal output)
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -489,20 +494,37 @@ func (s *SessionService) StreamTerminal(
 			default:
 				n, readErr := ptyFile.Read(buf)
 				if n > 0 {
-					// Send terminal output to client
-					outputMsg := &sessionv1.TerminalData{
-						SessionId: initialMsg.SessionId,
-						Data: &sessionv1.TerminalData_Output{
-							Output: &sessionv1.TerminalOutput{
-								Data: buf[:n],
+					// Process PTY output through terminal state
+					if processErr := terminalState.ProcessOutput(buf[:n]); processErr != nil {
+						log.WarningLog.Printf("Failed to process terminal output: %v", processErr)
+						// Fallback to raw output on parse errors
+						outputMsg := &sessionv1.TerminalData{
+							SessionId: initialMsg.SessionId,
+							Data: &sessionv1.TerminalData_Output{
+								Output: &sessionv1.TerminalOutput{
+									Data: buf[:n],
+								},
 							},
-						},
+						}
+						if sendErr := stream.Send(outputMsg); sendErr != nil {
+							errCh <- fmt.Errorf("failed to send output: %w", sendErr)
+							return
+						}
+						continue
 					}
 
-					if sendErr := stream.Send(outputMsg); sendErr != nil {
-						errCh <- fmt.Errorf("failed to send output: %w", sendErr)
+					// Generate delta from previous state to current state
+					deltaMsg := terminalState.GenerateDelta(previousState)
+					deltaMsg.SessionId = initialMsg.SessionId
+
+					// Send delta to client
+					if sendErr := stream.Send(deltaMsg); sendErr != nil {
+						errCh <- fmt.Errorf("failed to send delta: %w", sendErr)
 						return
 					}
+
+					// Clone current state for next delta generation
+					previousState = terminalState.Clone()
 				}
 
 				if readErr != nil {
@@ -573,8 +595,11 @@ func (s *SessionService) StreamTerminal(
 					}
 
 				case *sessionv1.TerminalData_Resize:
-					// Handle terminal resize
-					if resizeErr := instance.ResizePTY(int(data.Resize.Cols), int(data.Resize.Rows)); resizeErr != nil {
+					// Handle terminal resize - update both PTY and terminal state
+					cols := int(data.Resize.Cols)
+					rows := int(data.Resize.Rows)
+
+					if resizeErr := instance.ResizePTY(cols, rows); resizeErr != nil {
 						// Send error back to client
 						errorMsg := &sessionv1.TerminalData{
 							SessionId: msg.SessionId,
@@ -587,6 +612,10 @@ func (s *SessionService) StreamTerminal(
 						}
 						_ = stream.Send(errorMsg) // Best effort
 						// Don't return on resize errors, they're not fatal
+					} else {
+						// Also resize terminal state to match
+						terminalState.Resize(rows, cols)
+						log.InfoLog.Printf("Resized terminal state to %dx%d for session %s", cols, rows, msg.SessionId)
 					}
 
 				case *sessionv1.TerminalData_Error:

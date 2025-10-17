@@ -13,14 +13,16 @@ type ReviewQueuePollerConfig struct {
 	PollInterval      time.Duration // How often to check sessions
 	IdleThreshold     time.Duration // Duration before considering session idle and adding to queue
 	InputWaitDuration time.Duration // Time waiting for input before flagging
+	StalenessThreshold time.Duration // Duration since last meaningful output before considering stale
 }
 
 // DefaultReviewQueuePollerConfig returns sensible defaults for polling.
 func DefaultReviewQueuePollerConfig() ReviewQueuePollerConfig {
 	return ReviewQueuePollerConfig{
-		PollInterval:      2 * time.Second,  // Poll every 2 seconds for immediate detection
-		IdleThreshold:     30 * time.Second, // Add to queue after 30s idle (reduced from 2min)
-		InputWaitDuration: 5 * time.Second,  // Flag if waiting for input > 5s (reduced from 30s)
+		PollInterval:       2 * time.Second,  // Poll every 2 seconds for immediate detection
+		IdleThreshold:      30 * time.Second, // Add to queue after 30s idle (reduced from 2min)
+		InputWaitDuration:  5 * time.Second,  // Flag if waiting for input > 5s (reduced from 30s)
+		StalenessThreshold: 5 * time.Minute,  // Flag if no meaningful output for 5 minutes
 	}
 }
 
@@ -210,6 +212,23 @@ func (rqp *ReviewQueuePoller) checkSession(inst *Instance) {
 		priority = PriorityUrgent
 		shouldAdd = true
 		context = "Error state detected"
+	}
+
+	// Check for terminal staleness (no meaningful output for configured threshold)
+	// This helps identify sessions that might be stuck or waiting without showing obvious idle state
+	timeSinceOutput := inst.GetTimeSinceLastMeaningfulOutput()
+	if timeSinceOutput > rqp.config.StalenessThreshold {
+		// Only override if we don't already have a higher-priority reason
+		if !shouldAdd || priority < PriorityMedium {
+			reason = ReasonIdleTimeout // Reuse idle timeout reason for staleness
+			priority = PriorityLow // Lower priority than approval/error, but should be reviewed
+			shouldAdd = true
+			context = fmt.Sprintf("No meaningful output for %s (may be stuck or waiting)",
+				formatDuration(timeSinceOutput))
+
+			log.DebugLog.Printf("Session '%s' flagged as stale: %s since last meaningful output",
+				inst.Title, formatDuration(timeSinceOutput))
+		}
 	}
 
 	// Add or update in queue
