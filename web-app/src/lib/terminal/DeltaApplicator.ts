@@ -11,7 +11,7 @@
  * - Full sync fallback for recovery
  */
 
-import { Terminal } from 'xterm';
+import { Terminal } from '@xterm/xterm';
 import { TerminalDelta, LineDelta, CursorPosition, TerminalDimensions } from '@/gen/session/v1/events_pb';
 
 /**

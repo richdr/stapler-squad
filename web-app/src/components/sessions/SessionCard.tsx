@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import { Session, SessionStatus, ReviewItem } from "@/gen/session/v1/types_pb";
 import { ReviewQueueBadge } from "./ReviewQueueBadge";
+import { TagEditor } from "./TagEditor";
 import styles from "./SessionCard.module.css";
 
 interface SessionCardProps {
@@ -11,6 +13,7 @@ interface SessionCardProps {
   onPause?: () => void;
   onResume?: () => void;
   onDuplicate?: () => void;
+  onUpdateTags?: (sessionId: string, tags: string[]) => void;
   selectMode?: boolean;
   isSelected?: boolean;
   onToggleSelect?: () => void;
@@ -24,11 +27,13 @@ export function SessionCard({
   onPause,
   onResume,
   onDuplicate,
+  onUpdateTags,
   selectMode = false,
   isSelected = false,
   onToggleSelect,
   reviewItem,
 }: SessionCardProps) {
+  const [showTagEditor, setShowTagEditor] = useState(false);
   const getStatusColor = (status: SessionStatus): string => {
     switch (status) {
       case SessionStatus.RUNNING:
@@ -69,6 +74,18 @@ export function SessionCard({
     return date.toLocaleString();
   };
 
+  const formatTimeAgo = (timestamp?: { seconds: bigint; nanos: number }): string => {
+    if (!timestamp || timestamp.seconds === BigInt(0)) return "Never";
+    const now = Date.now();
+    const date = new Date(Number(timestamp.seconds) * 1000);
+    const seconds = Math.floor((now - date.getTime()) / 1000);
+
+    if (seconds < 60) return `${seconds}s ago`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+    return `${Math.floor(seconds / 86400)}d ago`;
+  };
+
   const isPaused = session.status === SessionStatus.PAUSED;
 
   const handleCardClick = (e: React.MouseEvent) => {
@@ -87,7 +104,32 @@ export function SessionCard({
     }
   };
 
+  const handleEditTags = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowTagEditor(true);
+  };
+
+  const handleSaveTags = (newTags: string[]) => {
+    if (onUpdateTags) {
+      onUpdateTags(session.id, newTags);
+    }
+    setShowTagEditor(false);
+  };
+
+  const handleCancelTagEdit = () => {
+    setShowTagEditor(false);
+  };
+
   return (
+    <>
+      {showTagEditor && (
+        <TagEditor
+          tags={session.tags || []}
+          onSave={handleSaveTags}
+          onCancel={handleCancelTagEdit}
+          sessionTitle={session.title}
+        />
+      )}
     <div
       className={`${styles.card} ${selectMode ? styles.selectMode : ""} ${isSelected ? styles.selected : ""}`}
       onClick={handleCardClick}
@@ -121,6 +163,24 @@ export function SessionCard({
         {session.category && (
           <span className={styles.category}>{session.category}</span>
         )}
+        <div className={styles.tagsContainer}>
+          {session.tags && session.tags.length > 0 && (
+            <div className={styles.tags}>
+              {session.tags.map((tag, index) => (
+                <span key={index} className={styles.tag}>
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
+          <button
+            className={styles.editTagsButton}
+            onClick={handleEditTags}
+            title="Edit tags"
+          >
+            {session.tags && session.tags.length > 0 ? "Edit Tags" : "Add Tags"}
+          </button>
+        </div>
         {reviewItem && !selectMode && (
           <div className={styles.reviewInfo}>
             <ReviewQueueBadge
@@ -175,6 +235,11 @@ export function SessionCard({
           <span className={styles.timestamp}>
             Updated: {formatDate(session.updatedAt)}
           </span>
+          {session.lastMeaningfulOutput && (
+            <span className={styles.timestamp} title="Last meaningful terminal output (excluding tmux banners)">
+              Last Activity: {formatTimeAgo(session.lastMeaningfulOutput)}
+            </span>
+          )}
         </div>
 
         <div className={styles.actions}>
@@ -221,5 +286,6 @@ export function SessionCard({
         </div>
       </div>
     </div>
+    </>
   );
 }

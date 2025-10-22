@@ -17,12 +17,54 @@ export function TerminalOutput({ sessionId, baseUrl }: TerminalOutputProps) {
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const previousConnectionStateRef = useRef(false);
   const lastResizeRef = useRef<{ cols: number; rows: number } | null>(null);
+  const refreshCountRef = useRef(0); // Track number of forced refreshes
+
+  // Scrollback loading state
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [hasMoreHistory, setHasMoreHistory] = useState(true);
+  const [oldestLoadedSequence, setOldestLoadedSequence] = useState<number>(0);
+  const scrollPositionBeforeLoadRef = useRef<number>(0);
+  const isScrollingToTopRef = useRef(false);
+
+  // Debug mode state - synced with localStorage
+  const [debugMode, setDebugMode] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("debug-terminal") === "true";
+    }
+    return false;
+  });
 
   // Callback to write scrollback directly to terminal
-  const handleScrollbackReceived = useCallback((scrollback: string) => {
-    console.log(`[TerminalOutput] Received ${scrollback.length} bytes of scrollback`);
-    if (xtermRef.current) {
-      xtermRef.current.write(scrollback);
+  // For historical scrollback, we prepend at the top and maintain scroll position
+  const handleScrollbackReceived = useCallback((scrollback: string, metadata?: { hasMore: boolean; oldestSequence: number; newestSequence: number; totalLines: number }) => {
+    console.log(`[TerminalOutput] Received ${scrollback.length} bytes of scrollback`, metadata);
+    if (!xtermRef.current?.terminal) return;
+
+    const terminal = xtermRef.current.terminal;
+
+    // Update metadata state if provided (for historical loads)
+    if (metadata) {
+      setHasMoreHistory(metadata.hasMore);
+      setOldestLoadedSequence(metadata.oldestSequence);
+      console.log(`[TerminalOutput] Updated scrollback state: hasMore=${metadata.hasMore}, oldestSeq=${metadata.oldestSequence}`);
+
+      // Historical load - prepend at top and maintain scroll position
+      const buffer = terminal.buffer.active;
+      const scrollFromBottom = buffer.length - buffer.viewportY;
+
+      // Write historical content
+      terminal.write(scrollback);
+
+      // Restore scroll position (maintaining user's view)
+      setTimeout(() => {
+        const newLines = scrollback.split('\n').length;
+        terminal.scrollLines(-newLines);
+        setIsLoadingHistory(false);
+      }, 10);
+    } else {
+      // Current pane content - just write and scroll to bottom
+      terminal.write(scrollback);
+      terminal.scrollToBottom();
     }
   }, []);
 
@@ -33,7 +75,67 @@ export function TerminalOutput({ sessionId, baseUrl }: TerminalOutputProps) {
     }
   }, []);
 
-  const { isConnected, error, sendInput, resize, connect, disconnect, scrollbackLoaded } = useTerminalStream({
+  // Wrap terminal refresh method to detect all refresh calls
+  useEffect(() => {
+    if (xtermRef.current?.terminal && !xtermRef.current.terminal._refreshMonitorInstalled) {
+      const terminal = xtermRef.current.terminal;
+      const originalRefresh = terminal.refresh.bind(terminal);
+      const originalWrite = terminal.write.bind(terminal);
+
+      // Track write operations to detect race conditions
+      let lastWriteTime = 0;
+      let writeCount = 0;
+
+      // Wrap write to track output timing
+      terminal.write = (data: string | Uint8Array, callback?: () => void) => {
+        const now = performance.now();
+        const timeSinceLastWrite = now - lastWriteTime;
+        lastWriteTime = now;
+        writeCount++;
+
+        // Only log if verbose debugging is enabled
+        if (typeof window !== "undefined" && localStorage.getItem("debug-terminal") === "true") {
+          console.log('[XtermWrite]', {
+            writeCount,
+            dataLength: data.length,
+            timeSinceLastWrite: `${timeSinceLastWrite.toFixed(2)}ms`,
+            cursorY: terminal.buffer.active.cursorY,
+            timestamp: new Date().toISOString()
+          });
+        }
+
+        return originalWrite(data, callback);
+      };
+
+      // Wrap refresh to log all calls and detect race conditions
+      terminal.refresh = (start: number, end: number) => {
+        const stackTrace = new Error().stack;
+        const caller = stackTrace?.split('\n')[2]?.trim() || 'unknown';
+        const timeSinceLastWrite = performance.now() - lastWriteTime;
+
+        console.log('[XtermRefresh] Refresh called', {
+          start,
+          end,
+          rows: terminal.rows,
+          timeSinceLastWrite: `${timeSinceLastWrite.toFixed(2)}ms`,
+          recentWrites: writeCount,
+          caller: caller.replace(/^at /, ''),
+          possibleRaceCondition: timeSinceLastWrite < 50, // Flag if refresh happens <50ms after write
+          timestamp: new Date().toISOString()
+        });
+
+        // Reset write counter after refresh
+        writeCount = 0;
+
+        return originalRefresh(start, end);
+      };
+
+      terminal._refreshMonitorInstalled = true;
+      console.log('[TerminalOutput] Refresh and write monitoring installed');
+    }
+  }, [xtermRef.current?.terminal]);
+
+  const { isConnected, error, sendInput, resize, connect, disconnect, scrollbackLoaded, requestScrollback } = useTerminalStream({
     baseUrl,
     sessionId,
     terminal: xtermRef.current?.terminal || null, // Pass terminal for delta compression
@@ -164,6 +266,24 @@ export function TerminalOutput({ sessionId, baseUrl }: TerminalOutputProps) {
     connect();
   }, [connect]);
 
+  // Toggle debug mode
+  const handleToggleDebug = useCallback(() => {
+    const newDebugMode = !debugMode;
+    setDebugMode(newDebugMode);
+
+    // Sync with localStorage
+    if (typeof window !== "undefined") {
+      if (newDebugMode) {
+        localStorage.setItem("debug-terminal", "true");
+        console.log("%c[TerminalOutput] Debug mode ENABLED", "color: #00ff00; font-weight: bold");
+        console.log("All terminal refresh and write operations will be logged");
+      } else {
+        localStorage.removeItem("debug-terminal");
+        console.log("%c[TerminalOutput] Debug mode DISABLED", "color: #ff0000; font-weight: bold");
+      }
+    }
+  }, [debugMode]);
+
   const handleCopyOutput = () => {
     // XtermTerminal handles copy internally via browser selection
     document.execCommand('copy');
@@ -176,8 +296,47 @@ export function TerminalOutput({ sessionId, baseUrl }: TerminalOutputProps) {
   };
 
   const handleClear = () => {
-    if (xtermRef.current) {
+    if (xtermRef.current && xtermRef.current.terminal) {
+      const terminal = xtermRef.current.terminal;
+      const startTime = performance.now();
+      refreshCountRef.current++;
+
+      // Log clear operation start
+      console.log('[TerminalOutput] Clear requested', {
+        refreshCount: refreshCountRef.current,
+        bufferSize: terminal.buffer.active.length,
+        rows: terminal.rows,
+        cols: terminal.cols,
+        scrollbackSize: terminal.buffer.normal.length
+      });
+
+      // Clear the terminal buffer
       xtermRef.current.clear();
+      const clearTime = performance.now();
+
+      // Force a full screen refresh to prevent corrupted output
+      // This ensures xterm.js redraws the entire viewport properly
+      terminal.refresh(0, terminal.rows - 1);
+      const refreshTime = performance.now();
+
+      // Additionally, reset the cursor to home position for clean state
+      terminal.write('\x1b[H');
+      const cursorResetTime = performance.now();
+
+      // Log performance metrics and refresh details
+      console.log('[TerminalOutput] Clear completed with forced refresh', {
+        refreshCount: refreshCountRef.current,
+        clearDuration: `${(clearTime - startTime).toFixed(2)}ms`,
+        refreshDuration: `${(refreshTime - clearTime).toFixed(2)}ms`,
+        cursorResetDuration: `${(cursorResetTime - refreshTime).toFixed(2)}ms`,
+        totalDuration: `${(cursorResetTime - startTime).toFixed(2)}ms`,
+        refreshedRows: `0-${terminal.rows - 1}`,
+        viewport: {
+          rows: terminal.rows,
+          cols: terminal.cols,
+          scrollTop: terminal.buffer.active.viewportY
+        }
+      });
     }
   };
 
@@ -203,6 +362,44 @@ export function TerminalOutput({ sessionId, baseUrl }: TerminalOutputProps) {
       }
     }
   };
+
+  const handleLoadMoreHistory = useCallback(() => {
+    if (isLoadingHistory || !hasMoreHistory || !isConnected) {
+      console.log(`[TerminalOutput] Cannot load history: loading=${isLoadingHistory}, hasMore=${hasMoreHistory}, connected=${isConnected}`);
+      return;
+    }
+
+    setIsLoadingHistory(true);
+    console.log(`[TerminalOutput] Loading more history from sequence ${oldestLoadedSequence}`);
+
+    // Request 200 more lines of history
+    requestScrollback(oldestLoadedSequence, 200);
+  }, [isLoadingHistory, hasMoreHistory, isConnected, oldestLoadedSequence, requestScrollback]);
+
+  // Infinite scroll detection - load more when scrolled to top
+  useEffect(() => {
+    const terminal = xtermRef.current?.terminal;
+    if (!terminal || !isConnected) return;
+
+    const handleScroll = () => {
+      const buffer = terminal.buffer.active;
+      const isAtTop = buffer.viewportY === 0;
+
+      if (isAtTop && !isScrollingToTopRef.current && !isLoadingHistory && hasMoreHistory) {
+        console.log('[TerminalOutput] Scrolled to top, triggering auto-load');
+        isScrollingToTopRef.current = true;
+        handleLoadMoreHistory();
+
+        // Reset flag after a delay
+        setTimeout(() => {
+          isScrollingToTopRef.current = false;
+        }, 1000);
+      }
+    };
+
+    // Listen for scroll events
+    terminal.onScroll(handleScroll);
+  }, [isConnected, isLoadingHistory, hasMoreHistory, handleLoadMoreHistory]);
 
   return (
     <div className={styles.container}>
@@ -242,6 +439,25 @@ export function TerminalOutput({ sessionId, baseUrl }: TerminalOutputProps) {
               🔄 Reconnect
             </button>
           )}
+          <button
+            className={styles.toolbarButton}
+            onClick={handleLoadMoreHistory}
+            disabled={isLoadingHistory || !hasMoreHistory || !isConnected}
+            title={!hasMoreHistory ? "No more history available" : isLoadingHistory ? "Loading..." : "Load more history (scroll to top for auto-load)"}
+            aria-label="Load more terminal history"
+            style={isLoadingHistory ? { opacity: 0.6, cursor: 'wait' } : !hasMoreHistory ? { opacity: 0.4, cursor: 'not-allowed' } : {}}
+          >
+            {isLoadingHistory ? '⏳ Loading...' : hasMoreHistory ? '📜 Load History' : '📜 No More'}
+          </button>
+          <button
+            className={`${styles.toolbarButton} ${debugMode ? styles.debugActive : ''}`}
+            onClick={handleToggleDebug}
+            title={debugMode ? "Disable debug logging" : "Enable debug logging"}
+            aria-label={debugMode ? "Disable debug mode" : "Enable debug mode"}
+            style={debugMode ? { backgroundColor: '#2a4', color: 'white', fontWeight: 'bold' } : {}}
+          >
+            🛠️ {debugMode ? 'Debug ON' : 'Debug'}
+          </button>
           <button
             className={styles.toolbarButton}
             onClick={handleManualResize}

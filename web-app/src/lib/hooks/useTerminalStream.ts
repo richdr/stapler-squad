@@ -2,11 +2,18 @@
 
 import { createPromiseClient } from "@connectrpc/connect";
 import { SessionService } from "@/gen/session/v1/session_connect";
-import { TerminalData, TerminalInput, TerminalResize, ScrollbackRequest } from "@/gen/session/v1/events_pb";
+import { TerminalData, TerminalInput, TerminalResize, ScrollbackRequest, CurrentPaneRequest } from "@/gen/session/v1/events_pb";
 import { createWebsocketBasedTransport } from "@/lib/transport/websocket-transport";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { DeltaApplicator } from "@/lib/terminal/DeltaApplicator";
-import type { Terminal } from 'xterm';
+import type { Terminal } from '@xterm/xterm';
+
+interface ScrollbackMetadata {
+  hasMore: boolean;
+  oldestSequence: number;
+  newestSequence: number;
+  totalLines: number;
+}
 
 interface UseTerminalStreamOptions {
   baseUrl: string;
@@ -14,7 +21,7 @@ interface UseTerminalStreamOptions {
   terminal?: Terminal | null; // Terminal instance for delta compression
   scrollbackLines?: number; // Number of lines to request from scrollback
   onError?: (error: Error) => void;
-  onScrollbackReceived?: (scrollback: string) => void; // Callback when scrollback is received
+  onScrollbackReceived?: (scrollback: string, metadata?: ScrollbackMetadata) => void; // Callback when scrollback is received
   onOutput?: (output: string) => void; // Callback when new output is received (bypass React state)
 }
 
@@ -27,6 +34,7 @@ interface TerminalStreamResult {
   connect: () => void;
   disconnect: () => void;
   scrollbackLoaded: boolean; // Indicates if scrollback has been loaded
+  requestScrollback: (fromSequence: number, limit: number) => void; // Request historical scrollback
 }
 
 // Queue to manage outgoing terminal messages
@@ -54,7 +62,10 @@ class MessageQueue {
         const msg = await new Promise<TerminalData>((resolve) => {
           this.resolve = resolve;
         });
-        yield msg;
+        // Don't yield sentinel messages (empty messages used to unblock iterator)
+        if (msg.sessionId !== "" || msg.data.case !== undefined) {
+          yield msg;
+        }
       }
     }
   }
@@ -62,7 +73,8 @@ class MessageQueue {
   close() {
     this.closed = true;
     if (this.resolve) {
-      // Force unblock the iterator
+      // Force unblock the iterator with a sentinel message
+      // This message will be filtered out by the iterator and not sent to the server
       this.resolve(new TerminalData({ sessionId: "", data: { case: undefined } }));
       this.resolve = null;
     }
@@ -152,21 +164,20 @@ export function useTerminalStream({
         })
       );
 
-      // Request scrollback if configured
-      if (scrollbackLines > 0) {
-        messageQueueRef.current.push(
-          new TerminalData({
-            sessionId,
-            data: {
-              case: "scrollbackRequest",
-              value: new ScrollbackRequest({
-                fromSequence: BigInt(0), // Request from oldest
-                limit: scrollbackLines,
-              }),
-            },
-          })
-        );
-      }
+      // Request current pane content (what user would see if they attached to tmux)
+      // This gives us the current terminal state, ideal for apps that rewrite lines
+      messageQueueRef.current.push(
+        new TerminalData({
+          sessionId,
+          data: {
+            case: "currentPaneRequest",
+            value: new CurrentPaneRequest({
+              lines: 50, // Get last 50 lines (typical terminal viewport)
+              includeEscapes: true, // Preserve colors and formatting
+            }),
+          },
+        })
+      );
 
       // Create bidirectional stream
       const stream = clientRef.current.streamTerminal(
@@ -215,7 +226,24 @@ export function useTerminalStream({
                 // Fallback: Use batched updates for backward compatibility
                 scheduleOutputUpdate(text);
               }
+            } else if (msg.data.case === "currentPaneResponse") {
+              // Handle current pane content (what tmux shows now)
+              const response = msg.data.value;
+              const content = textDecoderRef.current.decode(response.content);
+
+              console.log(`[useTerminalStream] Received current pane: ${content.length} bytes, ` +
+                          `cursor at (${response.cursorX},${response.cursorY}), ` +
+                          `pane size: ${response.paneWidth}x${response.paneHeight}`);
+
+              // Write current pane content to terminal
+              if (onScrollbackReceived) {
+                onScrollbackReceived(content);
+              }
+
+              // Mark as loaded (reuse scrollbackLoaded flag for compatibility)
+              setScrollbackLoaded(true);
             } else if (msg.data.case === "scrollbackResponse") {
+              // Keep scrollback support for "load more history" feature
               // Optimize: Use array and join instead of concatenation
               const chunks: string[] = [];
               for (const chunk of msg.data.value.chunks) {
@@ -224,9 +252,19 @@ export function useTerminalStream({
               }
               const scrollbackText = chunks.join("");
 
-              // Call callback to write directly to terminal (no output state update)
+              // Extract metadata for smart caching and UI state
+              const metadata: ScrollbackMetadata = {
+                hasMore: msg.data.value.hasMore,
+                oldestSequence: Number(msg.data.value.oldestSequence),
+                newestSequence: Number(msg.data.value.newestSequence),
+                totalLines: Number(msg.data.value.totalLines),
+              };
+
+              console.log(`[useTerminalStream] Scrollback metadata:`, metadata);
+
+              // Call callback to write directly to terminal with metadata
               if (onScrollbackReceived) {
-                onScrollbackReceived(scrollbackText);
+                onScrollbackReceived(scrollbackText, metadata);
               }
 
               setScrollbackLoaded(true);
@@ -359,6 +397,36 @@ export function useTerminalStream({
     [sessionId, onError]
   );
 
+  const requestScrollback = useCallback(
+    (fromSequence: number, limit: number) => {
+      if (!messageQueueRef.current || !isConnectedRef.current) {
+        console.warn("Cannot request scrollback: stream not connected");
+        return;
+      }
+
+      try {
+        console.log(`[useTerminalStream] Requesting scrollback: fromSeq=${fromSequence}, limit=${limit}`);
+        messageQueueRef.current.push(
+          new TerminalData({
+            sessionId,
+            data: {
+              case: "scrollbackRequest",
+              value: new ScrollbackRequest({
+                fromSequence: BigInt(fromSequence),
+                limit,
+              }),
+            },
+          })
+        );
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        setError(error);
+        onError?.(error);
+      }
+    },
+    [sessionId, onError]
+  );
+
   // Auto-connect on mount
   useEffect(() => {
     connect();
@@ -384,5 +452,6 @@ export function useTerminalStream({
     connect,
     disconnect,
     scrollbackLoaded,
+    requestScrollback,
   };
 }
