@@ -1,6 +1,7 @@
 package services
 
 import (
+	"bufio"
 	"claude-squad/config"
 	sessionv1 "claude-squad/gen/proto/go/session/v1"
 	"claude-squad/log"
@@ -10,15 +11,29 @@ import (
 	"connectrpc.com/connect"
 	"context"
 	"fmt"
+	"google.golang.org/protobuf/types/known/timestamppb"
+	"io"
+	"os"
+	"regexp"
 	"strings"
 	"time"
 )
 
+// ReactiveQueueManager is an interface to avoid circular dependencies.
+// The actual implementation is in server/review_queue_manager.go
+type ReactiveQueueManager interface {
+	AddStreamClient(ctx context.Context, filters interface{}) (<-chan *sessionv1.ReviewQueueEvent, string)
+	RemoveStreamClient(clientID string)
+}
+
 // SessionService implements the SessionServiceHandler interface for ConnectRPC.
 type SessionService struct {
-	storage     *session.Storage
-	eventBus    *events.EventBus
-	reviewQueue *session.ReviewQueue
+	storage            *session.Storage
+	eventBus           *events.EventBus
+	reviewQueue        *session.ReviewQueue
+	statusManager      *session.InstanceStatusManager
+	reviewQueuePoller  *session.ReviewQueuePoller
+	reactiveQueueMgr   ReactiveQueueManager
 }
 
 // NewSessionService creates a new SessionService with the given storage and event bus.
@@ -54,6 +69,22 @@ func NewSessionServiceFromConfig() (*SessionService, error) {
 // GetStorage returns the storage instance for direct access (e.g., WebSocket handlers).
 func (s *SessionService) GetStorage() *session.Storage {
 	return s.storage
+}
+
+// GetEventBus returns the event bus instance for wiring up reactive components.
+func (s *SessionService) GetEventBus() *events.EventBus {
+	return s.eventBus
+}
+
+// GetReviewQueueInstance returns the review queue instance for wiring up reactive components.
+func (s *SessionService) GetReviewQueueInstance() *session.ReviewQueue {
+	return s.reviewQueue
+}
+
+// SetReactiveQueueManager sets the ReactiveQueueManager (dependency injection).
+// This must be called before WatchReviewQueue is used.
+func (s *SessionService) SetReactiveQueueManager(mgr ReactiveQueueManager) {
+	s.reactiveQueueMgr = mgr
 }
 
 // ListSessions returns all sessions with optional filtering.
@@ -594,6 +625,13 @@ func (s *SessionService) StreamTerminal(
 						return
 					}
 
+					// Publish user interaction event for immediate review queue reactivity
+					s.eventBus.Publish(events.NewUserInteractionEvent(
+						msg.SessionId,
+						"terminal_input",
+						"", // No additional context needed
+					))
+
 				case *sessionv1.TerminalData_Resize:
 					// Handle terminal resize - update both PTY and terminal state
 					cols := int(data.Resize.Cols)
@@ -747,6 +785,16 @@ func (s *SessionService) GetReviewQueue(
 				Priority:    session.PriorityHigh,
 				DetectedAt:  inst.UpdatedAt, // Use actual last update time
 				Context:     "Waiting for user approval",
+				// Populate session details for rich display
+				Program:      inst.Program,
+				Branch:       inst.Branch,
+				Path:         inst.Path,
+				WorkingDir:   inst.WorkingDir,
+				Status:       inst.Status,
+				Tags:         inst.Tags,
+				Category:     inst.Category,
+				DiffStats:    inst.GetDiffStats(),
+				LastActivity: inst.LastMeaningfulOutput,
 			}
 
 			// Apply filters if specified
@@ -775,6 +823,16 @@ func (s *SessionService) GetReviewQueue(
 				Priority:    session.PriorityMedium,
 				DetectedAt:  inst.UpdatedAt, // Use last update time, not current time
 				Context:     "Waiting for user input",
+				// Populate session details for rich display
+				Program:      inst.Program,
+				Branch:       inst.Branch,
+				Path:         inst.Path,
+				WorkingDir:   inst.WorkingDir,
+				Status:       inst.Status,
+				Tags:         inst.Tags,
+				Category:     inst.Category,
+				DiffStats:    inst.GetDiffStats(),
+				LastActivity: inst.LastMeaningfulOutput,
 			}
 
 			// Apply filters if specified
@@ -803,6 +861,16 @@ func (s *SessionService) GetReviewQueue(
 				Priority:    session.PriorityLow,
 				DetectedAt:  inst.UpdatedAt, // Use last actual update time
 				Context:     fmt.Sprintf("No activity for %s", formatDuration(idleDuration)),
+				// Populate session details for rich display
+				Program:      inst.Program,
+				Branch:       inst.Branch,
+				Path:         inst.Path,
+				WorkingDir:   inst.WorkingDir,
+				Status:       inst.Status,
+				Tags:         inst.Tags,
+				Category:     inst.Category,
+				DiffStats:    inst.GetDiffStats(),
+				LastActivity: inst.LastMeaningfulOutput,
 			}
 
 			// Apply filters if specified
@@ -833,6 +901,16 @@ func (s *SessionService) GetReviewQueue(
 				Priority:    session.PriorityLow,       // Very low priority since user already acknowledged
 				DetectedAt:  inst.UpdatedAt,            // Use last actual update time
 				Context:     fmt.Sprintf("Dismissed - last changed %s ago", formatDuration(timeSinceChange)),
+				// Populate session details for rich display
+				Program:      inst.Program,
+				Branch:       inst.Branch,
+				Path:         inst.Path,
+				WorkingDir:   inst.WorkingDir,
+				Status:       inst.Status,
+				Tags:         inst.Tags,
+				Category:     inst.Category,
+				DiffStats:    inst.GetDiffStats(),
+				LastActivity: inst.LastMeaningfulOutput,
 			}
 
 			// Apply filters if specified
@@ -908,10 +986,259 @@ func (s *SessionService) AcknowledgeSession(
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to save instance: %w", err))
 	}
 
+	// Publish event for immediate reactivity
+	s.eventBus.Publish(events.NewSessionAcknowledgedEvent(
+		instance.Title,
+		"user_acknowledged",
+	))
+
 	return connect.NewResponse(&sessionv1.AcknowledgeSessionResponse{
 		Success: true,
 		Message: fmt.Sprintf("Session '%s' acknowledged and removed from review queue", req.Msg.Id),
 	}), nil
+}
+
+// GetLogs retrieves application logs with optional filtering and search.
+func (s *SessionService) GetLogs(
+	ctx context.Context,
+	req *connect.Request[sessionv1.GetLogsRequest],
+) (*connect.Response[sessionv1.GetLogsResponse], error) {
+	// Get log file path from config
+	cfg := log.ConfigToLogConfig(config.LoadConfig())
+	logFilePath, err := log.GetLogFilePath(cfg)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to get log file path: %w", err))
+	}
+
+	// Read log file
+	file, err := os.Open(logFilePath)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to open log file: %w", err))
+	}
+	defer file.Close()
+
+	// Parse logs with filters
+	entries, err := parseLogs(file, req.Msg)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to parse logs: %w", err))
+	}
+
+	return connect.NewResponse(&sessionv1.GetLogsResponse{
+		Entries: entries,
+	}), nil
+}
+
+// parseLogs reads log file and applies filters to return matching entries
+func parseLogs(reader io.Reader, req *sessionv1.GetLogsRequest) ([]*sessionv1.LogEntry, error) {
+	// Log line format: [instance] LEVEL:date time file:line: message
+	// Example: [pid-12345-timestamp] INFO:2025/10/17 14:23:45 app.go:123: Starting session
+	logLineRegex := regexp.MustCompile(`^\[([^\]]+)\]\s+(\w+):(\d{4}/\d{2}/\d{2})\s+(\d{2}:\d{2}:\d{2})\s+([^:]+:\d+):\s+(.*)$`)
+
+	var entries []*sessionv1.LogEntry
+	scanner := bufio.NewScanner(reader)
+
+	// Default limit if not specified
+	limit := 100
+	if req.Limit != nil && *req.Limit > 0 {
+		limit = int(*req.Limit)
+	}
+
+	// Parse filters
+	var searchQuery string
+	if req.SearchQuery != nil {
+		searchQuery = strings.ToLower(*req.SearchQuery)
+	}
+
+	var levelFilter string
+	if req.Level != nil {
+		levelFilter = strings.ToUpper(*req.Level)
+	}
+
+	var startTime, endTime *time.Time
+	if req.StartTime != nil {
+		t := req.StartTime.AsTime()
+		startTime = &t
+	}
+	if req.EndTime != nil {
+		t := req.EndTime.AsTime()
+		endTime = &t
+	}
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		// Try to parse the log line
+		matches := logLineRegex.FindStringSubmatch(line)
+		if matches == nil || len(matches) < 7 {
+			// Skip lines that don't match expected format
+			continue
+		}
+
+		// Extract fields from regex match
+		// matches[1] = instance (ignored for API)
+		level := matches[2]
+		dateStr := matches[3]
+		timeStr := matches[4]
+		source := matches[5]
+		message := matches[6]
+
+		// Parse timestamp
+		timestampStr := fmt.Sprintf("%s %s", dateStr, timeStr)
+		timestamp, err := time.Parse("2006/01/02 15:04:05", timestampStr)
+		if err != nil {
+			// Skip entries with invalid timestamps
+			continue
+		}
+
+		// Apply level filter
+		if levelFilter != "" && level != levelFilter {
+			continue
+		}
+
+		// Apply time range filters
+		if startTime != nil && timestamp.Before(*startTime) {
+			continue
+		}
+		if endTime != nil && timestamp.After(*endTime) {
+			continue
+		}
+
+		// Apply search query filter (case-insensitive, searches message and source)
+		if searchQuery != "" {
+			messageAndSource := strings.ToLower(message + " " + source)
+			if !strings.Contains(messageAndSource, searchQuery) {
+				continue
+			}
+		}
+
+		// Create log entry
+		entry := &sessionv1.LogEntry{
+			Timestamp: timestamppb.New(timestamp),
+			Level:     level,
+			Message:   message,
+			Source:    &source,
+		}
+
+		entries = append(entries, entry)
+
+		// Apply limit
+		if len(entries) >= limit {
+			break
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("error reading log file: %w", err)
+	}
+
+	return entries, nil
+}
+
+// WatchReviewQueueFilters contains filters for review queue event streaming.
+type WatchReviewQueueFilters struct {
+	PriorityFilter    []session.Priority
+	ReasonFilter      []session.AttentionReason
+	SessionIDs        []string
+	IncludeStatistics bool
+	InitialSnapshot   bool
+}
+
+// Implement FilterProvider interface for type-safe conversion
+func (f *WatchReviewQueueFilters) GetPriorityFilter() []session.Priority {
+	return f.PriorityFilter
+}
+
+func (f *WatchReviewQueueFilters) GetReasonFilter() []session.AttentionReason {
+	return f.ReasonFilter
+}
+
+func (f *WatchReviewQueueFilters) GetSessionIDs() []string {
+	return f.SessionIDs
+}
+
+func (f *WatchReviewQueueFilters) GetIncludeStatistics() bool {
+	return f.IncludeStatistics
+}
+
+func (f *WatchReviewQueueFilters) GetInitialSnapshot() bool {
+	return f.InitialSnapshot
+}
+
+// WatchReviewQueue streams real-time review queue events.
+func (s *SessionService) WatchReviewQueue(
+	ctx context.Context,
+	req *connect.Request[sessionv1.WatchReviewQueueRequest],
+	stream *connect.ServerStream[sessionv1.ReviewQueueEvent],
+) error {
+	if s.reactiveQueueMgr == nil {
+		return connect.NewError(connect.CodeInternal, fmt.Errorf("reactive queue manager not initialized"))
+	}
+
+	// Convert proto filters to internal type
+	filters := &WatchReviewQueueFilters{
+		PriorityFilter:    convertProtoPriorities(req.Msg.PriorityFilter),
+		ReasonFilter:      convertProtoReasons(req.Msg.ReasonFilter),
+		SessionIDs:        req.Msg.SessionIds,
+		IncludeStatistics: req.Msg.IncludeStatistics,
+		InitialSnapshot:   req.Msg.InitialSnapshot,
+	}
+
+	// Subscribe to queue events
+	eventCh, clientID := s.reactiveQueueMgr.AddStreamClient(ctx, filters)
+	defer s.reactiveQueueMgr.RemoveStreamClient(clientID)
+
+	// Stream events
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case event, ok := <-eventCh:
+			if !ok {
+				return nil // Channel closed
+			}
+			if err := stream.Send(event); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// convertProtoPriorities converts proto Priority values to internal session.Priority
+func convertProtoPriorities(protoPriorities []sessionv1.Priority) []session.Priority {
+	result := make([]session.Priority, 0, len(protoPriorities))
+	for _, p := range protoPriorities {
+		switch p {
+		case sessionv1.Priority_PRIORITY_URGENT:
+			result = append(result, session.PriorityUrgent)
+		case sessionv1.Priority_PRIORITY_HIGH:
+			result = append(result, session.PriorityHigh)
+		case sessionv1.Priority_PRIORITY_MEDIUM:
+			result = append(result, session.PriorityMedium)
+		case sessionv1.Priority_PRIORITY_LOW:
+			result = append(result, session.PriorityLow)
+		}
+	}
+	return result
+}
+
+// convertProtoReasons converts proto AttentionReason values to internal session.AttentionReason
+func convertProtoReasons(protoReasons []sessionv1.AttentionReason) []session.AttentionReason {
+	result := make([]session.AttentionReason, 0, len(protoReasons))
+	for _, r := range protoReasons {
+		switch r {
+		case sessionv1.AttentionReason_ATTENTION_REASON_APPROVAL_PENDING:
+			result = append(result, session.ReasonApprovalPending)
+		case sessionv1.AttentionReason_ATTENTION_REASON_INPUT_REQUIRED:
+			result = append(result, session.ReasonInputRequired)
+		case sessionv1.AttentionReason_ATTENTION_REASON_ERROR_STATE:
+			result = append(result, session.ReasonErrorState)
+		case sessionv1.AttentionReason_ATTENTION_REASON_IDLE_TIMEOUT:
+			result = append(result, session.ReasonIdleTimeout)
+		case sessionv1.AttentionReason_ATTENTION_REASON_TASK_COMPLETE:
+			result = append(result, session.ReasonTaskComplete)
+		}
+	}
+	return result
 }
 
 // formatDuration formats a time.Duration in a human-readable way.

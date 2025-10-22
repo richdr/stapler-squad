@@ -27,11 +27,11 @@ func StaticFileServer(fileSystem fs.FS, indexFile string) http.Handler {
 		// Check if the file exists in the filesystem
 		fileInfo, err := fs.Stat(fileSystem, fsPath)
 
-		if err != nil || fileInfo.IsDir() {
-			// File doesn't exist or is a directory - serve index.html for SPA routing
-			log.InfoLog.Printf("Serving %s for SPA route: %s", indexFile, cleanPath)
+		if err != nil {
+			// File doesn't exist - serve root index.html for SPA routing
+			log.InfoLog.Printf("Serving %s for SPA route: %s (file not found)", indexFile, cleanPath)
 
-			// Read and serve the index file directly
+			// Read and serve the root index file directly
 			indexContent, err := fs.ReadFile(fileSystem, indexFile)
 			if err != nil {
 				http.Error(w, "Index file not found", http.StatusNotFound)
@@ -42,6 +42,35 @@ func StaticFileServer(fileSystem fs.FS, indexFile string) http.Handler {
 			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 			w.WriteHeader(http.StatusOK)
 			w.Write(indexContent)
+			return
+		}
+
+		if fileInfo.IsDir() {
+			// It's a directory - try to serve index.html from within that directory
+			dirIndexPath := path.Join(fsPath, "index.html")
+			dirIndexContent, err := fs.ReadFile(fileSystem, dirIndexPath)
+			if err == nil {
+				// Found index.html in the directory - serve it
+				log.InfoLog.Printf("Serving directory index: %s", dirIndexPath)
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+				w.WriteHeader(http.StatusOK)
+				w.Write(dirIndexContent)
+				return
+			}
+
+			// No index.html in directory - serve root index.html for SPA routing
+			log.InfoLog.Printf("Serving %s for SPA route: %s (directory without index)", indexFile, cleanPath)
+			rootIndexContent, err := fs.ReadFile(fileSystem, indexFile)
+			if err != nil {
+				http.Error(w, "Index file not found", http.StatusNotFound)
+				return
+			}
+
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+			w.WriteHeader(http.StatusOK)
+			w.Write(rootIndexContent)
 			return
 		}
 

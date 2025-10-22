@@ -225,7 +225,7 @@ func (h *ConnectRPCWebSocketHandler) streamTerminal(stream *connectWebSocketStre
 				return fmt.Errorf("failed to send output: %w", err)
 			}
 
-			log.InfoLog.Printf("Sent %d bytes (batched) output to WebSocket for session %s", len(outputBuffer), sessionID)
+			log.DebugLog.Printf("Sent %d bytes (batched) output to WebSocket for session %s", len(outputBuffer), sessionID)
 			outputBuffer = outputBuffer[:0] // Reset buffer
 			return nil
 		}
@@ -421,6 +421,79 @@ func (h *ConnectRPCWebSocketHandler) streamTerminal(stream *connectWebSocketStre
 					}
 
 					log.InfoLog.Printf("Sent scrollback response for session %s: %d chunks", sessionID, len(chunks))
+				}
+
+				// Handle current pane request
+				if currentPaneReq := incomingData.GetCurrentPaneRequest(); currentPaneReq != nil {
+					log.InfoLog.Printf("Current pane request for session %s: lines=%d, includeEscapes=%v",
+						sessionID, currentPaneReq.Lines, currentPaneReq.IncludeEscapes)
+
+					// Get current pane content from instance
+					lines := int(currentPaneReq.Lines)
+					if lines <= 0 {
+						lines = 50 // Default to last 50 lines
+					}
+
+					content, err := instance.GetCurrentPaneContent(lines)
+					if err != nil {
+						log.ErrorLog.Printf("Failed to get current pane content: %v", err)
+						// Send error response
+						errorResp := &sessionv1.TerminalData{
+							SessionId: sessionID,
+							Data: &sessionv1.TerminalData_Error{
+								Error: &sessionv1.TerminalError{
+									Message: fmt.Sprintf("Failed to get pane content: %v", err),
+									Code:    "pane_capture_error",
+								},
+							},
+						}
+						respBytes, _ := proto.Marshal(errorResp)
+						respEnvelope := protocol.CreateEnvelope(0, respBytes)
+						stream.WriteMessage(websocket.BinaryMessage, respEnvelope)
+						continue
+					}
+
+					// Get cursor position and pane dimensions
+					cursorX, cursorY, err := instance.GetPaneCursorPosition()
+					if err != nil {
+						log.ErrorLog.Printf("Failed to get cursor position: %v (using defaults)", err)
+						cursorX, cursorY = 0, 0
+					}
+
+					paneWidth, paneHeight, err := instance.GetPaneDimensions()
+					if err != nil {
+						log.ErrorLog.Printf("Failed to get pane dimensions: %v (using defaults)", err)
+						paneWidth, paneHeight = 80, 24
+					}
+
+					// Send current pane response
+					currentPaneResp := &sessionv1.TerminalData{
+						SessionId: sessionID,
+						Data: &sessionv1.TerminalData_CurrentPaneResponse{
+							CurrentPaneResponse: &sessionv1.CurrentPaneResponse{
+								Content:    []byte(content),
+								CursorX:    int32(cursorX),
+								CursorY:    int32(cursorY),
+								PaneWidth:  int32(paneWidth),
+								PaneHeight: int32(paneHeight),
+							},
+						},
+					}
+
+					respBytes, err := proto.Marshal(currentPaneResp)
+					if err != nil {
+						log.ErrorLog.Printf("Failed to marshal current pane response: %v", err)
+						continue
+					}
+
+					respEnvelope := protocol.CreateEnvelope(0, respBytes)
+					if err := stream.WriteMessage(websocket.BinaryMessage, respEnvelope); err != nil {
+						log.ErrorLog.Printf("Failed to send current pane response: %v", err)
+						continue
+					}
+
+					log.InfoLog.Printf("Sent current pane response for session %s: %d bytes, cursor=(%d,%d), size=%dx%d",
+						sessionID, len(content), cursorX, cursorY, paneWidth, paneHeight)
 				}
 			}
 		}

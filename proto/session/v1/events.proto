@@ -17,6 +17,9 @@ message SessionEvent {
     SessionUpdatedEvent session_updated = 3;
     SessionDeletedEvent session_deleted = 4;
     SessionStatusChangedEvent status_changed = 5;
+    UserInteractionEvent user_interaction = 6;
+    SessionAcknowledgedEvent session_acknowledged = 7;
+    ApprovalResponseEvent approval_response = 8;
   }
 }
 
@@ -60,6 +63,8 @@ message TerminalData {
     ScrollbackRequest scrollback_request = 6;
     ScrollbackResponse scrollback_response = 7;
     TerminalDelta delta = 8;  // Delta compression for efficient updates
+    CurrentPaneRequest current_pane_request = 9;   // Request current tmux pane content
+    CurrentPaneResponse current_pane_response = 10; // Response with current pane content
   }
 }
 
@@ -105,6 +110,31 @@ message ScrollbackChunk {
   bytes data = 1;            // Terminal output data
   uint64 sequence = 2;       // Sequence number for ordering
   int64 timestamp_ms = 3;    // Unix timestamp in milliseconds
+}
+
+// CurrentPaneRequest requests the current visible tmux pane content.
+// This gives the exact content the user would see if they attached to tmux directly.
+message CurrentPaneRequest {
+  // Number of lines to capture from the bottom of the pane (default: 50)
+  // If 0 or negative, captures the entire visible pane
+  int32 lines = 1;
+
+  // Include escape sequences for colors and formatting (default: true)
+  bool include_escapes = 2;
+}
+
+// CurrentPaneResponse contains the current visible tmux pane content
+message CurrentPaneResponse {
+  // Raw terminal content from tmux capture-pane
+  bytes content = 1;
+
+  // Cursor position in the pane
+  int32 cursor_x = 2;  // Column (0-based)
+  int32 cursor_y = 3;  // Row (0-based)
+
+  // Current pane dimensions
+  int32 pane_width = 4;   // Columns
+  int32 pane_height = 5;  // Rows
 }
 
 // ============================================================================
@@ -172,4 +202,134 @@ message CursorPosition {
 message TerminalDimensions {
   uint32 rows = 1;       // Number of rows
   uint32 cols = 2;       // Number of columns
+}
+
+// ============================================================================
+// Review Queue Interaction Events
+// ============================================================================
+
+// UserInteractionEvent is emitted when user interacts with a session.
+// Triggers immediate review queue re-evaluation for responsive feedback.
+message UserInteractionEvent {
+  // Session identifier
+  string session_id = 1;
+
+  // Type of interaction
+  InteractionType type = 2;
+
+  // Optional context about the interaction
+  string context = 3;
+
+  // Interaction types
+  enum InteractionType {
+    INTERACTION_TYPE_UNSPECIFIED = 0;
+    // User typed input in terminal
+    INTERACTION_TYPE_TERMINAL_INPUT = 1;
+    // User approved a prompt
+    INTERACTION_TYPE_APPROVAL_GIVEN = 2;
+    // User denied/rejected a prompt
+    INTERACTION_TYPE_APPROVAL_DENIED = 3;
+    // User executed a command
+    INTERACTION_TYPE_COMMAND_EXECUTED = 4;
+    // User attached to session
+    INTERACTION_TYPE_SESSION_ATTACHED = 5;
+    // User detached from session
+    INTERACTION_TYPE_SESSION_DETACHED = 6;
+  }
+}
+
+// SessionAcknowledgedEvent is emitted when user acknowledges/skips a session.
+// Session is immediately removed from review queue until next update.
+message SessionAcknowledgedEvent {
+  // Session identifier
+  string session_id = 1;
+
+  // When the acknowledgment occurred
+  google.protobuf.Timestamp acknowledged_at = 2;
+
+  // Optional reason for acknowledgment
+  string reason = 3;
+}
+
+// ApprovalResponseEvent is emitted when user responds to approval dialog.
+// Session status is updated and review queue item is removed.
+message ApprovalResponseEvent {
+  // Session identifier
+  string session_id = 1;
+
+  // Whether user approved (true) or denied (false)
+  bool approved = 2;
+
+  // What was being approved
+  string context = 3;
+
+  // When the response occurred
+  google.protobuf.Timestamp responded_at = 4;
+}
+
+// ============================================================================
+// Review Queue Events (for WatchReviewQueue streaming)
+// ============================================================================
+
+// ReviewQueueEvent represents changes to the review queue.
+// Used for WatchReviewQueue streaming RPC.
+message ReviewQueueEvent {
+  // Timestamp when the event occurred
+  google.protobuf.Timestamp timestamp = 1;
+
+  // Event type
+  oneof event {
+    ReviewQueueItemAddedEvent item_added = 2;
+    ReviewQueueItemRemovedEvent item_removed = 3;
+    ReviewQueueItemUpdatedEvent item_updated = 4;
+    ReviewQueueStatisticsEvent statistics = 5;
+  }
+}
+
+// ReviewQueueItemAddedEvent is emitted when item is added to queue
+message ReviewQueueItemAddedEvent {
+  // The item that was added
+  ReviewItem item = 1;
+
+  // What triggered this addition
+  string trigger = 2; // "poller", "manual_check", "status_change"
+}
+
+// ReviewQueueItemRemovedEvent is emitted when item is removed from queue
+message ReviewQueueItemRemovedEvent {
+  // Session ID of removed item
+  string session_id = 1;
+
+  // Why it was removed
+  string reason = 2; // "resolved", "dismissed", "timeout", "acknowledged"
+}
+
+// ReviewQueueItemUpdatedEvent is emitted when item properties change
+message ReviewQueueItemUpdatedEvent {
+  // Session ID
+  string session_id = 1;
+
+  // Updated item
+  ReviewItem item = 2;
+
+  // What changed
+  repeated string updated_fields = 3; // "priority", "context", "reason"
+}
+
+// ReviewQueueStatisticsEvent provides aggregate queue statistics
+message ReviewQueueStatisticsEvent {
+  // Total items in queue
+  int32 total_items = 1;
+
+  // Items by priority level
+  map<int32, int32> by_priority = 2;
+
+  // Items by attention reason
+  map<int32, int32> by_reason = 3;
+
+  // Average age in milliseconds
+  int64 average_age_ms = 4;
+
+  // Sessions that auto-escalated since last statistics
+  repeated string escalated_items = 5;
 }

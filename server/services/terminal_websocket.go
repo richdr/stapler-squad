@@ -2,6 +2,7 @@ package services
 
 import (
 	"claude-squad/log"
+	"claude-squad/server/events"
 	"claude-squad/session"
 	"fmt"
 	"io"
@@ -23,13 +24,15 @@ var upgrader = websocket.Upgrader{
 
 // TerminalWebSocketHandler handles WebSocket connections for terminal streaming
 type TerminalWebSocketHandler struct {
-	storage session.Storage
+	storage  session.Storage
+	eventBus *events.EventBus
 }
 
 // NewTerminalWebSocketHandler creates a new WebSocket handler for terminal streaming
-func NewTerminalWebSocketHandler(storage session.Storage) *TerminalWebSocketHandler {
+func NewTerminalWebSocketHandler(storage session.Storage, eventBus *events.EventBus) *TerminalWebSocketHandler {
 	return &TerminalWebSocketHandler{
-		storage: storage,
+		storage:  storage,
+		eventBus: eventBus,
 	}
 }
 
@@ -144,6 +147,15 @@ func (h *TerminalWebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *htt
 					if err != nil {
 						log.ErrorLog.Printf("Error writing to PTY: %v", err)
 						conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("Input error: %v", err)))
+					} else {
+						// Publish user interaction event for immediate review queue reactivity
+						if h.eventBus != nil {
+							h.eventBus.Publish(events.NewUserInteractionEvent(
+								sessionID,
+								"terminal_input",
+								"",
+							))
+						}
 					}
 
 				case websocket.CloseMessage:

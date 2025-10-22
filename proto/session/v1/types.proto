@@ -72,6 +72,10 @@ message Session {
 
   // Claude Code session persistence data.
   ClaudeSession claude_session = 21;
+
+  // Tags for flexible multi-dimensional organization.
+  // Replaces single-category hierarchy with tag-based grouping.
+  repeated string tags = 24;
 }
 
 // SessionStatus represents the current state of a session.
@@ -199,6 +203,36 @@ message ReviewItem {
 
   // Additional metadata key-value pairs.
   map<string, string> metadata = 8;
+
+  // Session details for rich display (matching Session message fields)
+  // Program running in session (e.g., "claude", "aider").
+  string program = 9;
+
+  // Git branch name for this session.
+  string branch = 10;
+
+  // Path to workspace repository root.
+  string path = 11;
+
+  // Directory within repository to start in.
+  string working_dir = 12;
+
+  // Current session status.
+  SessionStatus status = 13;
+
+  // Tags for flexible multi-dimensional organization.
+  repeated string tags = 14;
+
+  // Category for organization.
+  string category = 15;
+
+  // Git diff statistics.
+  DiffStats diff_stats = 16;
+
+  // Last time meaningful terminal output was received (excluding tmux banners).
+  // This is the actual last activity time, used for sorting and display.
+  // Used instead of detected_at for showing when the session was last active.
+  google.protobuf.Timestamp last_activity = 17;
 }
 
 // Priority levels for review queue items (highest to lowest urgency).

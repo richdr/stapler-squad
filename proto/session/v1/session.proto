@@ -41,6 +41,13 @@ service SessionService {
   // AcknowledgeSession marks a session as acknowledged in the review queue.
   // The session won't reappear in the queue until it receives an update.
   rpc AcknowledgeSession(AcknowledgeSessionRequest) returns (AcknowledgeSessionResponse) {}
+
+  // GetLogs retrieves application logs with optional filtering and search.
+  rpc GetLogs(GetLogsRequest) returns (GetLogsResponse) {}
+
+  // WatchReviewQueue streams real-time review queue events (items added/removed/updated).
+  // Server-streaming RPC for live queue updates without polling.
+  rpc WatchReviewQueue(WatchReviewQueueRequest) returns (stream ReviewQueueEvent) {}
 }
 
 // ListSessionsRequest allows filtering sessions by various criteria.
@@ -180,4 +187,57 @@ message AcknowledgeSessionResponse {
 
   // Human-readable message.
   string message = 2;
+}
+
+message GetLogsRequest {
+  // Optional: Search query to filter log entries by content.
+  optional string search_query = 1;
+
+  // Optional: Filter by log level (DEBUG, INFO, WARNING, ERROR).
+  optional string level = 2;
+
+  // Optional: Start time for log range (RFC3339 format).
+  optional google.protobuf.Timestamp start_time = 3;
+
+  // Optional: End time for log range (RFC3339 format).
+  optional google.protobuf.Timestamp end_time = 4;
+
+  // Optional: Maximum number of log entries to return (default: 100).
+  optional int32 limit = 5;
+}
+
+message GetLogsResponse {
+  // Log entries matching the filter criteria.
+  repeated LogEntry entries = 1;
+}
+
+message LogEntry {
+  // Timestamp of the log entry.
+  google.protobuf.Timestamp timestamp = 1;
+
+  // Log level (DEBUG, INFO, WARNING, ERROR).
+  string level = 2;
+
+  // Log message content.
+  string message = 3;
+
+  // Source file and line number (e.g., "app.go:123").
+  optional string source = 4;
+}
+
+message WatchReviewQueueRequest {
+  // Optional: Filter by priority level (only receive events for these priorities).
+  repeated Priority priority_filter = 1;
+
+  // Optional: Filter by attention reason.
+  repeated AttentionReason reason_filter = 2;
+
+  // Include statistics events (aggregate queue stats).
+  bool include_statistics = 3;
+
+  // Send initial snapshot of current queue state.
+  bool initial_snapshot = 4;
+
+  // Optional: Only events for specific sessions.
+  repeated string session_ids = 5;
 }

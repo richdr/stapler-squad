@@ -17,6 +17,12 @@ const (
 	EventSessionDeleted EventType = "session.deleted"
 	// EventSessionStatusChanged is emitted when session status transitions
 	EventSessionStatusChanged EventType = "session.status_changed"
+	// EventUserInteraction is emitted when user interacts with a session
+	EventUserInteraction EventType = "session.user_interaction"
+	// EventSessionAcknowledged is emitted when user acknowledges a session
+	EventSessionAcknowledged EventType = "session.acknowledged"
+	// EventApprovalResponse is emitted when user responds to an approval prompt
+	EventApprovalResponse EventType = "session.approval_response"
 )
 
 // Event represents a session state change event.
@@ -36,6 +42,12 @@ type Event struct {
 	OldStatus session.Status
 	// NewStatus for status change events
 	NewStatus session.Status
+	// InteractionType for user interaction events
+	InteractionType string
+	// Approved for approval response events (true = approved, false = denied)
+	Approved bool
+	// Context provides additional context about the event
+	Context string
 }
 
 // NewSessionCreatedEvent creates an event for session creation.
@@ -75,5 +87,37 @@ func NewSessionStatusChangedEvent(sess *session.Instance, oldStatus, newStatus s
 		SessionID: sess.Title,
 		OldStatus: oldStatus,
 		NewStatus: newStatus,
+	}
+}
+
+// NewUserInteractionEvent creates an event for user interactions.
+func NewUserInteractionEvent(sessionID, interactionType, context string) *Event {
+	return &Event{
+		Type:            EventUserInteraction,
+		Timestamp:       time.Now(),
+		SessionID:       sessionID,
+		InteractionType: interactionType,
+		Context:         context,
+	}
+}
+
+// NewSessionAcknowledgedEvent creates an event for session acknowledgments.
+func NewSessionAcknowledgedEvent(sessionID, reason string) *Event {
+	return &Event{
+		Type:      EventSessionAcknowledged,
+		Timestamp: time.Now(),
+		SessionID: sessionID,
+		Context:   reason,
+	}
+}
+
+// NewApprovalResponseEvent creates an event for approval responses.
+func NewApprovalResponseEvent(sessionID string, approved bool, context string) *Event {
+	return &Event{
+		Type:      EventApprovalResponse,
+		Timestamp: time.Now(),
+		SessionID: sessionID,
+		Approved:  approved,
+		Context:   context,
 	}
 }

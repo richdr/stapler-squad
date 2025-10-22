@@ -6,6 +6,7 @@ import (
 	"claude-squad/server/middleware"
 	"claude-squad/server/services"
 	"claude-squad/server/web"
+	"claude-squad/session"
 	"claude-squad/session/scrollback"
 	"context"
 	"errors"
@@ -46,6 +47,44 @@ func NewServer(addr string) *Server {
 		log.ErrorLog.Printf("Failed to initialize SessionService: %v", err)
 		// Continue without SessionService - will return errors on RPC calls
 	} else {
+		// Initialize ReactiveQueueManager components
+		storage := sessionService.GetStorage()
+		eventBus := sessionService.GetEventBus()
+		reviewQueue := sessionService.GetReviewQueueInstance()
+
+		instances, err := storage.LoadInstances()
+		if err != nil {
+			log.ErrorLog.Printf("Failed to load instances for reactive queue: %v", err)
+		} else {
+			// Create status manager and poller
+			statusManager := session.NewInstanceStatusManager()
+			reviewQueuePoller := session.NewReviewQueuePoller(reviewQueue, statusManager)
+
+			// Wire up review queue and status manager to instances
+			for _, inst := range instances {
+				inst.SetReviewQueue(reviewQueue)
+				inst.SetStatusManager(statusManager)
+			}
+			reviewQueuePoller.SetInstances(instances)
+
+			// Create and start ReactiveQueueManager
+			reactiveQueueMgr := NewReactiveQueueManager(
+				reviewQueue,
+				reviewQueuePoller,
+				eventBus,
+				statusManager,
+			)
+
+			// Wire ReactiveQueueManager back to SessionService
+			sessionService.SetReactiveQueueManager(reactiveQueueMgr)
+
+			// Start the reactive queue manager in the background
+			// It will be stopped when the server shuts down
+			go reactiveQueueMgr.Start(context.Background())
+
+			log.InfoLog.Printf("ReactiveQueueManager initialized and started")
+		}
+
 		// Initialize ScrollbackManager
 		homeDir, _ := os.UserHomeDir()
 		scrollbackPath := filepath.Join(homeDir, ".claude-squad", "sessions")
