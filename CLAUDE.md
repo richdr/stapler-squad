@@ -472,6 +472,186 @@ Claude Squad is a terminal-based session management application built with Go an
 
 **Navigation**: Smart navigation that respects filtered views and category boundaries.
 
+## Tag-Based Session Organization
+
+Claude Squad supports flexible session organization through tags and dynamic grouping strategies, enabling multi-dimensional organization beyond traditional single-category hierarchies.
+
+### Grouping Modes (TUI)
+
+Press **G** to cycle through grouping strategies in the TUI:
+
+- **Category** (Default): Organize by category field, supports nested categories (e.g., "Work/Frontend")
+- **Tag**: Multi-dimensional organization - sessions appear in multiple tag groups simultaneously
+- **Branch**: Group by git branch name
+- **Path**: Group by repository path (abbreviated for readability)
+- **Program**: Group by program (claude, aider, etc.)
+- **Status**: Group by session status (Running, Paused, Ready, etc.)
+- **Session Type**: Group by session type (directory, worktree, etc.)
+- **None**: Flat list with no grouping
+
+The current grouping mode is shown in the title bar (e.g., "📊 Tag").
+
+### Managing Tags (TUI)
+
+1. **Open Tag Editor**: Press **t** on a selected session to open the tag editor overlay
+2. **Navigate Tags**: Use arrow keys or `j`/`k` to navigate the tag list
+3. **Add New Tag**: Press **a** to enter input mode, type tag name, press Enter
+4. **Delete Tag**: Select a tag and press **d** or **x**
+5. **Save Changes**: Press Enter to save tags, Esc to cancel without saving
+6. **Duplicate Prevention**: The editor prevents adding duplicate tags automatically
+
+### Tag-Based Search (TUI & Web UI)
+
+Tags are automatically indexed for instant search:
+- Search queries match against session tags with high-priority ranking
+- Tag matches provide instant results via optimized index (O(1) lookup)
+- Fuzzy search includes tags in the searchable content
+- Tag matches boost relevance scores in hybrid search results
+
+**TUI Search Examples:**
+```bash
+# Search sessions with "Frontend" tag
+s → type "Frontend" → instant tag-based results
+
+# Search combines tags with other fields
+s → type "React" → matches tags, titles, branches, paths
+```
+
+### Tag Management (Web UI)
+
+The web UI provides a visual tag management interface:
+
+1. **View Tags**: Tags appear as blue pills on session cards
+2. **Edit Tags**: Click "Add Tags" or "Edit Tags" button on any session card
+3. **Tag Editor Modal**:
+   - Add new tags with input field (Enter to add)
+   - Remove tags by clicking the × button
+   - Real-time validation prevents duplicates and empty tags
+   - Dark/light mode support with smooth animations
+
+### Grouping Strategies (Web UI)
+
+Use the "Group by" dropdown to switch between organizational views:
+- Dropdown selector in the filters section
+- Instant reorganization when strategy changes
+- All 8 grouping strategies available (matching TUI)
+- Session counts shown for each group
+
+### Tag Filtering (Web UI)
+
+Filter sessions by specific tags:
+- **Tag Filter Dropdown**: Select from all available tags
+- **Multi-Filter Support**: Combine with status and category filters
+- **Search Integration**: Tags included in search bar queries
+- **Clear Filters**: One-click filter reset button
+
+### Best Practices
+
+**Multi-Dimensional Organization**:
+```
+Example session tags: ["Frontend", "Urgent", "Client-Work", "React"]
+- Appears in all 4 tag groups when grouped by tag
+- Searchable by any tag keyword
+- Can filter to specific tags in web UI
+- Enables flexible project organization
+```
+
+**Tag Naming Conventions**:
+- Use **PascalCase** or **kebab-case** for consistency
+- Keep tags concise (1-2 words maximum)
+- Avoid redundant tags (e.g., "Work" + "Work-Project")
+- Common tag categories:
+  - **Priority**: `Urgent`, `Low-Priority`, `Backlog`
+  - **Type**: `Frontend`, `Backend`, `Infrastructure`, `DevOps`
+  - **Client**: `Client-A`, `Client-B`, `Internal`
+  - **Technology**: `React`, `Go`, `Python`, `Docker`, `Kubernetes`
+  - **Phase**: `Planning`, `Development`, `Review`, `Maintenance`
+
+**Multi-Membership Benefits**:
+- A session tagged `["Frontend", "Urgent", "React"]` appears in 3 groups when grouped by tag
+- Switch grouping strategies to view different organizational perspectives
+- Filter by single tag to focus on specific work type
+- Search matches any tag for quick discovery
+
+### Backward Compatibility
+
+**Category Field Preserved**:
+- Existing `Category` field continues to work
+- Categories auto-migrate to tags on first load
+- Nested categories (e.g., "Work/Frontend") split into individual tags `["Work", "Frontend"]`
+- No data loss during migration
+- `GroupByCategory` remains the default grouping strategy
+
+**Migration Behavior**:
+- Happens automatically when loading existing sessions
+- Idempotent - safe to run multiple times
+- Empty categories generate `["Uncategorized"]` tag
+- Category field kept for backward compatibility
+
+### Technical Implementation
+
+**Search Index Optimization**:
+- Tags stored in dedicated `tagIndex` map for O(1) lookup
+- Exact tag matches return instant results
+- Prefix matching supports partial tag queries
+- Multi-membership: sessions indexed under all their tags
+
+**Grouping Engine**:
+- Strategy pattern with pluggable grouping strategies
+- Performance optimization: only reorganizes when needed
+- Multi-membership support for GroupByTag strategy
+- Expansion state preserved across strategy changes
+
+**Data Model**:
+- `Tags []string` field in `session.Instance` struct
+- Thread-safe tag management methods (`AddTag`, `RemoveTag`, `HasTag`, `SetTags`)
+- Tags serialized in session persistence (JSON)
+- Protobuf schema includes tags for web UI integration
+
+### Use Case Examples
+
+**Scenario 1: Organize by Project Phase**
+```bash
+# Tag sessions by development phase
+tags: Planning, Development, Review, Done
+
+# Group by Tag to see all sessions in each phase
+G → select "Tag" grouping
+
+# Filter to focus on "Development" phase only (Web UI)
+Tag Filter dropdown → select "Development"
+```
+
+**Scenario 2: Multi-Project Development**
+```bash
+# Tag sessions with client and type
+tags: Client-A, Client-B, Internal, Frontend, Backend
+
+# View all Client-A work across tech stacks
+G → "Tag" grouping → see all Client-A sessions
+
+# Switch to see tool distribution
+G → "Program" grouping → see claude vs aider usage
+
+# Search for specific combination
+s → "Client-A Frontend" → instant results
+```
+
+**Scenario 3: Priority Management**
+```bash
+# Tag sessions by priority
+tags: Urgent, High-Priority, Low-Priority, Backlog
+
+# Daily standup: view urgent items
+G → "Tag" grouping → focus on "Urgent" group
+
+# Check what's actively running
+G → "Status" grouping → see Running vs Paused
+
+# Web UI: Filter to urgent only
+Tag Filter → "Urgent" → clear view of critical work
+```
+
 ### Git Integration
 
 Each session gets its own git worktree, allowing multiple concurrent branches without conflicts. The system handles:

@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-
 // TestSessionCreationDoesNotHang tests that session creation completes within reasonable time
 func TestSessionCreationDoesNotHang(t *testing.T) {
 	tempDir := t.TempDir()

@@ -70,7 +70,12 @@
       "Bash(xargs git status:*)",
       "Bash(go vet:*)",
       "Bash(tmux show-options:*)",
-      "Bash(xxd:*)"
+      "Bash(xxd:*)",
+      "Bash(go fmt:*)",
+      "Bash(npx playwright install:*)",
+      "Bash(npx playwright test:*)",
+      "Bash(wait)",
+      "Bash(npm run)"
     ],
     "deny": [],
     "ask": [],
