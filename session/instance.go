@@ -71,6 +71,10 @@ type Instance struct {
 	// If empty, uses the default tmux server. For complete isolation (e.g., testing),
 	// set to a unique value like "test" or "teatest_123" to create separate tmux servers.
 	TmuxServerSocket string
+	// Tags are multi-valued labels for flexible session organization
+	// Sessions can have multiple tags and appear in multiple groups simultaneously
+	// Examples: ["frontend", "urgent", "client-work"]
+	Tags []string
 
 	// DiffStats stores the current git diff statistics
 	diffStats *git.DiffStats
@@ -117,8 +121,8 @@ type Instance struct {
 	stateMutex sync.RWMutex
 
 	// Preview size tracking to avoid unnecessary resize operations
-	lastPreviewWidth  int
-	lastPreviewHeight int
+	lastPreviewWidth   int
+	lastPreviewHeight  int
 	lastPTYWarningTime time.Time
 }
 
@@ -139,6 +143,7 @@ func (i *Instance) ToInstanceData() InstanceData {
 		Prompt:               i.Prompt,
 		Category:             i.Category,
 		IsExpanded:           i.IsExpanded,
+		Tags:                 i.Tags, // Include tags in serialization
 		SessionType:          i.SessionType,
 		TmuxPrefix:           i.TmuxPrefix,
 		LastTerminalUpdate:   i.LastTerminalUpdate,
@@ -202,6 +207,16 @@ func FromInstanceData(data InstanceData) (*Instance, error) {
 		}
 	}
 
+	// MIGRATION: Convert legacy Category to Tags for backward compatibility
+	// If Tags is empty but Category exists, migrate category to tags
+	tags := data.Tags
+	if len(tags) == 0 && data.Category != "" {
+		// Migrate existing category to tag format
+		// Support both simple ("Work") and nested ("Work/Frontend") categories
+		tags = []string{data.Category}
+		log.InfoLog.Printf("Migrating category '%s' to tags for instance '%s'", data.Category, data.Title)
+	}
+
 	instance := &Instance{
 		Title:                data.Title,
 		Path:                 migratedPath, // Use migrated path
@@ -216,6 +231,7 @@ func FromInstanceData(data InstanceData) (*Instance, error) {
 		Prompt:               data.Prompt,
 		Category:             data.Category,
 		IsExpanded:           data.IsExpanded,
+		Tags:                 tags, // Use migrated tags (includes category if needed)
 		SessionType:          data.SessionType,
 		TmuxPrefix:           data.TmuxPrefix,
 		LastTerminalUpdate:   data.LastTerminalUpdate,
@@ -310,6 +326,8 @@ type InstanceOptions struct {
 	ExistingWorktree string
 	// Category is used for organizing sessions into groups
 	Category string
+	// Tags are multi-valued labels for flexible organization
+	Tags []string
 	// SessionType determines the session workflow (directory, new_worktree, existing_worktree)
 	SessionType SessionType
 	// TmuxPrefix is the prefix to use for tmux session names (e.g., "claudesquad_")
@@ -366,15 +384,16 @@ func NewInstance(opts InstanceOptions) (*Instance, error) {
 		Prompt:               opts.Prompt,
 		ExistingWorktree:     opts.ExistingWorktree,
 		Category:             opts.Category,
+		Tags:                 opts.Tags, // Set tags from options
 		SessionType:          sessionType,
 		TmuxPrefix:           opts.TmuxPrefix,
 		TmuxServerSocket:     opts.TmuxServerSocket,
 		IsExpanded:           true, // Default to expanded for newly created instances
 		InstanceType:         InstanceTypeManaged,
 		IsManaged:            true,
-		ExternalMetadata:     nil,                // Only set for external instances
-		LastTerminalUpdate:   t,                  // Initialize to creation time
-		LastMeaningfulOutput: t,                  // Initialize to creation time
+		ExternalMetadata:     nil, // Only set for external instances
+		LastTerminalUpdate:   t,   // Initialize to creation time
+		LastMeaningfulOutput: t,   // Initialize to creation time
 	}, nil
 }
 
@@ -464,8 +483,13 @@ func (i *Instance) start(firstTimeSetup bool, setupCleanup bool, cleanup *tmux.C
 		log.InfoLog.Printf("Reusing existing tmux session for instance '%s'", i.Title)
 		tmuxSession = i.tmuxSession
 	} else {
-		// Create new tmux session
-		log.InfoLog.Printf("Creating new tmux session for instance '%s' with program '%s'", i.Title, i.Program)
+		// Build the command with session resumption support if applicable
+		// This enables conversation continuity when restarting Claude sessions
+		commandBuilder := NewClaudeCommandBuilder(i.Program, i.claudeSession)
+		enrichedProgram := commandBuilder.Build()
+
+		// Create new tmux session with enriched command
+		log.InfoLog.Printf("Creating new tmux session for instance '%s' with program '%s'", i.Title, enrichedProgram)
 		// Use configurable prefix or default
 		tmuxPrefix := i.TmuxPrefix
 		if tmuxPrefix == "" {
@@ -474,9 +498,9 @@ func (i *Instance) start(firstTimeSetup bool, setupCleanup bool, cleanup *tmux.C
 
 		// Use server socket isolation if specified, otherwise use prefix-only isolation
 		if i.TmuxServerSocket != "" {
-			tmuxSession = tmux.NewTmuxSessionWithServerSocket(i.Title, i.Program, tmuxPrefix, i.TmuxServerSocket)
+			tmuxSession = tmux.NewTmuxSessionWithServerSocket(i.Title, enrichedProgram, tmuxPrefix, i.TmuxServerSocket)
 		} else {
-			tmuxSession = tmux.NewTmuxSessionWithPrefix(i.Title, i.Program, tmuxPrefix)
+			tmuxSession = tmux.NewTmuxSessionWithPrefix(i.Title, enrichedProgram, tmuxPrefix)
 		}
 	}
 	i.tmuxSession = tmuxSession
@@ -1045,6 +1069,66 @@ func (i *Instance) ResizePTY(cols, rows int) error {
 	return nil
 }
 
+// GetCurrentPaneContent captures the current visible tmux pane content.
+// This is what the user would see if they attached to tmux directly.
+// Unlike scrollback, this gives a clean snapshot of the current terminal state,
+// which is ideal for applications that rewrite lines (progress bars, htop, etc.)
+func (i *Instance) GetCurrentPaneContent(lines int) (string, error) {
+	i.stateMutex.RLock()
+	defer i.stateMutex.RUnlock()
+
+	if i.tmuxSession == nil {
+		return "", fmt.Errorf("tmux session not initialized")
+	}
+
+	// If lines is 0 or negative, capture entire visible pane
+	if lines <= 0 {
+		lines = 50 // Default to last 50 lines (typical terminal height)
+	}
+
+	// Use tmux capture-pane to get visible content
+	// -p: print to stdout
+	// -e: include escape sequences (colors, formatting)
+	// -J: join wrapped lines
+	// -S -N: start N lines back from bottom
+	// -E -: end at current line (bottom)
+	content, err := i.tmuxSession.CapturePaneContentWithOptions(
+		fmt.Sprintf("-%d", lines), // Start N lines from bottom
+		"-",                        // End at current line (bottom)
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to capture current pane content: %w", err)
+	}
+
+	return content, nil
+}
+
+// GetPaneCursorPosition gets the current cursor position in the tmux pane.
+// Returns cursor X (column) and Y (row) coordinates, both 0-based.
+func (i *Instance) GetPaneCursorPosition() (x, y int, err error) {
+	i.stateMutex.RLock()
+	defer i.stateMutex.RUnlock()
+
+	if i.tmuxSession == nil {
+		return 0, 0, fmt.Errorf("tmux session not initialized")
+	}
+
+	return i.tmuxSession.GetCursorPosition()
+}
+
+// GetPaneDimensions gets the current dimensions of the tmux pane.
+// Returns width (columns) and height (rows).
+func (i *Instance) GetPaneDimensions() (width, height int, err error) {
+	i.stateMutex.RLock()
+	defer i.stateMutex.RUnlock()
+
+	if i.tmuxSession == nil {
+		return 0, 0, fmt.Errorf("tmux session not initialized")
+	}
+
+	return i.tmuxSession.GetPaneDimensions()
+}
+
 // UpdateDiffStats updates the git diff statistics for this instance
 func (i *Instance) UpdateDiffStats() error {
 	// Use read lock for initial state checks, then upgrade to write lock if needed
@@ -1554,4 +1638,69 @@ func (i *Instance) GetTimeSinceLastTerminalUpdate() time.Duration {
 		return time.Since(i.CreatedAt)
 	}
 	return time.Since(i.LastTerminalUpdate)
+}
+
+// Tag management methods
+
+// AddTag adds a tag to the instance if it doesn't already exist
+func (i *Instance) AddTag(tag string) {
+	i.stateMutex.Lock()
+	defer i.stateMutex.Unlock()
+	
+	// Check if tag already exists
+	for _, existingTag := range i.Tags {
+		if existingTag == tag {
+			return // Tag already exists
+		}
+	}
+	
+	i.Tags = append(i.Tags, tag)
+}
+
+// RemoveTag removes a tag from the instance
+func (i *Instance) RemoveTag(tag string) {
+	i.stateMutex.Lock()
+	defer i.stateMutex.Unlock()
+	
+	newTags := make([]string, 0, len(i.Tags))
+	for _, existingTag := range i.Tags {
+		if existingTag != tag {
+			newTags = append(newTags, existingTag)
+		}
+	}
+	
+	i.Tags = newTags
+}
+
+// HasTag returns true if the instance has the specified tag
+func (i *Instance) HasTag(tag string) bool {
+	i.stateMutex.RLock()
+	defer i.stateMutex.RUnlock()
+	
+	for _, existingTag := range i.Tags {
+		if existingTag == tag {
+			return true
+		}
+	}
+	
+	return false
+}
+
+// GetTags returns a copy of the instance's tags
+func (i *Instance) GetTags() []string {
+	i.stateMutex.RLock()
+	defer i.stateMutex.RUnlock()
+	
+	tags := make([]string, len(i.Tags))
+	copy(tags, i.Tags)
+	return tags
+}
+
+// SetTags replaces all tags with a new set
+func (i *Instance) SetTags(tags []string) {
+	i.stateMutex.Lock()
+	defer i.stateMutex.Unlock()
+	
+	i.Tags = make([]string, len(tags))
+	copy(i.Tags, tags)
 }

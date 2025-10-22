@@ -329,6 +329,17 @@ func (h *home) initializeWithSavedData() {
 	// Set instances for review queue poller to monitor
 	h.reviewQueuePoller.SetInstances(instances)
 
+	// Ensure all loaded instances have controllers started if they're active
+	for _, instance := range instances {
+		if instance.Started() && !instance.Paused() {
+			// Try to start controller for instances that don't have one yet
+			// This ensures review queue monitoring works for all loaded sessions
+			if err := instance.StartController(); err != nil {
+				log.WarningLog.Printf("Failed to start controller for loaded instance '%s': %v", instance.Title, err)
+			}
+		}
+	}
+
 	// Perform startup health check to detect orphaned sessions
 	h.performStartupHealthCheck()
 
@@ -469,6 +480,9 @@ func (m *home) initializeCommandBridge() {
 		OnClaudeSettings: func() (tea.Model, tea.Cmd) {
 			return m.handleClaudeSettings()
 		},
+		OnTagEditor: func() (tea.Model, tea.Cmd) {
+			return m.handleTagEditor()
+		},
 	}
 
 	// Set up git handlers
@@ -538,6 +552,9 @@ func (m *home) initializeCommandBridge() {
 		},
 		OnToggleGroup: func() (tea.Model, tea.Cmd) {
 			return m.handleToggleGroup()
+		},
+		OnCycleGroupingMode: func() (tea.Model, tea.Cmd) {
+			return m.handleCycleGroupingMode()
 		},
 	}
 
@@ -746,6 +763,54 @@ func (m *home) handleClaudeSettings() (tea.Model, tea.Cmd) {
 	return m, tea.WindowSize()
 }
 
+func (m *home) handleTagEditor() (tea.Model, tea.Cmd) {
+	selected := m.getSelectedInstance()
+	if selected == nil {
+		return m, m.handleError(fmt.Errorf("no session selected for tag editing"))
+	}
+
+	// Get current tags from the session
+	currentTags := selected.Tags
+
+	// Create the tag editor overlay using coordinator
+	if err := m.uiCoordinator.CreateTagEditorOverlay(selected.Title, currentTags); err != nil {
+		return m, m.handleError(fmt.Errorf("failed to create tag editor overlay: %w", err))
+	}
+
+	// Get the overlay and set up callbacks
+	tagEditorOverlay := m.uiCoordinator.GetTagEditorOverlay()
+	if tagEditorOverlay != nil {
+		tagEditorOverlay.OnComplete = func(tags []string) {
+			// Update the selected instance's tags
+			selected.Tags = tags
+
+			// Save the updated tags
+			if err := m.saveAllInstances(); err != nil {
+				m.handleError(fmt.Errorf("failed to save tags: %w", err))
+			} else {
+				log.InfoLog.Printf("Tags updated for session '%s': %v", selected.Title, tags)
+			}
+
+			// Close the overlay using coordinator
+			m.uiCoordinator.HideOverlay(appui.ComponentTagEditorOverlay)
+			m.transitionToDefault()
+			m.menu.SetState(ui.StateDefault)
+		}
+
+		tagEditorOverlay.OnCancel = func() {
+			// Close the overlay without saving using coordinator
+			m.uiCoordinator.HideOverlay(appui.ComponentTagEditorOverlay)
+			m.transitionToDefault()
+			m.menu.SetState(ui.StateDefault)
+		}
+	}
+
+	// Change state
+	m.transitionToState(state.TagEditor)
+
+	return m, tea.WindowSize()
+}
+
 func (m *home) handleNavigationUp() (tea.Model, tea.Cmd) {
 	// Handle PTY view navigation
 	if m.viewMode == ViewModePTYs {
@@ -939,6 +1004,11 @@ func (m *home) handleFilterPaused() (tea.Model, tea.Cmd) {
 func (m *home) handleClearFilters() (tea.Model, tea.Cmd) {
 	m.list.ClearAllFilters()
 	return m, tea.WindowSize()
+}
+
+func (m *home) handleCycleGroupingMode() (tea.Model, tea.Cmd) {
+	m.list.CycleGroupingStrategy()
+	return m, nil
 }
 
 func (m *home) handleToggleGroup() (tea.Model, tea.Cmd) {
@@ -1641,6 +1711,10 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, teaCmd tea.Cmd) {
 		return m.handleZFSearchState(msg)
 	}
 
+	if m.isInState(state.TagEditor) {
+		return m.handleTagEditorState(msg)
+	}
+
 	if m.isInState(state.New) {
 		// Handle quit commands first. Don't handle q because the user might want to type that.
 		if msg.String() == "ctrl+c" {
@@ -2200,6 +2274,23 @@ func (m *home) handleZFSearchState(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, zfSearchOverlay.Update(msg)
 }
 
+// handleTagEditorState processes key events when in tag editor mode
+func (m *home) handleTagEditorState(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	tagEditorOverlay := m.uiCoordinator.GetTagEditorOverlay()
+	if tagEditorOverlay == nil {
+		m.transitionToDefault()
+		return m, nil
+	}
+
+	shouldClose := tagEditorOverlay.HandleKeyPress(msg)
+	if shouldClose {
+		m.transitionToDefault()
+		m.uiCoordinator.HideOverlay(appui.ComponentTagEditorOverlay)
+	}
+
+	return m, nil
+}
+
 // loadGitStatus loads git status information for the overlay
 func (m *home) loadGitStatus(instance *session.Instance) tea.Cmd {
 	return func() tea.Msg {
@@ -2608,6 +2699,13 @@ func (h *home) addInstanceToList(instance *session.Instance) {
 
 	// Add instance to review queue poller for monitoring
 	h.reviewQueuePoller.AddInstance(instance)
+
+	// Ensure controller is started for active instances
+	if instance.Started() && !instance.Paused() {
+		if err := instance.StartController(); err != nil {
+			log.WarningLog.Printf("Failed to start controller for new instance '%s': %v", instance.Title, err)
+		}
+	}
 }
 
 // restoreLastSelection restores the last selected index with proper bounds checking
