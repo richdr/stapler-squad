@@ -45,6 +45,7 @@ type Coordinator interface {
 	CreateZFSearchOverlay(title, placeholder string, directories []string) error
 	CreateGitStatusOverlay() error
 	CreateClaudeSettingsOverlay(settings session.ClaudeSettings, availableSessions []session.ClaudeSession) error
+	CreateTagEditorOverlay(sessionTitle string, initialTags []string) error
 
 	// Overlay accessor methods
 	GetTextInputOverlay() *overlay.TextInputOverlay
@@ -55,6 +56,7 @@ type Coordinator interface {
 	GetZFSearchOverlay() *overlay.ZFSearchOverlay
 	GetGitStatusOverlay() *overlay.GitStatusOverlay
 	GetClaudeSettingsOverlay() *overlay.ClaudeSettingsOverlay
+	GetTagEditorOverlay() *overlay.TagEditorOverlay
 }
 
 // coordinator implements the Coordinator interface
@@ -271,6 +273,8 @@ func (c *coordinator) HideOverlay(componentType ComponentType) error {
 		c.registry.ClaudeSettingsOverlay = nil
 	case ComponentZFSearchOverlay:
 		c.registry.ZFSearchOverlay = nil
+	case ComponentTagEditorOverlay:
+		c.registry.TagEditorOverlay = nil
 	}
 
 	if c.activeOverlay == componentType {
@@ -311,6 +315,7 @@ func (c *coordinator) CloseAllOverlays() error {
 		ComponentGitStatusOverlay,
 		ComponentClaudeSettingsOverlay,
 		ComponentZFSearchOverlay,
+		ComponentTagEditorOverlay,
 	}
 
 	for _, component := range overlayComponents {
@@ -392,6 +397,13 @@ func (c *coordinator) CreateClaudeSettingsOverlay(settings session.ClaudeSetting
 	return c.ShowOverlay(ComponentClaudeSettingsOverlay)
 }
 
+// CreateTagEditorOverlay creates and shows a tag editor overlay
+func (c *coordinator) CreateTagEditorOverlay(sessionTitle string, initialTags []string) error {
+	tagEditorOverlay := overlay.NewTagEditorOverlay(sessionTitle, initialTags)
+	c.registry.TagEditorOverlay = tagEditorOverlay
+	return c.ShowOverlay(ComponentTagEditorOverlay)
+}
+
 // GetTextInputOverlay returns the text input overlay if active
 func (c *coordinator) GetTextInputOverlay() *overlay.TextInputOverlay {
 	if c.IsOverlayVisible(ComponentTextInputOverlay) {
@@ -450,6 +462,14 @@ func (c *coordinator) GetGitStatusOverlay() *overlay.GitStatusOverlay {
 func (c *coordinator) GetClaudeSettingsOverlay() *overlay.ClaudeSettingsOverlay {
 	if c.IsOverlayVisible(ComponentClaudeSettingsOverlay) {
 		return c.registry.ClaudeSettingsOverlay
+	}
+	return nil
+}
+
+// GetTagEditorOverlay returns the tag editor overlay if active
+func (c *coordinator) GetTagEditorOverlay() *overlay.TagEditorOverlay {
+	if c.IsOverlayVisible(ComponentTagEditorOverlay) {
+		return c.registry.TagEditorOverlay
 	}
 	return nil
 }
@@ -579,6 +599,10 @@ func (c *coordinator) RenderOverlay(componentType ComponentType) string {
 		if c.registry.ZFSearchOverlay != nil {
 			return c.registry.ZFSearchOverlay.View()
 		}
+	case ComponentTagEditorOverlay:
+		if c.registry.TagEditorOverlay != nil {
+			return c.registry.TagEditorOverlay.Render()
+		}
 	}
 
 	return ""
@@ -649,6 +673,13 @@ func (c *coordinator) routeToOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			shouldClose := c.registry.MessagesOverlay.HandleKeyPress(msg)
 			if shouldClose {
 				c.HideOverlay(ComponentMessagesOverlay)
+			}
+		}
+	case ComponentTagEditorOverlay:
+		if c.registry.TagEditorOverlay != nil {
+			shouldClose := c.registry.TagEditorOverlay.HandleKeyPress(msg)
+			if shouldClose {
+				c.HideOverlay(ComponentTagEditorOverlay)
 			}
 		}
 	}
@@ -750,6 +781,8 @@ func (c *coordinator) GetComponentByType(componentType ComponentType) interface{
 		return c.registry.ClaudeSettingsOverlay
 	case ComponentZFSearchOverlay:
 		return c.registry.ZFSearchOverlay
+	case ComponentTagEditorOverlay:
+		return c.registry.TagEditorOverlay
 	default:
 		return nil
 	}
@@ -841,6 +874,12 @@ func (c *coordinator) SetComponent(componentType ComponentType, component interf
 			c.registry.ZFSearchOverlay = overlay
 		} else {
 			return fmt.Errorf("invalid component type for ZFSearchOverlay")
+		}
+	case ComponentTagEditorOverlay:
+		if overlay, ok := component.(*overlay.TagEditorOverlay); ok {
+			c.registry.TagEditorOverlay = overlay
+		} else {
+			return fmt.Errorf("invalid component type for TagEditorOverlay")
 		}
 	default:
 		return fmt.Errorf("unknown component type: %s", componentType.String())

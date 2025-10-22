@@ -73,6 +73,15 @@ func InitializeCommands(registry *CommandRegistry) error {
 		Contexts:    []ContextID{ContextList},
 	}).BindKey("C")
 
+	registry.Register(&Command{
+		ID:          "session.tag_editor",
+		Name:        "Edit Tags",
+		Description: "Edit session tags for organization",
+		Category:    CategorySession,
+		Handler:     commands.TagEditorCommand,
+		Contexts:    []ContextID{ContextList},
+	}).BindKey("T")
+
 	// Register git integration commands
 	registry.Register(&Command{
 		ID:          "git.status",
@@ -296,6 +305,15 @@ func InitializeCommands(registry *CommandRegistry) error {
 		Handler:     commands.ToggleGroupCommand,
 		Contexts:    []ContextID{ContextList},
 	}).BindKey("space")
+
+	registry.Register(&Command{
+		ID:          "org.cycle_grouping",
+		Name:        "Cycle Grouping",
+		Description: "Cycle through grouping strategies (Category, Branch, Path, etc.)",
+		Category:    CategoryOrganization,
+		Handler:     commands.CycleGroupingModeCommand,
+		Contexts:    []ContextID{ContextList},
+	}).BindKey("G")
 
 	// System commands (available in most contexts)
 	registry.Register(&Command{

@@ -125,6 +125,52 @@
   font-weight: 500;
 }
 
+.tagsContainer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tag {
+  display: inline-block;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  background: #1e40af;
+  color: #dbeafe;
+  border-radius: 9999px;
+  transition: background 0.2s ease;
+}
+
+.tag:hover {
+  background: #1e3a8a;
+}
+
+.editTagsButton {
+  padding: 4px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  background: transparent;
+  color: #1e40af;
+  border: 1px solid #1e40af;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.editTagsButton:hover {
+  background: #1e40af;
+  color: #dbeafe;
+}
+
 .body {
   margin-bottom: 12px;
 }
@@ -277,6 +323,16 @@
   .deleteButton:hover {
     background: #991b1b;
     border-color: #b91c1c;
+  }
+
+  .editTagsButton {
+    color: #dbeafe;
+    border-color: #1e40af;
+  }
+
+  .editTagsButton:hover {
+    background: #1e40af;
+    color: #dbeafe;
   }
 }
 

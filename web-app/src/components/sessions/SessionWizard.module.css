@@ -46,6 +46,23 @@
   color: var(--foreground);
 }
 
+/* Placeholder styling for better readability */
+.field input[type="text"]::placeholder,
+.field input[type="number"]::placeholder,
+.field textarea::placeholder {
+  color: var(--placeholder-color, #9ca3af);
+  opacity: 1;
+}
+
+/* Dark mode placeholder - higher contrast */
+@media (prefers-color-scheme: dark) {
+  .field input[type="text"]::placeholder,
+  .field input[type="number"]::placeholder,
+  .field textarea::placeholder {
+    color: var(--placeholder-color-dark, #6b7280);
+  }
+}
+
 .field input:focus,
 .field select:focus,
 .field textarea:focus {

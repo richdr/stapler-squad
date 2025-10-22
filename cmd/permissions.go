@@ -14,6 +14,7 @@ var commandPermissionRequirements = map[CommandID]func(perms session.InstancePer
 	"session.checkout":        func(perms session.InstancePermissions) bool { return perms.CanPause && perms.CanModifyGit },
 	"session.resume":          func(perms session.InstancePermissions) bool { return perms.CanResume },
 	"session.claude_settings": func(perms session.InstancePermissions) bool { return perms.CanModifyGit },
+	"session.tag_editor":      func(perms session.InstancePermissions) bool { return perms.CanModifyGit },
 
 	// Git integration commands
 	"git.status":        func(perms session.InstancePermissions) bool { return perms.CanModifyGit },

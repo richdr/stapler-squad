@@ -28,6 +28,8 @@ var (
 	autoYesFlag        bool
 	daemonFlag         bool
 	webFlag            bool
+	testModeFlag       bool
+	testDirFlag        string
 	discoveryModeFlag  string
 	discoverExtFlag    bool
 	rootCmd            = &cobra.Command{
@@ -35,6 +37,19 @@ var (
 		Short: "Claude Squad - Manage multiple AI agents like Claude Code, Aider, Codex, and Amp.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
+
+			// Enable test mode if flag is set
+			if testModeFlag {
+				testDir := testDirFlag
+				if testDir == "" {
+					// Use default test directory with PID for isolation
+					testDir = fmt.Sprintf("/tmp/claude-squad-test-%d", os.Getpid())
+				}
+				// Set environment variable for config package to use
+				os.Setenv("CLAUDE_SQUAD_TEST_DIR", testDir)
+				log.InfoLog.Printf("Test mode enabled: using isolated data directory %s", testDir)
+			}
+
 			// Load config first so we can configure logging properly
 			cfg := config.LoadConfig()
 
@@ -89,8 +104,13 @@ var (
 
 			// Web server mode
 			if webFlag {
-				srv := server.NewServer("localhost:8543")
-				log.InfoLog.Printf("Starting web server mode on localhost:8543")
+				// Use PORT environment variable if set (for test mode), otherwise default to 8543
+				address := "localhost:8543"
+				if port := os.Getenv("PORT"); port != "" {
+					address = "localhost:" + port
+				}
+				srv := server.NewServer(address)
+				log.InfoLog.Printf("Starting web server mode on %s", address)
 				return srv.Start(ctx)
 			}
 
@@ -452,6 +472,8 @@ func init() {
 	rootCmd.Flags().BoolVar(&daemonFlag, "daemon", false, "Run a program that loads all sessions"+
 		" and runs autoyes mode on them.")
 	rootCmd.Flags().BoolVar(&webFlag, "web", false, "Run HTTP server with ConnectRPC API on localhost:8543")
+	rootCmd.Flags().BoolVar(&testModeFlag, "test-mode", false, "Run in test mode with isolated data directory")
+	rootCmd.Flags().StringVar(&testDirFlag, "test-dir", "", "Custom test data directory (defaults to /tmp/claude-squad-test-<PID>)")
 
 	// Discovery mode flags
 	rootCmd.Flags().StringVar(&discoveryModeFlag, "discovery-mode", "",

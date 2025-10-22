@@ -36,6 +36,13 @@ export function Header() {
             <span className={styles.navLinkText}>Review Queue</span>
             <ReviewQueueNavBadge inline={true} />
           </Link>
+          <Link
+            href="/logs"
+            className={`${styles.navLink} ${pathname === "/logs" ? styles.active : ""}`}
+            onClick={() => console.log("Logs link clicked")}
+          >
+            Logs
+          </Link>
         </nav>
 
         <div className={styles.actions}>

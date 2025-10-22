@@ -24,9 +24,11 @@ func TestInstanceRendererWithDifferentStatuses(t *testing.T) {
 	}
 
 	// Setup a mock instance with minimal required fields
+	// Mark as managed to show standard status icons (not external eye icon)
 	instance := &session.Instance{
 		Title:     "Test Instance",
 		Branch:    "test-branch",
+		IsManaged: true, // Render standard status icons
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
@@ -124,9 +126,12 @@ func TestOrganizeByCategory(t *testing.T) {
 	list := NewList(&s, false, nil)
 
 	// Create test instances with different categories
+	// Note: After the two-tier hierarchy implementation, managed sessions
+	// are grouped under "Squad Sessions/{Category}"
 	instance1 := &session.Instance{
 		Title:     "Test1",
 		Category:  "Work",
+		IsManaged: true, // Managed sessions go under "Squad Sessions"
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
@@ -134,13 +139,15 @@ func TestOrganizeByCategory(t *testing.T) {
 	instance2 := &session.Instance{
 		Title:     "Test2",
 		Category:  "Personal",
+		IsManaged: true, // Managed sessions go under "Squad Sessions"
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
 
 	instance3 := &session.Instance{
 		Title:     "Test3",
-		Category:  "", // No category, should go to "Uncategorized"
+		Category:  "", // No category, should go to "Squad Sessions" (uncategorized managed)
+		IsManaged: true,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
@@ -148,6 +155,7 @@ func TestOrganizeByCategory(t *testing.T) {
 	instance4 := &session.Instance{
 		Title:     "Test4",
 		Category:  "Work", // Same category as instance1
+		IsManaged: true,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
@@ -162,27 +170,29 @@ func TestOrganizeByCategory(t *testing.T) {
 	list.OrganizeByCategory()
 
 	// Verify that the list has the correct number of categories
-	expectedCategoryCount := 3 // Work, Personal, Uncategorized
+	// With two-tier hierarchy: "Squad Sessions/Work", "Squad Sessions/Personal", "Squad Sessions"
+	expectedCategoryCount := 3
 	if len(list.categoryGroups) != expectedCategoryCount {
-		t.Errorf("Expected %d categories, got %d", expectedCategoryCount, len(list.categoryGroups))
+		t.Errorf("Expected %d categories, got %d (categories: %v)",
+			expectedCategoryCount, len(list.categoryGroups), list.categoryGroups)
 	}
 
-	// Verify "Work" category has 2 instances
-	workInstances := list.categoryGroups["Work"]
+	// Verify "Squad Sessions/Work" category has 2 instances
+	workInstances := list.categoryGroups["Squad Sessions/Work"]
 	if len(workInstances) != 2 {
-		t.Errorf("Expected Work category to have 2 instances, got %d", len(workInstances))
+		t.Errorf("Expected Squad Sessions/Work category to have 2 instances, got %d", len(workInstances))
 	}
 
-	// Verify "Personal" category has 1 instance
-	personalInstances := list.categoryGroups["Personal"]
+	// Verify "Squad Sessions/Personal" category has 1 instance
+	personalInstances := list.categoryGroups["Squad Sessions/Personal"]
 	if len(personalInstances) != 1 {
-		t.Errorf("Expected Personal category to have 1 instance, got %d", len(personalInstances))
+		t.Errorf("Expected Squad Sessions/Personal category to have 1 instance, got %d", len(personalInstances))
 	}
 
-	// Verify "Uncategorized" category has 1 instance
-	uncategorizedInstances := list.categoryGroups["Uncategorized"]
+	// Verify "Squad Sessions" category has 1 instance (uncategorized managed session)
+	uncategorizedInstances := list.categoryGroups["Squad Sessions"]
 	if len(uncategorizedInstances) != 1 {
-		t.Errorf("Expected Uncategorized category to have 1 instance, got %d", len(uncategorizedInstances))
+		t.Errorf("Expected Squad Sessions category to have 1 instance, got %d", len(uncategorizedInstances))
 	}
 }
 
@@ -194,9 +204,11 @@ func TestCategoryExpansionCollapse(t *testing.T) {
 	list := NewList(&s, false, nil)
 
 	// Create test instances with different categories
+	// Note: Use two-tier hierarchy category names
 	instance1 := &session.Instance{
 		Title:     "Test1",
 		Category:  "Work",
+		IsManaged: true, // Creates "Squad Sessions/Work"
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
@@ -204,6 +216,7 @@ func TestCategoryExpansionCollapse(t *testing.T) {
 	instance2 := &session.Instance{
 		Title:     "Test2",
 		Category:  "Personal",
+		IsManaged: true, // Creates "Squad Sessions/Personal"
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
@@ -213,35 +226,39 @@ func TestCategoryExpansionCollapse(t *testing.T) {
 	list.AddInstance(instance2)
 	list.OrganizeByCategory()
 
+	// Use two-tier category names for testing
+	workCategory := "Squad Sessions/Work"
+	personalCategory := "Squad Sessions/Personal"
+
 	// Verify default expansion state (should be expanded)
-	if !list.groupExpanded["Work"] {
-		t.Errorf("Expected Work category to be expanded by default")
+	if !list.groupExpanded[workCategory] {
+		t.Errorf("Expected %s category to be expanded by default", workCategory)
 	}
-	if !list.groupExpanded["Personal"] {
-		t.Errorf("Expected Personal category to be expanded by default")
+	if !list.groupExpanded[personalCategory] {
+		t.Errorf("Expected %s category to be expanded by default", personalCategory)
 	}
 
 	// Test collapse functionality
-	list.CollapseCategory("Work")
-	if list.groupExpanded["Work"] {
-		t.Errorf("Expected Work category to be collapsed after CollapseCategory")
+	list.CollapseCategory(workCategory)
+	if list.groupExpanded[workCategory] {
+		t.Errorf("Expected %s category to be collapsed after CollapseCategory", workCategory)
 	}
 
 	// Test expand functionality
-	list.ExpandCategory("Work")
-	if !list.groupExpanded["Work"] {
-		t.Errorf("Expected Work category to be expanded after ExpandCategory")
+	list.ExpandCategory(workCategory)
+	if !list.groupExpanded[workCategory] {
+		t.Errorf("Expected %s category to be expanded after ExpandCategory", workCategory)
 	}
 
 	// Test toggle functionality
-	list.ToggleCategory("Work")
-	if list.groupExpanded["Work"] {
-		t.Errorf("Expected Work category to be collapsed after first ToggleCategory")
+	list.ToggleCategory(workCategory)
+	if list.groupExpanded[workCategory] {
+		t.Errorf("Expected %s category to be collapsed after first ToggleCategory", workCategory)
 	}
 
-	list.ToggleCategory("Work")
-	if !list.groupExpanded["Work"] {
-		t.Errorf("Expected Work category to be expanded after second ToggleCategory")
+	list.ToggleCategory(workCategory)
+	if !list.groupExpanded[workCategory] {
+		t.Errorf("Expected %s category to be expanded after second ToggleCategory", workCategory)
 	}
 }
 

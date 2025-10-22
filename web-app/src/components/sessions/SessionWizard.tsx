@@ -1,9 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Wizard, WizardActions } from "@/components/ui/Wizard";
+import { AutocompleteInput } from "@/components/ui/AutocompleteInput";
+import { useRepositorySuggestions } from "@/lib/hooks/useRepositorySuggestions";
+import { useBranchSuggestions } from "@/lib/hooks/useBranchSuggestions";
 import { sessionSchema, SessionFormData, defaultValues } from "@/lib/validation/sessionSchema";
 import styles from "./SessionWizard.module.css";
 
@@ -33,6 +36,7 @@ export function SessionWizard({ onComplete, onCancel, initialData }: SessionWiza
     formState: { errors },
     trigger,
     watch,
+    control,
   } = useForm<SessionFormData>({
     resolver: zodResolver(sessionSchema),
     defaultValues: initialData ? { ...defaultValues, ...initialData } : defaultValues,
@@ -44,6 +48,15 @@ export function SessionWizard({ onComplete, onCancel, initialData }: SessionWiza
 
   // Watch the program field to show/hide custom command input
   const selectedProgram = watch("program");
+
+  // Watch the repository path to update branch suggestions
+  const repositoryPath = watch("path");
+
+  // Get autocomplete suggestions
+  const { suggestions: repositorySuggestions, isLoading: isLoadingRepos } = useRepositorySuggestions();
+  const { suggestions: branchSuggestions, isLoading: isLoadingBranches } = useBranchSuggestions({
+    repositoryPath,
+  });
 
   const steps = ["Basic Info", "Repository", "Configuration", "Review"];
 
@@ -107,6 +120,7 @@ export function SessionWizard({ onComplete, onCancel, initialData }: SessionWiza
               <input
                 id="title"
                 type="text"
+                data-testid="session-title"
                 {...register("title")}
                 placeholder="feature-user-auth"
                 className={errors.title ? styles.error : ""}
@@ -145,12 +159,22 @@ export function SessionWizard({ onComplete, onCancel, initialData }: SessionWiza
               <label htmlFor="path">
                 Repository Path <span className={styles.required}>*</span>
               </label>
-              <input
-                id="path"
-                type="text"
-                {...register("path")}
-                placeholder="/Users/username/projects/my-repo"
-                className={errors.path ? styles.error : ""}
+              <Controller
+                name="path"
+                control={control}
+                render={({ field }) => (
+                  <AutocompleteInput
+                    id="path"
+                    value={field.value || ""}
+                    onChange={field.onChange}
+                    onBlur={field.onBlur}
+                    placeholder="/Users/username/projects/my-repo"
+                    suggestions={repositorySuggestions}
+                    isLoading={isLoadingRepos}
+                    error={!!errors.path}
+                    data-testid="session-path"
+                  />
+                )}
               />
               {errors.path && (
                 <span className={styles.errorMessage}>{errors.path.message}</span>
@@ -178,11 +202,21 @@ export function SessionWizard({ onComplete, onCancel, initialData }: SessionWiza
 
             <div className={styles.field}>
               <label htmlFor="branch">Git Branch</label>
-              <input
-                id="branch"
-                type="text"
-                {...register("branch")}
-                placeholder="feature/my-feature"
+              <Controller
+                name="branch"
+                control={control}
+                render={({ field }) => (
+                  <AutocompleteInput
+                    id="branch"
+                    value={field.value || ""}
+                    onChange={field.onChange}
+                    onBlur={field.onBlur}
+                    placeholder="feature/my-feature"
+                    suggestions={branchSuggestions}
+                    isLoading={isLoadingBranches}
+                    error={!!errors.branch}
+                  />
+                )}
               />
               {errors.branch && (
                 <span className={styles.errorMessage}>{errors.branch.message}</span>
@@ -252,7 +286,7 @@ export function SessionWizard({ onComplete, onCancel, initialData }: SessionWiza
 
             <div className={styles.field}>
               <label className={styles.checkbox}>
-                <input type="checkbox" {...register("autoYes")} />
+                <input type="checkbox" data-testid="auto-yes-checkbox" {...register("autoYes")} />
                 <span>Auto-approve prompts (experimental mode)</span>
               </label>
               <span className={styles.hint}>
@@ -360,6 +394,7 @@ export function SessionWizard({ onComplete, onCancel, initialData }: SessionWiza
           ) : (
             <button
               type="submit"
+              data-testid="create-session-button"
               className={styles.buttonPrimary}
               disabled={isSubmitting}
             >

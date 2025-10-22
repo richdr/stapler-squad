@@ -104,11 +104,21 @@ func isTestMode() bool {
 // with hierarchical isolation for safe multi-instance and test execution.
 //
 // Priority hierarchy:
-//  1. Explicit instance ID via CLAUDE_SQUAD_INSTANCE environment variable
-//  2. Test mode auto-detection (automatic isolation for tests/benchmarks)
-//  3. Workspace-based isolation (default for production, per-directory state)
-//  4. Global shared state (fallback, backward compatibility)
+//  1. Test directory override via CLAUDE_SQUAD_TEST_DIR (for --test-mode flag)
+//  2. Explicit instance ID via CLAUDE_SQUAD_INSTANCE environment variable
+//  3. Test mode auto-detection (automatic isolation for tests/benchmarks)
+//  4. Workspace-based isolation (default for production, per-directory state)
+//  5. Global shared state (fallback, backward compatibility)
 func GetConfigDir() (string, error) {
+	// Priority 1: Test directory override (from --test-mode flag)
+	if testDir := os.Getenv("CLAUDE_SQUAD_TEST_DIR"); testDir != "" {
+		// Create the test directory if it doesn't exist
+		if err := os.MkdirAll(testDir, 0755); err != nil {
+			return "", fmt.Errorf("failed to create test directory: %w", err)
+		}
+		return testDir, nil
+	}
+
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get config home directory: %w", err)
@@ -116,7 +126,7 @@ func GetConfigDir() (string, error) {
 
 	baseDir := filepath.Join(homeDir, ".claude-squad")
 
-	// Priority 1: Explicit instance ID (tests, named instances, backward compat)
+	// Priority 2: Explicit instance ID (tests, named instances, backward compat)
 	if instanceID := os.Getenv("CLAUDE_SQUAD_INSTANCE"); instanceID != "" {
 		// Special value "shared" maintains backward compatibility
 		if instanceID == "shared" {
@@ -125,14 +135,14 @@ func GetConfigDir() (string, error) {
 		return filepath.Join(baseDir, "instances", instanceID), nil
 	}
 
-	// Priority 2: Test mode auto-detection (automatic isolation)
+	// Priority 3: Test mode auto-detection (automatic isolation)
 	if isTestMode() {
 		// Each test/benchmark process gets its own isolated state
 		pid := os.Getpid()
 		return filepath.Join(baseDir, "test", fmt.Sprintf("test-%d", pid)), nil
 	}
 
-	// Priority 3: Workspace-based isolation (production default)
+	// Priority 4: Workspace-based isolation (production default)
 	// Can be disabled with CLAUDE_SQUAD_WORKSPACE_MODE=false
 	if os.Getenv("CLAUDE_SQUAD_WORKSPACE_MODE") != "false" {
 		workDir, err := os.Getwd()
@@ -146,7 +156,7 @@ func GetConfigDir() (string, error) {
 		log.WarningLog.Printf("Failed to get working directory for workspace isolation: %v", err)
 	}
 
-	// Priority 4: Global shared state (fallback, backward compatibility)
+	// Priority 5: Global shared state (fallback, backward compatibility)
 	return baseDir, nil
 }
 

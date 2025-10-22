@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { Session, SessionStatus } from "@/gen/session/v1/types_pb";
 import { SessionCard } from "./SessionCard";
+import { GroupingStrategy, GroupingStrategyLabels, groupSessions, cycleGroupingStrategy } from "@/lib/grouping/strategies";
 import styles from "./SessionList.module.css";
 
 interface SessionListProps {
@@ -13,7 +14,39 @@ interface SessionListProps {
   onPauseSession?: (sessionId: string) => void;
   onResumeSession?: (sessionId: string) => void;
   onDuplicateSession?: (sessionId: string) => void;
+  onUpdateTags?: (sessionId: string, tags: string[]) => void;
 }
+
+// Local storage keys for persisting UI preferences
+const STORAGE_KEYS = {
+  SEARCH_QUERY: 'claude-squad-search-query',
+  SELECTED_STATUS: 'claude-squad-selected-status',
+  SELECTED_CATEGORY: 'claude-squad-selected-category',
+  SELECTED_TAG: 'claude-squad-selected-tag',
+  HIDE_PAUSED: 'claude-squad-hide-paused',
+  GROUPING_STRATEGY: 'claude-squad-grouping-strategy',
+};
+
+// Helper functions for local storage operations
+const loadFromStorage = <T,>(key: string, defaultValue: T): T => {
+  if (typeof window === 'undefined') return defaultValue;
+  try {
+    const item = window.localStorage.getItem(key);
+    return item ? JSON.parse(item) : defaultValue;
+  } catch (error) {
+    console.warn(`Failed to load ${key} from localStorage:`, error);
+    return defaultValue;
+  }
+};
+
+const saveToStorage = <T,>(key: string, value: T): void => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    console.warn(`Failed to save ${key} to localStorage:`, error);
+  }
+};
 
 export function SessionList({
   sessions,
@@ -22,11 +55,50 @@ export function SessionList({
   onPauseSession,
   onResumeSession,
   onDuplicateSession,
+  onUpdateTags,
 }: SessionListProps) {
-  const [searchQuery, setSearchQuery] = useState("");
-  const [selectedStatus, setSelectedStatus] = useState<SessionStatus | "all">("all");
-  const [selectedCategory, setSelectedCategory] = useState<string | "all">("all");
-  const [hidePaused, setHidePaused] = useState(false);
+  // Initialize state from local storage
+  const [searchQuery, setSearchQuery] = useState(() => loadFromStorage(STORAGE_KEYS.SEARCH_QUERY, ""));
+  const [selectedStatus, setSelectedStatus] = useState<SessionStatus | "all">(() =>
+    loadFromStorage(STORAGE_KEYS.SELECTED_STATUS, "all")
+  );
+  const [selectedCategory, setSelectedCategory] = useState<string | "all">(() =>
+    loadFromStorage(STORAGE_KEYS.SELECTED_CATEGORY, "all")
+  );
+  const [selectedTag, setSelectedTag] = useState<string | "all">(() =>
+    loadFromStorage(STORAGE_KEYS.SELECTED_TAG, "all")
+  );
+  const [hidePaused, setHidePaused] = useState(() =>
+    loadFromStorage(STORAGE_KEYS.HIDE_PAUSED, false)
+  );
+  const [groupingStrategy, setGroupingStrategy] = useState<GroupingStrategy>(() =>
+    loadFromStorage(STORAGE_KEYS.GROUPING_STRATEGY, GroupingStrategy.Category)
+  );
+
+  // Persist filter preferences to local storage whenever they change
+  useEffect(() => {
+    saveToStorage(STORAGE_KEYS.SEARCH_QUERY, searchQuery);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    saveToStorage(STORAGE_KEYS.SELECTED_STATUS, selectedStatus);
+  }, [selectedStatus]);
+
+  useEffect(() => {
+    saveToStorage(STORAGE_KEYS.SELECTED_CATEGORY, selectedCategory);
+  }, [selectedCategory]);
+
+  useEffect(() => {
+    saveToStorage(STORAGE_KEYS.SELECTED_TAG, selectedTag);
+  }, [selectedTag]);
+
+  useEffect(() => {
+    saveToStorage(STORAGE_KEYS.HIDE_PAUSED, hidePaused);
+  }, [hidePaused]);
+
+  useEffect(() => {
+    saveToStorage(STORAGE_KEYS.GROUPING_STRATEGY, groupingStrategy);
+  }, [groupingStrategy]);
 
   // Extract unique categories from sessions
   const categories = useMemo(() => {
@@ -39,6 +111,17 @@ export function SessionList({
     return Array.from(categorySet).sort();
   }, [sessions]);
 
+  // Extract unique tags from sessions
+  const tags = useMemo(() => {
+    const tagSet = new Set<string>();
+    sessions.forEach((session) => {
+      if (session.tags) {
+        session.tags.forEach(tag => tagSet.add(tag));
+      }
+    });
+    return Array.from(tagSet).sort();
+  }, [sessions]);
+
   // Filter sessions based on search query and filters
   const filteredSessions = useMemo(() => {
     return sessions.filter((session) => {
@@ -49,7 +132,8 @@ export function SessionList({
           session.title.toLowerCase().includes(query) ||
           session.path.toLowerCase().includes(query) ||
           session.branch.toLowerCase().includes(query) ||
-          (session.category && session.category.toLowerCase().includes(query));
+          (session.category && session.category.toLowerCase().includes(query)) ||
+          (session.tags && session.tags.some(tag => tag.toLowerCase().includes(query)));
 
         if (!matchesSearch) return false;
       }
@@ -64,6 +148,13 @@ export function SessionList({
         return false;
       }
 
+      // Tag filter
+      if (selectedTag !== "all") {
+        if (!session.tags || !session.tags.includes(selectedTag)) {
+          return false;
+        }
+      }
+
       // Hide paused filter
       if (hidePaused && session.status === SessionStatus.PAUSED) {
         return false;
@@ -71,32 +162,17 @@ export function SessionList({
 
       return true;
     });
-  }, [sessions, searchQuery, selectedStatus, selectedCategory, hidePaused]);
+  }, [sessions, searchQuery, selectedStatus, selectedCategory, selectedTag, hidePaused]);
 
-  // Group sessions by category
+  // Group sessions by selected strategy
   const groupedSessions = useMemo(() => {
-    const grouped = new Map<string, Session[]>();
+    return groupSessions(filteredSessions, groupingStrategy);
+  }, [filteredSessions, groupingStrategy]);
 
-    filteredSessions.forEach((session) => {
-      const category = session.category || "Uncategorized";
-      if (!grouped.has(category)) {
-        grouped.set(category, []);
-      }
-      grouped.get(category)!.push(session);
-    });
-
-    // Sort categories alphabetically, but keep "Uncategorized" at the end
-    const sortedCategories = Array.from(grouped.keys()).sort((a, b) => {
-      if (a === "Uncategorized") return 1;
-      if (b === "Uncategorized") return -1;
-      return a.localeCompare(b);
-    });
-
-    return sortedCategories.map((category) => ({
-      category,
-      sessions: grouped.get(category)!,
-    }));
-  }, [filteredSessions]);
+  // Handler for cycling grouping strategy (keyboard shortcut 'G')
+  const handleCycleGrouping = () => {
+    setGroupingStrategy(cycleGroupingStrategy(groupingStrategy));
+  };
 
   return (
     <div className={styles.container}>
@@ -153,6 +229,20 @@ export function SessionList({
             ))}
           </select>
 
+          {/* Tag filter */}
+          <select
+            value={selectedTag}
+            onChange={(e) => setSelectedTag(e.target.value)}
+            className={styles.select}
+          >
+            <option value="all">All Tags</option>
+            {tags.map((tag) => (
+              <option key={tag} value={tag}>
+                {tag}
+              </option>
+            ))}
+          </select>
+
           {/* Hide paused toggle */}
           <label className={styles.checkbox}>
             <input
@@ -162,23 +252,38 @@ export function SessionList({
             />
             <span>Hide Paused</span>
           </label>
+
+          {/* Grouping strategy selector */}
+          <select
+            value={groupingStrategy}
+            onChange={(e) => setGroupingStrategy(e.target.value as GroupingStrategy)}
+            className={styles.select}
+            title="Group by (Keyboard: G)"
+          >
+            {Object.entries(GroupingStrategyLabels).map(([value, label]) => (
+              <option key={value} value={value}>
+                Group by: {label}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
       {/* Session list */}
       {filteredSessions.length === 0 ? (
         <div className={styles.empty}>
-          <p>{searchQuery || selectedStatus !== "all" || selectedCategory !== "all" || hidePaused
+          <p>{searchQuery || selectedStatus !== "all" || selectedCategory !== "all" || selectedTag !== "all" || hidePaused
             ? "No sessions found"
             : "No sessions yet"
           }</p>
-          {searchQuery || selectedStatus !== "all" || selectedCategory !== "all" || hidePaused ? (
+          {searchQuery || selectedStatus !== "all" || selectedCategory !== "all" || selectedTag !== "all" || hidePaused ? (
             <button
               className={styles.clearButton}
               onClick={() => {
                 setSearchQuery("");
                 setSelectedStatus("all");
                 setSelectedCategory("all");
+                setSelectedTag("all");
                 setHidePaused(false);
               }}
             >
@@ -198,13 +303,13 @@ export function SessionList({
         </div>
       ) : (
         <div className={styles.sessionList}>
-          {groupedSessions.map(({ category, sessions: categorySessions }) => (
-            <div key={category} className={styles.categoryGroup}>
+          {groupedSessions.map(({ groupKey, displayName, sessions: groupSessions }) => (
+            <div key={groupKey} className={styles.categoryGroup}>
               <h3 className={styles.categoryTitle}>
-                {category} ({categorySessions.length})
+                {displayName} ({groupSessions.length})
               </h3>
               <div className={styles.categoryContent}>
-                {categorySessions.map((session) => (
+                {groupSessions.map((session) => (
                   <SessionCard
                     key={session.id}
                     session={session}
@@ -213,6 +318,7 @@ export function SessionList({
                     onPause={() => onPauseSession?.(session.id)}
                     onResume={() => onResumeSession?.(session.id)}
                     onDuplicate={() => onDuplicateSession?.(session.id)}
+                    onUpdateTags={onUpdateTags}
                   />
                 ))}
               </div>

@@ -30,6 +30,7 @@ const (
 	ComponentGitStatusOverlay
 	ComponentClaudeSettingsOverlay
 	ComponentZFSearchOverlay
+	ComponentTagEditorOverlay
 )
 
 // String returns the string representation of the component type
@@ -65,6 +66,8 @@ func (c ComponentType) String() string {
 		return "ClaudeSettingsOverlay"
 	case ComponentZFSearchOverlay:
 		return "ZFSearchOverlay"
+	case ComponentTagEditorOverlay:
+		return "TagEditorOverlay"
 	default:
 		return "Unknown"
 	}
@@ -75,7 +78,8 @@ func (c ComponentType) IsOverlay() bool {
 	switch c {
 	case ComponentTextInputOverlay, ComponentLiveSearchOverlay, ComponentTextOverlay,
 		ComponentMessagesOverlay, ComponentConfirmationOverlay, ComponentSessionSetupOverlay,
-		ComponentGitStatusOverlay, ComponentClaudeSettingsOverlay, ComponentZFSearchOverlay:
+		ComponentGitStatusOverlay, ComponentClaudeSettingsOverlay, ComponentZFSearchOverlay,
+		ComponentTagEditorOverlay:
 		return true
 	default:
 		return false
@@ -112,6 +116,7 @@ type ComponentRegistry struct {
 	GitStatusOverlay        *overlay.GitStatusOverlay
 	ClaudeSettingsOverlay   *overlay.ClaudeSettingsOverlay
 	ZFSearchOverlay         *overlay.ZFSearchOverlay
+	TagEditorOverlay        *overlay.TagEditorOverlay
 
 	// Component states
 	states map[ComponentType]*ComponentState

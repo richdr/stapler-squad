@@ -15,6 +15,7 @@ type SessionHandlers struct {
 	OnCheckout        func() (tea.Model, tea.Cmd)
 	OnResume          func() (tea.Model, tea.Cmd)
 	OnClaudeSettings  func() (tea.Model, tea.Cmd)
+	OnTagEditor       func() (tea.Model, tea.Cmd)
 }
 
 var sessionHandlers = &SessionHandlers{}
@@ -82,6 +83,16 @@ func ResumeCommand(ctx *interfaces.CommandContext) error {
 func ClaudeSettingsCommand(ctx *interfaces.CommandContext) error {
 	if sessionHandlers.OnClaudeSettings != nil {
 		model, teaCmd := sessionHandlers.OnClaudeSettings()
+		ctx.Args["model"] = model
+		ctx.Args["cmd"] = teaCmd
+	}
+	return nil
+}
+
+// TagEditorCommand opens the tag editor for the selected session
+func TagEditorCommand(ctx *interfaces.CommandContext) error {
+	if sessionHandlers.OnTagEditor != nil {
+		model, teaCmd := sessionHandlers.OnTagEditor()
 		ctx.Args["model"] = model
 		ctx.Args["cmd"] = teaCmd
 	}

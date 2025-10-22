@@ -5,6 +5,7 @@ import { useState, useEffect, Suspense } from "react";
 import { SessionWizard } from "@/components/sessions/SessionWizard";
 import { SessionFormData } from "@/lib/validation/sessionSchema";
 import { useSessionService } from "@/lib/hooks/useSessionService";
+import { getApiBaseUrl } from "@/lib/config";
 import styles from "./page.module.css";
 
 function NewSessionContent() {
@@ -14,7 +15,7 @@ function NewSessionContent() {
   const [loading, setLoading] = useState(true);
 
   const { createSession, getSession } = useSessionService({
-    baseUrl: "http://localhost:8543",
+    baseUrl: getApiBaseUrl(),
   });
 
   // Check if we're duplicating an existing session
@@ -58,6 +59,12 @@ function NewSessionContent() {
         autoYes: data.autoYes,
         existingWorktree: data.existingWorktree || "",
       });
+
+      // Show success indicator (for tests)
+      const successIndicator = document.createElement('div');
+      successIndicator.setAttribute('data-testid', 'session-created');
+      successIndicator.style.display = 'none';
+      document.body.appendChild(successIndicator);
 
       // Navigate back to home page
       router.push("/");

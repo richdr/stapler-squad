@@ -24,6 +24,8 @@ const (
 	ClaudeSettings
 	// ZFSearch is the state when the ZF fuzzy search overlay is displayed
 	ZFSearch
+	// TagEditor is the state when the tag editor overlay is displayed
+	TagEditor
 )
 
 // String returns a human-readable string representation of the state
@@ -49,6 +51,8 @@ func (s State) String() string {
 		return "ClaudeSettings"
 	case ZFSearch:
 		return "ZFSearch"
+	case TagEditor:
+		return "TagEditor"
 	default:
 		return "Unknown"
 	}
@@ -56,13 +60,13 @@ func (s State) String() string {
 
 // IsValid returns true if the state is a valid state value
 func (s State) IsValid() bool {
-	return s >= Default && s <= ZFSearch
+	return s >= Default && s <= TagEditor
 }
 
 // IsOverlayState returns true if the state represents an overlay/modal state
 func (s State) IsOverlayState() bool {
 	switch s {
-	case New, Prompt, Help, Confirm, AdvancedNew, Git, ClaudeSettings, ZFSearch:
+	case New, Prompt, Help, Confirm, AdvancedNew, Git, ClaudeSettings, ZFSearch, TagEditor:
 		return true
 	default:
 		return false
