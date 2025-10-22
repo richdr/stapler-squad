@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useReviewQueue } from "@/lib/hooks/useReviewQueue";
+import { useReviewQueueNavigation } from "@/lib/hooks/useReviewQueueNavigation";
 import { ReviewQueueBadge } from "./ReviewQueueBadge";
 import { Priority, AttentionReason } from "@/gen/session/v1/types_pb";
 import styles from "./ReviewQueuePanel.module.css";
@@ -53,6 +54,7 @@ export function ReviewQueuePanel({
     averageAgeSeconds,
     oldestAgeSeconds,
     refresh,
+    acknowledgeSession,
   } = useReviewQueue({
     // Enable hybrid push/poll by default
     useWebSocketPush: true,
@@ -62,6 +64,16 @@ export function ReviewQueuePanel({
     // Legacy polling options (only used if useWebSocketPush is disabled)
     autoRefresh: false, // Disable legacy polling in favor of WebSocket push
     refreshInterval,
+  });
+
+  // Keyboard navigation
+  const { currentIndex, goToNext, goToPrevious } = useReviewQueueNavigation({
+    items,
+    onNavigate: (item, index) => {
+      // Navigate to the selected session
+      onSessionClick?.(item.sessionId);
+    },
+    enableKeyboardShortcuts: true,
   });
 
   const formatAge = (timestampSeconds: bigint): string => {
@@ -129,13 +141,15 @@ export function ReviewQueuePanel({
   }
 
   return (
-    <div className={styles.panel}>
+    <div className={styles.panel} data-testid="review-queue">
       <div className={styles.header}>
         <div className={styles.titleRow}>
           <h2 className={styles.title}>
             Review Queue{" "}
             {totalItems > 0 && (
-              <span className={styles.count}>({totalItems})</span>
+              <span className={styles.count} data-testid="review-queue-badge">
+                ({totalItems})
+              </span>
             )}
           </h2>
           <button
@@ -149,7 +163,7 @@ export function ReviewQueuePanel({
         </div>
 
         {totalItems > 0 && (
-          <div className={styles.stats}>
+          <div className={styles.stats} data-testid="queue-statistics">
             <span className={styles.stat}>
               Avg Age: {formatAge(averageAgeSeconds)}
             </span>
@@ -158,6 +172,9 @@ export function ReviewQueuePanel({
                 Oldest: {formatAge(oldestAgeSeconds)}
               </span>
             )}
+            <span className={styles.stat} data-testid="total-items">
+              Total: {totalItems}
+            </span>
           </div>
         )}
       </div>
@@ -233,59 +250,103 @@ export function ReviewQueuePanel({
             </p>
           </div>
         ) : (
-          items.map((item) => (
-            <div key={item.sessionId} className={styles.item}>
+          <>
+            {items.map((item, index) => (
               <div
-                className={styles.itemClickable}
-                onClick={() => onSessionClick?.(item.sessionId)}
+                key={item.sessionId}
+                className={styles.item}
+                data-testid={index === currentIndex ? "current-item" : "review-item"}
+                data-session-id={item.sessionId}
               >
-                <div className={styles.itemHeader}>
-                  <h3 className={styles.itemTitle}>{item.sessionName}</h3>
-                  <ReviewQueueBadge
-                    priority={item.priority}
-                    reason={item.reason}
-                    compact={true}
-                  />
-                </div>
-                <div className={styles.itemBody}>
-                  <ReviewQueueBadge
-                    priority={item.priority}
-                    reason={item.reason}
-                    compact={false}
-                  />
-                  {item.context && (
-                    <p className={styles.itemContext}>{item.context}</p>
-                  )}
-                  {item.patternName && (
-                    <span className={styles.itemPattern}>
-                      Pattern: {item.patternName}
+                <div
+                  className={`${styles.itemClickable} ${index === currentIndex ? styles.currentItem : ""}`}
+                  onClick={() => onSessionClick?.(item.sessionId)}
+                  data-testid={`review-item-${item.sessionId}`}
+                  data-current={index === currentIndex ? "true" : undefined}
+                >
+                  <div className={styles.itemHeader}>
+                    <h3 className={styles.itemTitle}>{item.sessionName}</h3>
+                    <ReviewQueueBadge
+                      priority={item.priority}
+                      reason={item.reason}
+                      compact={true}
+                    />
+                  </div>
+                  <div className={styles.itemBody}>
+                    <ReviewQueueBadge
+                      priority={item.priority}
+                      reason={item.reason}
+                      compact={false}
+                    />
+                    {item.context && (
+                      <p className={styles.itemContext}>{item.context}</p>
+                    )}
+                    {item.patternName && (
+                      <span className={styles.itemPattern}>
+                        Pattern: {item.patternName}
+                      </span>
+                    )}
+                    {/* Session details */}
+                    <div className={styles.sessionDetails}>
+                      <div className={styles.detailRow}>
+                        <span className={styles.detailLabel}>Program:</span>
+                        <span className={styles.detailValue}>{item.program}</span>
+                      </div>
+                      <div className={styles.detailRow}>
+                        <span className={styles.detailLabel}>Branch:</span>
+                        <span className={styles.detailValue}>{item.branch}</span>
+                      </div>
+                      <div className={styles.detailRow}>
+                        <span className={styles.detailLabel}>Path:</span>
+                        <span className={styles.detailValue} title={item.path}>{item.path}</span>
+                      </div>
+                      {item.tags && item.tags.length > 0 && (
+                        <div className={styles.detailRow}>
+                          <span className={styles.detailLabel}>Tags:</span>
+                          <div className={styles.tags}>
+                            {item.tags.map((tag, idx) => (
+                              <span key={idx} className={styles.tag}>{tag}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className={styles.itemFooter}>
+                    <span className={styles.itemAge}>
+                      Last Activity: {formatAge(item.lastActivity?.seconds ?? BigInt(0))}{" "}
+                      ago
                     </span>
-                  )}
+                    {item.diffStats && (item.diffStats.added > 0 || item.diffStats.removed > 0) && (
+                      <span className={styles.diffStats}>
+                        <span className={styles.diffAdded}>+{item.diffStats.added}</span>
+                        <span className={styles.diffRemoved}>-{item.diffStats.removed}</span>
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <div className={styles.itemFooter}>
-                  <span className={styles.itemAge}>
-                    Detected: {formatAge(item.detectedAt?.seconds ?? BigInt(0))}{" "}
-                    ago
-                  </span>
-                </div>
-              </div>
-              {onSkipSession && (
                 <div className={styles.itemActions}>
                   <button
                     className={styles.skipButton}
                     onClick={(e) => {
                       e.stopPropagation();
-                      onSkipSession(item.sessionId);
+                      if (onSkipSession) {
+                        onSkipSession(item.sessionId);
+                      } else {
+                        acknowledgeSession(item.sessionId);
+                      }
                     }}
-                    title="Skip session (hide until next update)"
-                    aria-label="Skip session"
+                    title="Acknowledge session (remove from queue)"
+                    aria-label="Acknowledge session"
+                    data-testid={`acknowledge-${item.sessionId}`}
                   >
                     ⏭
                   </button>
                 </div>
-              )}
-            </div>
-          ))
+              </div>
+            ))}
+            {!loading && <div data-testid="review-queue-loaded" aria-hidden="true" />}
+          </>
         )}
       </div>
     </div>

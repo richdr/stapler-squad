@@ -12,16 +12,36 @@ func ReviewItemToProto(item *session.ReviewItem) *sessionv1.ReviewItem {
 		return nil
 	}
 
-	return &sessionv1.ReviewItem{
-		SessionId:   item.SessionID,
-		SessionName: item.SessionName,
-		Reason:      attentionReasonToProto(item.Reason),
-		Priority:    priorityToProto(item.Priority),
-		DetectedAt:  timestamppb.New(item.DetectedAt),
-		Context:     item.Context,
-		PatternName: item.PatternName,
-		Metadata:    item.Metadata,
+	protoItem := &sessionv1.ReviewItem{
+		SessionId:    item.SessionID,
+		SessionName:  item.SessionName,
+		Reason:       attentionReasonToProto(item.Reason),
+		Priority:     priorityToProto(item.Priority),
+		DetectedAt:   timestamppb.New(item.DetectedAt),
+		Context:      item.Context,
+		PatternName:  item.PatternName,
+		Metadata:     item.Metadata,
+		// Session details for rich display
+		Program:      item.Program,
+		Branch:       item.Branch,
+		Path:         item.Path,
+		WorkingDir:   item.WorkingDir,
+		Status:       StatusToProto(item.Status),
+		Tags:         item.Tags,
+		Category:     item.Category,
+		LastActivity: timestamppb.New(item.LastActivity),
 	}
+
+	// Add diff stats if available
+	if item.DiffStats != nil {
+		protoItem.DiffStats = &sessionv1.DiffStats{
+			Added:   int32(item.DiffStats.Added),
+			Removed: int32(item.DiffStats.Removed),
+			Content: item.DiffStats.Content,
+		}
+	}
+
+	return protoItem
 }
 
 // ReviewQueueToProto converts session.ReviewQueue to proto ReviewQueue with statistics.

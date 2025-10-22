@@ -154,7 +154,7 @@ func TestReviewQueuePoller_ContextChangeUpdatesTimestamp(t *testing.T) {
 		SessionName: "test-session",
 		Reason:      ReasonIdleTimeout,
 		Priority:    PriorityLow,
-		DetectedAt:  time.Now(), // New timestamp
+		DetectedAt:  time.Now(),            // New timestamp
 		Context:     "Idle for 10 minutes", // Different context
 	}
 

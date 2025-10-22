@@ -1,6 +1,7 @@
 package session
 
 import (
+	"claude-squad/session/git"
 	"fmt"
 	"sort"
 	"sync"
@@ -30,14 +31,25 @@ const (
 
 // ReviewItem represents a session that needs user attention.
 type ReviewItem struct {
-	SessionID   string          `json:"session_id"`
-	SessionName string          `json:"session_name"`
-	Reason      AttentionReason `json:"reason"`
-	Priority    Priority        `json:"priority"`
-	DetectedAt  time.Time       `json:"detected_at"`
-	Context     string          `json:"context"`      // Snippet of relevant output
-	PatternName string          `json:"pattern_name"` // Pattern that matched
+	SessionID   string            `json:"session_id"`
+	SessionName string            `json:"session_name"`
+	Reason      AttentionReason   `json:"reason"`
+	Priority    Priority          `json:"priority"`
+	DetectedAt  time.Time         `json:"detected_at"`
+	Context     string            `json:"context"`            // Snippet of relevant output
+	PatternName string            `json:"pattern_name"`       // Pattern that matched
 	Metadata    map[string]string `json:"metadata,omitempty"` // Additional metadata
+
+	// Session details for rich display (matching Instance fields)
+	Program      string         `json:"program"`       // Program running (claude, aider, etc.)
+	Branch       string         `json:"branch"`        // Git branch name
+	Path         string         `json:"path"`          // Repository path
+	WorkingDir   string         `json:"working_dir"`   // Working directory
+	Status       Status         `json:"status"`        // Current session status
+	Tags         []string       `json:"tags"`          // Session tags
+	Category     string         `json:"category"`      // Session category
+	DiffStats    *git.DiffStats `json:"diff_stats"`    // Git diff statistics (nullable)
+	LastActivity time.Time      `json:"last_activity"` // Last meaningful output time (used for sorting and display)
 }
 
 // ReviewQueueObserver is notified when the review queue changes.
@@ -144,12 +156,13 @@ func (rq *ReviewQueue) getSortedItemsUnsafe() []*ReviewItem {
 		items = append(items, item)
 	}
 
-	// Sort by priority (lower number = higher priority), then by detection time
+	// Sort by priority (lower number = higher priority), then by last activity time (most recent first)
 	sort.Slice(items, func(i, j int) bool {
 		if items[i].Priority != items[j].Priority {
 			return items[i].Priority < items[j].Priority
 		}
-		return items[i].DetectedAt.Before(items[j].DetectedAt)
+		// Sort by last activity - most recent activity first (After means j is older than i)
+		return items[i].LastActivity.After(items[j].LastActivity)
 	})
 
 	return items
@@ -333,12 +346,12 @@ func (rq *ReviewQueue) GetStatistics() ReviewQueueStatistics {
 
 // ReviewQueueStatistics provides summary information about the queue.
 type ReviewQueueStatistics struct {
-	TotalItems  int
-	ByPriority  map[Priority]int
-	ByReason    map[AttentionReason]int
-	AverageAge  time.Duration
-	OldestAge   time.Duration
-	OldestItem  string
+	TotalItems int
+	ByPriority map[Priority]int
+	ByReason   map[AttentionReason]int
+	AverageAge time.Duration
+	OldestAge  time.Duration
+	OldestItem string
 }
 
 // DeterminePriority calculates the priority for a review item based on multiple factors.

@@ -624,12 +624,12 @@ func (o *testObserver) OnQueueUpdated(items []*ReviewItem) {
 
 func TestDeterminePriority(t *testing.T) {
 	tests := []struct {
-		name           string
-		reason         AttentionReason
-		status         DetectedStatus
-		age            time.Duration
-		expectedMin    Priority
-		expectedMax    Priority
+		name        string
+		reason      AttentionReason
+		status      DetectedStatus
+		age         time.Duration
+		expectedMin Priority
+		expectedMax Priority
 	}{
 		{
 			name:        "error always urgent",
