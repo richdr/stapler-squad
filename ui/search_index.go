@@ -24,6 +24,9 @@ type SearchIndex struct {
 	// Program optimization for instant program filtering
 	programIndex map[string][]*session.Instance
 
+	// Tag optimization for instant tag filtering
+	tagIndex map[string][]*session.Instance
+
 	// Session lookup by search text
 	sessionMap map[string]*session.Instance
 
@@ -41,6 +44,7 @@ func NewSearchIndex() *SearchIndex {
 	return &SearchIndex{
 		categoryIndex: make(map[string][]*session.Instance),
 		programIndex:  make(map[string][]*session.Instance),
+		tagIndex:      make(map[string][]*session.Instance),
 		sessionMap:    make(map[string]*session.Instance),
 		allSessions:   make([]*session.Instance, 0),
 		needsRebuild:  true,
@@ -55,6 +59,7 @@ func (idx *SearchIndex) RebuildIndex(sessions []*session.Instance) {
 	// Clear existing indices
 	idx.categoryIndex = make(map[string][]*session.Instance)
 	idx.programIndex = make(map[string][]*session.Instance)
+	idx.tagIndex = make(map[string][]*session.Instance)
 	idx.sessionMap = make(map[string]*session.Instance)
 	idx.allSessions = make([]*session.Instance, len(sessions))
 	copy(idx.allSessions, sessions)
@@ -84,6 +89,12 @@ func (idx *SearchIndex) RebuildIndex(sessions []*session.Instance) {
 		if instance.Program != "" {
 			programKey := strings.ToLower(filepath.Base(instance.Program))
 			idx.programIndex[programKey] = append(idx.programIndex[programKey], instance)
+		}
+
+		// Build tag index (multi-membership: session can appear in multiple tag groups)
+		for _, tag := range instance.GetTags() {
+			tagKey := strings.ToLower(tag)
+			idx.tagIndex[tagKey] = append(idx.tagIndex[tagKey], instance)
 		}
 	}
 
@@ -124,7 +135,12 @@ func (idx *SearchIndex) Search(query string, maxResults int) []*session.Instance
 		return idx.limitResults(programInstances, maxResults)
 	}
 
-	// Strategy 3: Hybrid approach - fast pre-filter + high-quality ranking
+	// Strategy 3: Tag detection for instant filtering
+	if tagInstances := idx.searchByTag(query); tagInstances != nil {
+		return idx.limitResults(tagInstances, maxResults)
+	}
+
+	// Strategy 4: Hybrid approach - fast pre-filter + high-quality ranking
 	return idx.hybridSearch(query, maxResults)
 }
 
@@ -158,7 +174,7 @@ func (idx *SearchIndex) SearchStream(ctx context.Context, query string, maxResul
 			return
 		}
 
-		// Stage 1: Fast category/program detection (immediate results)
+		// Stage 1: Fast category/program/tag detection (immediate results)
 		if categoryInstances := idx.searchByCategory(query); categoryInstances != nil {
 			limited := idx.limitResults(categoryInstances, maxResults)
 			results <- SearchResult{Instances: limited, Total: len(categoryInstances), Complete: true, Stage: "category"}
@@ -168,6 +184,12 @@ func (idx *SearchIndex) SearchStream(ctx context.Context, query string, maxResul
 		if programInstances := idx.searchByProgram(query); programInstances != nil {
 			limited := idx.limitResults(programInstances, maxResults)
 			results <- SearchResult{Instances: limited, Total: len(programInstances), Complete: true, Stage: "program"}
+			return
+		}
+
+		if tagInstances := idx.searchByTag(query); tagInstances != nil {
+			limited := idx.limitResults(tagInstances, maxResults)
+			results <- SearchResult{Instances: limited, Total: len(tagInstances), Complete: true, Stage: "tag"}
 			return
 		}
 
@@ -403,6 +425,25 @@ func (idx *SearchIndex) searchByProgram(query string) []*session.Instance {
 	return nil
 }
 
+// searchByTag checks if query is a tag name and returns instant results
+func (idx *SearchIndex) searchByTag(query string) []*session.Instance {
+	queryLower := strings.ToLower(query)
+
+	// Check for exact tag match
+	if instances, exists := idx.tagIndex[queryLower]; exists {
+		return instances
+	}
+
+	// Check for tag prefix match
+	for tag, instances := range idx.tagIndex {
+		if strings.HasPrefix(tag, queryLower) && len(queryLower) >= 2 {
+			return instances
+		}
+	}
+
+	return nil
+}
+
 // hybridSearch performs the two-stage hybrid search: fast pre-filter + fuzzy ranking
 func (idx *SearchIndex) hybridSearch(query string, maxResults int) []*session.Instance {
 	// Stage 1: Fast pre-filtering with closestmatch
@@ -478,6 +519,7 @@ func (idx *SearchIndex) createSearchText(instance *session.Instance) string {
 		instance.Branch,
 		filepath.Base(instance.Path), // Repository name
 		instance.WorkingDir,
+		strings.Join(instance.GetTags(), " "), // Tags for multi-dimensional search
 	}
 
 	// Filter out empty parts
@@ -515,13 +557,20 @@ func (idx *SearchIndex) GetStats() map[string]interface{} {
 		programCount += len(instances)
 	}
 
+	tagCount := 0
+	for _, instances := range idx.tagIndex {
+		tagCount += len(instances)
+	}
+
 	return map[string]interface{}{
 		"version":          idx.version,
 		"total_sessions":   len(idx.allSessions),
 		"categories":       len(idx.categoryIndex),
 		"programs":         len(idx.programIndex),
+		"tags":             len(idx.tagIndex),
 		"category_entries": categoryCount,
 		"program_entries":  programCount,
+		"tag_entries":      tagCount,
 		"needs_rebuild":    idx.needsRebuild,
 		"index_valid":      idx.closestMatch != nil,
 	}

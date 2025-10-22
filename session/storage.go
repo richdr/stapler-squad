@@ -30,6 +30,7 @@ type InstanceData struct {
 	// New fields for session organization and grouping
 	Category   string   `json:"category,omitempty"`
 	IsExpanded bool     `json:"is_expanded,omitempty"`
+	Tags       []string `json:"tags,omitempty"` // Multi-valued tags for flexible organization
 
 	// Session type determines the workflow (directory, new_worktree, existing_worktree)
 	SessionType SessionType `json:"session_type,omitempty"`
@@ -62,12 +63,12 @@ type DiffStatsData struct {
 
 // ClaudeSessionData represents Claude Code session information
 type ClaudeSessionData struct {
-	SessionID      string            `json:"session_id,omitempty"`       // Claude Code session identifier
-	ConversationID string            `json:"conversation_id,omitempty"`  // Conversation thread ID
-	ProjectName    string            `json:"project_name,omitempty"`     // Project name in Claude Code
-	LastAttached   time.Time         `json:"last_attached,omitempty"`    // When this session was last used
-	Settings       ClaudeSettings    `json:"settings,omitempty"`         // User preferences for Claude Code
-	Metadata       map[string]string `json:"metadata,omitempty"`         // Additional session metadata
+	SessionID      string            `json:"session_id,omitempty"`      // Claude Code session identifier
+	ConversationID string            `json:"conversation_id,omitempty"` // Conversation thread ID
+	ProjectName    string            `json:"project_name,omitempty"`    // Project name in Claude Code
+	LastAttached   time.Time         `json:"last_attached,omitempty"`   // When this session was last used
+	Settings       ClaudeSettings    `json:"settings,omitempty"`        // User preferences for Claude Code
+	Metadata       map[string]string `json:"metadata,omitempty"`        // Additional session metadata
 }
 
 // ClaudeSettings contains user preferences for Claude Code integration

@@ -195,15 +195,15 @@ type PTYDiscoveryConfig struct {
 // DefaultPTYDiscoveryConfig returns the default discovery configuration
 func DefaultPTYDiscoveryConfig() PTYDiscoveryConfig {
 	return PTYDiscoveryConfig{
-		PrimarySocket:        "",
-		ExternalSockets:      []string{},
-		Mode:                 DiscoveryModeManaged,
-		ManagedPrefix:        "claudesquad_",
-		DiscoverExternal:     false,
-		AllowExternalAttach:  false,
-		RequireConfirmation:  true,
-		DiscoveryInterval:    5 * time.Second,
-		ParallelDiscovery:    true,
+		PrimarySocket:       "",
+		ExternalSockets:     []string{},
+		Mode:                DiscoveryModeManaged,
+		ManagedPrefix:       "claudesquad_",
+		DiscoverExternal:    false,
+		AllowExternalAttach: false,
+		RequireConfirmation: true,
+		DiscoveryInterval:   5 * time.Second,
+		ParallelDiscovery:   true,
 	}
 }
 

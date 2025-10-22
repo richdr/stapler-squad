@@ -7,9 +7,10 @@ import (
 
 // OrganizationHandlers contains handlers for organization/filtering commands
 type OrganizationHandlers struct {
-	OnFilterPaused func() (tea.Model, tea.Cmd)
-	OnClearFilters func() (tea.Model, tea.Cmd)
-	OnToggleGroup  func() (tea.Model, tea.Cmd)
+	OnFilterPaused      func() (tea.Model, tea.Cmd)
+	OnClearFilters      func() (tea.Model, tea.Cmd)
+	OnToggleGroup       func() (tea.Model, tea.Cmd)
+	OnCycleGroupingMode func() (tea.Model, tea.Cmd)
 }
 
 var organizationHandlers = &OrganizationHandlers{}
@@ -43,6 +44,16 @@ func ClearFiltersCommand(ctx *interfaces.CommandContext) error {
 func ToggleGroupCommand(ctx *interfaces.CommandContext) error {
 	if organizationHandlers.OnToggleGroup != nil {
 		model, teaCmd := organizationHandlers.OnToggleGroup()
+		ctx.Args["model"] = model
+		ctx.Args["cmd"] = teaCmd
+	}
+	return nil
+}
+
+// CycleGroupingModeCommand cycles through different grouping strategies
+func CycleGroupingModeCommand(ctx *interfaces.CommandContext) error {
+	if organizationHandlers.OnCycleGroupingMode != nil {
+		model, teaCmd := organizationHandlers.OnCycleGroupingMode()
 		ctx.Args["model"] = model
 		ctx.Args["cmd"] = teaCmd
 	}

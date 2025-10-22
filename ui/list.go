@@ -20,6 +20,172 @@ const readyIcon = "● "
 const pausedIcon = "⏸ "
 const needsApprovalIcon = "❗ "
 
+// GroupingStrategy defines how sessions should be grouped in the UI
+type GroupingStrategy int
+
+const (
+	// GroupByCategory groups sessions by their Category field (default, backward compatible)
+	GroupByCategory GroupingStrategy = iota
+	// GroupByBranch groups sessions by their git branch
+	GroupByBranch
+	// GroupByPath groups sessions by their repository path
+	GroupByPath
+	// GroupByProgram groups sessions by the program they're running (claude, aider, etc.)
+	GroupByProgram
+	// GroupByTag groups sessions by their tags (multi-membership)
+	GroupByTag
+	// GroupByStatus groups sessions by their current status (Running, Ready, Paused)
+	GroupByStatus
+	// GroupBySessionType groups sessions by their session type (directory, new_worktree, existing_worktree)
+	GroupBySessionType
+	// GroupByNone disables grouping, shows flat list
+	GroupByNone
+)
+
+// String returns the human-readable name for the grouping strategy
+func (g GroupingStrategy) String() string {
+	switch g {
+	case GroupByCategory:
+		return "Category"
+	case GroupByBranch:
+		return "Branch"
+	case GroupByPath:
+		return "Path"
+	case GroupByProgram:
+		return "Program"
+	case GroupByTag:
+		return "Tag"
+	case GroupByStatus:
+		return "Status"
+	case GroupBySessionType:
+		return "Type"
+	case GroupByNone:
+		return "None"
+	default:
+		return "Unknown"
+	}
+}
+
+// getGroupKeys extracts grouping keys from an instance based on the strategy
+// Returns a slice of strings since tags enable multi-membership (one instance, multiple groups)
+//
+// Implementation Notes:
+// - Most strategies return single element slice (single-membership)
+// - Tag strategy returns multiple elements (multi-membership)
+// - Empty/missing fields map to fallback groups ("Uncategorized", "No Branch", etc.)
+// - Program field is parsed to extract base name (strips arguments)
+// - Path field is parsed to extract repository name (last path component)
+//
+// Multi-membership Example:
+//   Tags strategy with instance.Tags = ["Frontend", "React"]
+//   Returns: []string{"Frontend", "React"}
+//   Instance will appear in BOTH "Frontend" and "React" groups
+//
+// Performance: O(1) for most strategies, O(t) for tags where t = tag count
+func getGroupKeys(instance *session.Instance, strategy GroupingStrategy) []string {
+	switch strategy {
+	case GroupByCategory:
+		// Single-membership: One category per session
+		// Supports hierarchical categories like "Work/Frontend"
+		if instance.Category != "" {
+			return []string{instance.Category}
+		}
+		return []string{"Uncategorized"}
+
+	case GroupByBranch:
+		// Single-membership: One git branch per session
+		// Fallback to "No Branch" for directory sessions without git
+		if instance.Branch != "" {
+			return []string{instance.Branch}
+		}
+		return []string{"No Branch"}
+
+	case GroupByPath:
+		// Single-membership: One repository path per session
+		// Extracts repository name (last component) for readability
+		// Example: "/Users/foo/repos/myproject" -> "myproject"
+		if instance.Path != "" {
+			// Extract repository name from path
+			repoName := filepath.Base(instance.Path)
+			if repoName != "" && repoName != "." {
+				return []string{repoName}
+			}
+		}
+		return []string{"Unknown Path"}
+
+	case GroupByProgram:
+		// Single-membership: One program per session
+		// Parses program string to extract base command name
+		// Example: "claude --model gpt-4" -> "claude"
+		if instance.Program != "" {
+			// Extract base program name (e.g., "claude" from "claude --arg")
+			parts := strings.Fields(instance.Program)
+			if len(parts) > 0 {
+				return []string{parts[0]}
+			}
+		}
+		return []string{"Unknown Program"}
+
+	case GroupByTag:
+		// Multi-membership: Instance appears in ALL tag groups simultaneously
+		// This is the KEY differentiator from other strategies
+		//
+		// Design Rationale:
+		// - Enables multi-dimensional organization without data duplication
+		// - Session with tags ["Frontend", "React", "TypeScript"] appears in 3 groups
+		// - No cloning needed - same instance reference shared across groups
+		// - User can find session by ANY of its tags
+		//
+		// Performance: O(t) where t = tag count per instance
+		tags := instance.GetTags()
+		if len(tags) > 0 {
+			return tags
+		}
+		return []string{"Untagged"}
+
+	case GroupByStatus:
+		// Single-membership: One status per session (Running, Ready, Paused, etc.)
+		// Maps session.Status enum to human-readable group names
+		switch instance.Status {
+		case session.Running:
+			return []string{"Running"}
+		case session.Ready:
+			return []string{"Ready"}
+		case session.Paused:
+			return []string{"Paused"}
+		case session.Loading:
+			return []string{"Loading"}
+		case session.NeedsApproval:
+			return []string{"Needs Approval"}
+		default:
+			return []string{"Unknown Status"}
+		}
+
+	case GroupBySessionType:
+		// Single-membership: One type per session (Directory, Git Worktree, etc.)
+		// Maps session.SessionType enum to human-readable group names
+		switch instance.SessionType {
+		case session.SessionTypeDirectory:
+			return []string{"Directory Session"}
+		case session.SessionTypeNewWorktree:
+			return []string{"Git Worktree"}
+		case session.SessionTypeExistingWorktree:
+			return []string{"Existing Worktree"}
+		default:
+			return []string{"Unknown Type"}
+		}
+
+	case GroupByNone:
+		// No grouping - all instances in one group
+		// Returns single group that contains all sessions
+		return []string{"All Sessions"}
+
+	default:
+		// Fallback for unknown/future strategies
+		return []string{"Unknown"}
+	}
+}
+
 var readyStyle = lipgloss.NewStyle().
 	Foreground(lipgloss.AdaptiveColor{Light: "#51bd73", Dark: "#51bd73"})
 
@@ -73,13 +239,14 @@ type List struct {
 	repos map[string]int
 
 	// Session organization fields
-	categoryGroups map[string][]*session.Instance // Map of category name to instances in that category
-	groupExpanded  map[string]bool                // Map of category name to expanded state
-	searchMode     bool                           // Whether search mode is active
-	searchQuery    string                         // Current search query
-	searchResults  []*session.Instance            // Filtered search results
-	hidePaused     bool                           // Whether to hide paused sessions
-	reviewQueue    *session.ReviewQueue           // Review queue for tracking sessions needing attention
+	categoryGroups   map[string][]*session.Instance // Map of category name to instances in that category
+	groupExpanded    map[string]bool                // Map of category name to expanded state
+	groupingStrategy GroupingStrategy               // Current grouping mode (Category, Branch, Path, etc.)
+	searchMode       bool                           // Whether search mode is active
+	searchQuery      string                         // Current search query
+	searchResults    []*session.Instance            // Filtered search results
+	hidePaused       bool                           // Whether to hide paused sessions
+	reviewQueue      *session.ReviewQueue           // Review queue for tracking sessions needing attention
 
 	// State management for persistence
 	stateManager *config.State // Reference to state manager for persistence
@@ -233,6 +400,7 @@ func NewList(spinner *spinner.Model, autoYes bool, stateManager *config.State) *
 		visibleCacheValid:    false,
 		visibleIndexMap:      make(map[*session.Instance]int),
 		groupExpanded:        make(map[string]bool),
+		groupingStrategy:     GroupByCategory, // Default to category grouping for backward compatibility
 		searchMode:           false,
 		searchResults:        []*session.Instance{},
 		hidePaused:           false,
@@ -519,6 +687,11 @@ func (l *List) String() string {
 	// Build dynamic title with filter status
 	titleText := " Instances"
 	var filters []string
+
+	// Add grouping strategy indicator (always show if not default Category mode)
+	if l.groupingStrategy != GroupByCategory {
+		filters = append(filters, fmt.Sprintf("Group: %s", l.groupingStrategy.String()))
+	}
 
 	// Add search filter info with progress indicator
 	if l.searchMode && l.searchQuery != "" {
@@ -821,75 +994,209 @@ func (l *List) GetInstances() []*session.Instance {
 	return l.items
 }
 
-// OrganizeByCategory organizes sessions into category groups
-// Managed and external instances are separated into distinct top-level sections:
-// - "Squad Sessions" for managed instances
-// - "External Claude" for externally discovered instances
-func (l *List) OrganizeByCategory() {
-	// Only reorganize if needed (performance optimization)
+// OrganizeByStrategy organizes sessions into groups based on the current grouping strategy
+// Supports 8 strategies: Category, Branch, Path, Program, Tag, Status, SessionType, None
+// Tag-based grouping enables multi-membership (instances appear in multiple groups)
+//
+// Implementation Notes:
+// - Performance optimization: Only reorganizes when l.categoriesNeedUpdate is true
+// - Reuses l.categoryGroups map for all strategies (not just categories)
+// - Category strategy adds two-tier hierarchy: "Squad Sessions/Work"
+// - Tag strategy enables multi-membership: instance appears in multiple groups
+// - Respects hidePaused filter during organization
+// - All groups default to expanded state for visibility
+//
+// Performance:
+// - Time Complexity: O(n * g) where n = instance count, g = average groups per instance
+// - Space Complexity: O(n * g) for multi-membership (tags), O(n) for single-membership
+// - Amortized: O(1) when !categoriesNeedUpdate (skips reorganization)
+//
+// Multi-membership Example:
+//   Instance with tags ["Frontend", "React"]
+//   Appears in both "Frontend" group AND "React" group
+//   No instance cloning - same reference shared
+func (l *List) OrganizeByStrategy() {
+	// Performance optimization: Skip reorganization if not needed
+	// categoriesNeedUpdate is set true when:
+	// - Items are added/removed
+	// - Filters change (hidePaused)
+	// - Grouping strategy changes
 	if !l.categoriesNeedUpdate {
 		return
 	}
 
-	// Reset category groups
+	// Reset category groups map
+	// Note: "categoryGroups" name is legacy - used for all grouping strategies
+	// Contains map[groupKey][]*session.Instance for O(1) group lookups
 	l.categoryGroups = make(map[string][]*session.Instance)
 
-	// Group instances by category (supporting nested categories)
+	// Phase 1: Build groups by iterating through all instances
 	for _, instance := range l.items {
-		// Skip paused sessions if hidePaused is true
+		// Apply hidePaused filter during organization (not after)
+		// This avoids creating empty groups for filtered items
 		if l.hidePaused && instance.Status == session.Paused {
 			continue
 		}
 
-		categoryPath := instance.GetCategoryPath()
+		// Extract group keys for this instance
+		// Most strategies: returns single key (single-membership)
+		// Tag strategy: returns multiple keys (multi-membership)
+		groupKeys := getGroupKeys(instance, l.groupingStrategy)
 
-		// Determine the category to use for grouping
-		var category string
-		if len(categoryPath) == 1 {
-			// Simple category (e.g., "Work" or "Uncategorized")
-			category = categoryPath[0]
-		} else {
-			// Nested category - use the full path (e.g., "Work/Frontend")
-			category = strings.Join(categoryPath, "/")
-		}
-
-		// Prepend top-level section based on instance type
-		// This creates two-tier hierarchy: "Squad Sessions/Work" or "External Claude/Uncategorized"
-		if instance.IsManaged {
-			// Managed instances go under "Squad Sessions"
-			if category == "Uncategorized" {
-				category = "Squad Sessions"
-			} else {
-				category = "Squad Sessions/" + category
+		// Phase 2: Add instance to all its groups
+		// For single-membership strategies, this loop runs once
+		// For tag multi-membership, this loop runs per tag
+		for _, groupKey := range groupKeys {
+			// Special handling for Category strategy: Add two-tier hierarchy
+			// This distinguishes "Squad Sessions" (managed) from "External Claude" (not managed)
+			// Other strategies use flat group keys without modification
+			finalGroupKey := groupKey
+			if l.groupingStrategy == GroupByCategory {
+				if instance.IsManaged {
+					// Managed instances grouped under "Squad Sessions"
+					// Example: "Squad Sessions" or "Squad Sessions/Work"
+					if groupKey == "Uncategorized" {
+						finalGroupKey = "Squad Sessions"
+					} else {
+						finalGroupKey = "Squad Sessions/" + groupKey
+					}
+				} else {
+					// External instances grouped under "External Claude"
+					// Example: "External Claude" or "External Claude/Personal"
+					if groupKey == "Uncategorized" {
+						finalGroupKey = "External Claude"
+					} else {
+						finalGroupKey = "External Claude/" + groupKey
+					}
+				}
 			}
-		} else {
-			// External instances go under "External Claude"
-			if category == "Uncategorized" {
-				category = "External Claude"
-			} else {
-				category = "External Claude/" + category
+
+			// Initialize group if first time seeing this key
+			// Default to expanded state for visibility
+			if _, exists := l.categoryGroups[finalGroupKey]; !exists {
+				l.categoryGroups[finalGroupKey] = []*session.Instance{}
+
+				// Initialize expansion state if not already set
+				// Preserves user's expand/collapse preference if it exists
+				if _, expanded := l.groupExpanded[finalGroupKey]; !expanded {
+					// Default to expanded for new groups
+					l.groupExpanded[finalGroupKey] = true
+				}
 			}
+
+			// Add instance to this group
+			// Note: Instance reference is shared across groups (no cloning)
+			// This is safe since instances are immutable during rendering
+			l.categoryGroups[finalGroupKey] = append(l.categoryGroups[finalGroupKey], instance)
 		}
-
-		// Initialize the category if it doesn't exist
-		if _, exists := l.categoryGroups[category]; !exists {
-			l.categoryGroups[category] = []*session.Instance{}
-
-			// Initialize expansion state if it doesn't exist
-			if _, expanded := l.groupExpanded[category]; !expanded {
-				// Default to expanded for new categories
-				l.groupExpanded[category] = true
-			}
-		}
-
-		// Add instance to its category group
-		l.categoryGroups[category] = append(l.categoryGroups[category], instance)
 	}
 
-	// Mark categories as updated
+	// Mark organization as complete
 	l.categoriesNeedUpdate = false
-	// Invalidate viewport cache since category count may have changed
+
+	// Invalidate viewport cache since group count may have changed
+	// This ensures calculateMaxVisibleItems() recalculates screen layout
 	l.maxVisibleCacheValid = false
+}
+
+// OrganizeByCategory is a backward-compatible wrapper that calls OrganizeByStrategy
+// This ensures existing code continues to work without modification
+func (l *List) OrganizeByCategory() {
+	l.OrganizeByStrategy()
+}
+
+// CycleGroupingStrategy cycles to the next grouping strategy in the sequence
+// Sequence: Category → Branch → Path → Program → Tag → Status → SessionType → None → Category
+// This method triggers reorganization and persists the state change
+func (l *List) CycleGroupingStrategy() {
+	// Cycle to the next strategy
+	l.groupingStrategy = (l.groupingStrategy + 1) % 8
+
+	// Mark categories as needing update for the new strategy
+	l.categoriesNeedUpdate = true
+
+	// Reorganize with the new strategy
+	l.OrganizeByStrategy()
+
+	// Invalidate visible cache due to reorganization
+	l.invalidateVisibleCache()
+
+	// Reset scroll position when grouping changes
+	l.scrollOffset = 0
+
+	// Ensure selection is valid for the new organization
+	visibleItems := l.getVisibleItems()
+	if len(visibleItems) == 0 {
+		l.selectedIdx = -1 // No valid selection when no visible items
+		return
+	}
+
+	// If current selection is no longer visible, select the first visible item
+	if l.getVisibleIndex() == -1 {
+		// Find the global index of the first visible item
+		for i, item := range l.items {
+			if item == visibleItems[0] {
+				l.selectedIdx = i
+				break
+			}
+		}
+	}
+
+	// Ensure the selected item is visible after grouping change
+	l.ensureSelectedVisible()
+
+	// Persist the state change
+	l.saveUIState()
+
+	log.InfoLog.Printf("Cycled grouping strategy to: %s", l.groupingStrategy.String())
+}
+
+// GetCurrentGroupingStrategy returns the current grouping strategy
+func (l *List) GetCurrentGroupingStrategy() GroupingStrategy {
+	return l.groupingStrategy
+}
+
+// SetGroupingStrategy sets the grouping strategy to a specific value
+// This triggers reorganization and persists the state change
+func (l *List) SetGroupingStrategy(strategy GroupingStrategy) {
+	if l.groupingStrategy == strategy {
+		return // No change needed
+	}
+
+	l.groupingStrategy = strategy
+
+	// Mark categories as needing update for the new strategy
+	l.categoriesNeedUpdate = true
+
+	// Reorganize with the new strategy
+	l.OrganizeByStrategy()
+
+	// Invalidate visible cache due to reorganization
+	l.invalidateVisibleCache()
+
+	// Reset scroll position when grouping changes
+	l.scrollOffset = 0
+
+	// Ensure selection is valid for the new organization
+	visibleItems := l.getVisibleItems()
+	if len(visibleItems) == 0 {
+		l.selectedIdx = -1
+		return
+	}
+
+	if l.getVisibleIndex() == -1 {
+		for i, item := range l.items {
+			if item == visibleItems[0] {
+				l.selectedIdx = i
+				break
+			}
+		}
+	}
+
+	l.ensureSelectedVisible()
+	l.saveUIState()
+
+	log.InfoLog.Printf("Set grouping strategy to: %s", strategy.String())
 }
 
 // TogglePausedFilter toggles whether paused sessions are hidden
