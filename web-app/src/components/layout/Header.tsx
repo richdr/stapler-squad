@@ -46,6 +46,20 @@ export function Header() {
           >
             Logs
           </Link>
+          <Link
+            href="/history"
+            className={`${styles.navLink} ${pathname === "/history" ? styles.active : ""}`}
+            onClick={() => console.log("History link clicked")}
+          >
+            History
+          </Link>
+          <Link
+            href="/config"
+            className={`${styles.navLink} ${pathname === "/config" ? styles.active : ""}`}
+            onClick={() => console.log("Config link clicked")}
+          >
+            Config
+          </Link>
         </nav>
 
         <div className={styles.actions}>
