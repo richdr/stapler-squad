@@ -338,6 +338,50 @@ func (s *Storage) DeleteAllInstances() error {
 	return s.state.DeleteAllInstances()
 }
 
+// UpdateInstanceTimestampsOnly updates ONLY the timestamp fields in storage without
+// creating Instance objects. This preserves in-memory state like controllers.
+// This is critical for WebSocket terminal streaming which updates timestamps frequently.
+func (s *Storage) UpdateInstanceTimestampsOnly(title string, lastTerminalUpdate, lastMeaningfulOutput time.Time) error {
+	// Load raw JSON data directly
+	jsonData := s.state.GetInstances()
+
+	var instancesData []InstanceData
+	if err := json.Unmarshal(jsonData, &instancesData); err != nil {
+		return fmt.Errorf("failed to unmarshal instances: %w", err)
+	}
+
+	// Find and update the matching instance data
+	found := false
+	for i, data := range instancesData {
+		if data.Title == title {
+			instancesData[i].LastTerminalUpdate = lastTerminalUpdate
+			instancesData[i].LastMeaningfulOutput = lastMeaningfulOutput
+			found = true
+			log.DebugLog.Printf("Updating timestamps in storage for session %s (no instance objects created)", title)
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("instance not found: %s", title)
+	}
+
+	// Marshal back to JSON
+	updatedJSON, err := json.Marshal(instancesData)
+	if err != nil {
+		return fmt.Errorf("failed to marshal instances: %w", err)
+	}
+
+	// Use async save if available
+	if s.stateService != nil {
+		s.stateService.SaveAsync(updatedJSON)
+		return nil
+	}
+
+	// Fallback to synchronous save
+	return s.state.SaveInstances(updatedJSON)
+}
+
 // GetStateManager returns the underlying state manager
 func (s *Storage) GetStateManager() interface{} {
 	return s.state

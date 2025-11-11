@@ -957,36 +957,25 @@ func (h *ConnectRPCWebSocketHandler) streamTerminal(stream *connectWebSocketStre
 // persistInstanceTimestamps saves the instance's updated timestamps back to storage
 // This is called when a WebSocket connection closes to ensure in-memory timestamp
 // updates are persisted to disk, making them visible to GetReviewQueue.
+//
+// CRITICAL: Uses UpdateInstanceTimestampsOnly() to avoid destroying controllers.
+// The old implementation used LoadInstances() which created new Instance objects,
+// losing all in-memory state including active ClaudeControllers. This caused the
+// "all sessions showing IDLE" bug where controllers were destroyed every time
+// WebSocket sent terminal output.
 func (h *ConnectRPCWebSocketHandler) persistInstanceTimestamps(updatedInstance *session.Instance) error {
-	// Load all instances from storage
-	instances, err := h.sessionService.storage.LoadInstances()
-	if err != nil {
-		return fmt.Errorf("failed to load instances: %w", err)
+	// Update timestamps directly in storage JSON without creating Instance objects
+	// This preserves in-memory state like active controllers
+	if err := h.sessionService.storage.UpdateInstanceTimestampsOnly(
+		updatedInstance.Title,
+		updatedInstance.LastTerminalUpdate,
+		updatedInstance.LastMeaningfulOutput,
+	); err != nil {
+		return fmt.Errorf("failed to update timestamps: %w", err)
 	}
 
-	// Find and update the matching instance
-	found := false
-	for i, inst := range instances {
-		if inst.Title == updatedInstance.Title {
-			// Update timestamps from the in-memory instance
-			inst.LastTerminalUpdate = updatedInstance.LastTerminalUpdate
-			inst.LastMeaningfulOutput = updatedInstance.LastMeaningfulOutput
-			instances[i] = inst
-			found = true
-			log.InfoLog.Printf("Persisting timestamp updates for session %s: LastMeaningfulOutput=%v",
-				updatedInstance.Title, updatedInstance.LastMeaningfulOutput)
-			break
-		}
-	}
-
-	if !found {
-		return fmt.Errorf("session %s not found in storage", updatedInstance.Title)
-	}
-
-	// Save all instances back to storage
-	if err := h.sessionService.storage.SaveInstances(instances); err != nil {
-		return fmt.Errorf("failed to save instances: %w", err)
-	}
+	log.InfoLog.Printf("Persisting timestamp updates for session %s: LastMeaningfulOutput=%v",
+		updatedInstance.Title, updatedInstance.LastMeaningfulOutput)
 
 	// Broadcast session updated event to notify clients of timestamp changes
 	// This ensures "Last Activity" updates in real-time in the UI

@@ -238,15 +238,10 @@ func (rqp *ReviewQueuePoller) checkSession(inst *Instance) {
 		}
 	}
 
-	// Capture current terminal output to update LastMeaningfulOutput timestamp
-	// This ensures we have the most recent activity data before checking staleness
-	if inst.Started() && !inst.Paused() && inst.TmuxAlive() {
-		_, err := inst.Preview()
-		if err != nil {
-			log.DebugLog.Printf("[ReviewQueue] Session '%s': Failed to capture terminal content for staleness check: %v",
-				inst.Title, err)
-		}
-	}
+	// Note: We do NOT call inst.Preview() here because:
+	// 1. It's a blocking synchronous tmux command that can hang the entire poller
+	// 2. LastMeaningfulOutput is already updated by WebSocket terminal streaming
+	// 3. Keeping the poller fast and non-blocking is critical for responsive notifications
 
 	// Check for terminal staleness (no meaningful output for configured threshold)
 	// This helps identify sessions that might be stuck or waiting without showing obvious idle state
