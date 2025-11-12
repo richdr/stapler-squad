@@ -1,5 +1,13 @@
 # Claude Squad - Current Priority Tasks
 
+## Priority Summary
+
+**P1** - Web UI Story 3 (Session Creation) - 7 hours - IN PROGRESS
+**P2** - Persistence Bug Fixes (BUG-001, BUG-002) - 3 hours - READY
+**P3** - Test Stabilization & BUG-003 Investigation - Deferred
+
+---
+
 ## 🚧 IN PROGRESS: Web UI Implementation
 
 **Status**: Foundation complete (Stories 1-2), Session Creation pending
@@ -98,10 +106,50 @@
 
 ---
 
+## CRITICAL: Data Loss Bugs in Persistence Layer
+
+**Status**: DISCOVERED - Analysis complete, fixes documented
+**Priority**: P2 - Fix after Web UI Story 3, before Story 4
+**Estimated Effort**: 3 hours total (2 independent tasks)
+
+### Bugs Discovered (2025-01-17)
+
+**BUG-001** [HIGH]: LastAcknowledged Field Not Persisted
+- **Impact**: Review queue snooze functionality completely broken across restarts
+- **Root Cause**: Field exists in Instance but NOT in InstanceData serialization
+- **Fix**: Add field to persistence layer (1 hour, 3 files, trivial change)
+- **Status**: Open - ready to fix
+
+**BUG-002** [MEDIUM]: LastMeaningfulOutput Timestamp Reset on Startup
+- **Impact**: Loss of historical activity information ("Last Activity" shows wrong time)
+- **Root Cause**: Preview() unconditionally overwrites timestamps on startup refresh
+- **Fix**: Content-based timestamp update logic (2 hours, 2 files)
+- **Status**: Open - ready to fix
+
+**BUG-003** [LOW]: Large State File Size (34MB JSON)
+- **Impact**: Scalability concern, no immediate functionality impact
+- **Root Cause**: Unknown - investigation required (session count vs embedded data)
+- **Fix**: Investigation phase (1 hour), then targeted fix (2-4 hours)
+- **Status**: Open - investigation deferred until higher priorities complete
+
+### Quick Wins Available
+
+Both BUG-001 and BUG-002 can be fixed with **minimal risk, high impact** changes:
+- Total effort: 3 hours (1h + 2h)
+- Context boundary: 5 files total, well within AIC limits
+- Risk: Very low (backward compatible, well-tested)
+- Impact: Restores broken functionality, prevents data loss
+
+**See**:
+- [Persistence Quick Wins Task](docs/tasks/persistence-quick-wins.md) - Detailed atomic task breakdown
+- [Bug Reports](docs/bugs/) - BUG-001, BUG-002, BUG-003 detailed analysis
+
+---
+
 ## DEFERRED: Critical Test Timeouts
 
 **Status**: Tests compile successfully, deferred while building new features
-**Priority**: P2 - Resume after web server MVP
+**Priority**: P3 - Resume after web server MVP and persistence fixes
 
 ### Root Cause: External Command Dependencies in Tests
 Tests hang in `config.GetClaudeCommand()` which executes shell commands during setup.
@@ -118,7 +166,7 @@ Tests hang in `config.GetClaudeCommand()` which executes shell commands during s
 ## DEFERRED: Test Stabilization
 
 **Status**: Deferred while building new features
-**Priority**: P2 - Resume after web server MVP
+**Priority**: P3 - Resume after web server MVP and persistence fixes
 
 ### Test Infrastructure Tasks:
 - [ ] Fix UI search index nil pointer issues (`TestFuzzySearchIntegration`)

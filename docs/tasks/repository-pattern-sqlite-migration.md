@@ -6,6 +6,20 @@
 
 ---
 
+## IMPORTANT: Critical Bugs Discovered
+
+During persistence analysis, **three bugs were discovered** in the JSON storage layer:
+
+- **BUG-001** [HIGH]: `LastAcknowledged` field not persisted → Snooze functionality completely broken
+- **BUG-002** [MEDIUM]: `LastMeaningfulOutput` timestamp reset on startup → Loss of historical activity data
+- **BUG-003** [LOW]: 34MB state file size → Scalability concern, no immediate impact
+
+**See**: `docs/bugs/` directory for detailed bug reports and fix strategies.
+
+**Recommended Action**: Fix BUG-001 and BUG-002 with **quick wins** (3 hours total) before considering SQLite migration.
+
+---
+
 ## Executive Summary
 
 **Recommendation: DEFER SQLite migration in favor of current priorities**
@@ -14,12 +28,16 @@ After comprehensive analysis of the current JSON-based storage implementation an
 
 **Key Findings**:
 - Current JSON storage is **production-ready** with file locking, async saves, and merge logic
-- WebSocket timestamp persistence works correctly with current architecture
+- **However**: Three bugs discovered (BUG-001, BUG-002, BUG-003) require quick fixes (3 hours)
 - Web UI MVP (P1) is 40% complete and should be prioritized for completion
 - Migration would be a **large refactor** (8-12 hours) with moderate risk
 - Performance benefits would not be realized until session counts exceed 500+
 
-**Next Action**: Complete Web UI Story 3 (Session Creation Wizard) - currently blocked and highest priority.
+**Next Actions**:
+1. **Immediate**: Fix BUG-001 (LastAcknowledged persistence) - 1 hour
+2. **Short-term**: Fix BUG-002 (Timestamp refresh logic) - 2 hours
+3. **Medium-term**: Complete Web UI Story 3 (Session Creation Wizard) - 7 hours
+4. **Long-term**: Investigate BUG-003 (state file size) and consider SQLite if needed
 
 ---
 
