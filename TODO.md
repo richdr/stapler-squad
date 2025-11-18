@@ -165,13 +165,13 @@ Tests hang in `config.GetClaudeCommand()` which executes shell commands during s
 
 ---
 
-## PLANNED: Session History Viewer Integration
+## ✅ COMPLETE: Session History Viewer Integration (TUI)
 
-**Status**: Backend Complete, Integration Pending
-**Priority**: P2 - After Web UI Session Creation
+**Status**: TUI Integration Complete - Ready for Use!
+**Priority**: P2 - Story 1 Complete (8 hours)
 **Epic ID**: FEATURE-002-Integration
-**Estimated Effort**: 8-10 hours (1-2 days)
-**Progress**: Backend 100%, TUI Overlay 100%, Integration 0%
+**Completion Date**: 2025-11-17
+**Progress**: Backend 100%, TUI Overlay 100%, TUI Integration 100%
 
 ### Implementation Status
 
@@ -182,49 +182,27 @@ Tests hang in `config.GetClaudeCommand()` which executes shell commands during s
 - ✅ **Proto Definitions**: `proto/session/v1/session.proto` - ClaudeHistoryEntry messages
 - ✅ **Web UI**: `web-app/src/app/history/page.tsx` (264 lines) - Full browser page
 
-**❌ Missing Integration**:
-- [ ] Add HistoryBrowser state to `app/state/types.go`
-- [ ] Wire history browser into UI coordinator
-- [ ] Create `handleHistoryBrowser()` function in `app/app.go`
-- [ ] Add `handleHistoryBrowserState()` key handler
-- [ ] Add H key binding to menu and bridge
+**✅ TUI Integration Complete**:
+- [x] ✅ Add HistoryBrowser state to `app/state/types.go` (e639870)
+- [x] ✅ Wire history browser into UI coordinator (d2a11f2)
+- [x] ✅ Create `handleHistoryBrowser()` function in `app/app.go` (d22364f)
+- [x] ✅ Add `handleHistoryBrowserState()` key handler (edc80d6)
+- [x] ✅ Add H key binding to menu and bridge (3360407)
 
-### 🎯 Recommended Next Task: Task 1.1 - Add HistoryBrowser State
+### How to Use
 
-**Task**: Add HistoryBrowser State to Application State Machine
-**Estimated Time**: 1 hour
-**Priority**: P2 - Foundation for history viewer feature
-**Context Boundary**: 1 file (app/state/types.go, 75 lines) ✅
+Press **H** key in the TUI to open the history browser:
+- **Arrow Keys / j/k**: Navigate through history entries
+- **Enter**: View entry details
+- **/** : Search history
+- **ESC**: Close overlay and return to default state
 
-**Why This Task First?**:
-1. **Zero Dependencies**: No prerequisites, can start immediately
-2. **Minimal Context**: Single file, simple enum addition
-3. **Foundation**: Unblocks all 4 subsequent integration tasks
-4. **Low Risk**: Trivial change, easy to verify
-5. **Quick Win**: Completes in 1 hour
-
-**Implementation Steps**:
-1. Add `HistoryBrowser` constant after `TagEditor` in State enum
-2. Update `String()` method to return "HistoryBrowser"
-3. Update `IsValid()` upper bound to `HistoryBrowser`
-4. Add `HistoryBrowser` to `IsOverlayState()` switch case
-5. Compile: `go build ./app/state`
-6. Test: `go test ./app/state -v`
-
-**Context Files to Understand**:
-- `app/state/types.go` (75 lines) - State enum and methods
-
-**Success Criteria**:
-- ✅ HistoryBrowser constant added to State enum
-- ✅ All state methods updated correctly
-- ✅ Code compiles without errors
-- ✅ Tests pass
-
-**Next Tasks After This**:
-- Task 1.2: Add UI Coordinator History Browser Methods (2h)
-- Task 1.3: Add handleHistoryBrowser Function (2h)
-- Task 1.4: Add handleHistoryBrowserState Handler (2h)
-- Task 1.5: Add Key Binding and Menu Integration (1h)
+### Commits (Story 1 - TUI Integration)
+- e639870: feat: add HistoryBrowser state for history viewer integration
+- d2a11f2: feat: add UI coordinator methods for history browser overlay
+- d22364f: feat: add handleHistoryBrowser function to app
+- edc80d6: feat: add handleHistoryBrowserState key handler
+- 3360407: feat: add H key binding and menu integration for history browser
 
 ### Feature Overview
 
@@ -239,19 +217,19 @@ Browse and search Claude session history from ~/.claude/history.jsonl:
 - **Transparency**: Review historical Claude interactions
 - **Workflow Integration**: Seamless Claude Code + Claude Squad integration
 
-### Remaining Work Breakdown
-
-**Story 1: TUI Integration** (8 hours, 5 tasks):
-- [ ] Task 1.1: Add HistoryBrowser State [1h] **← NEXT**
-- [ ] Task 1.2: UI Coordinator Methods [2h]
-- [ ] Task 1.3: handleHistoryBrowser Function [2h]
-- [ ] Task 1.4: handleHistoryBrowserState Handler [2h]
-- [ ] Task 1.5: Key Binding & Menu Integration [1h]
+### Story 1: TUI Integration - ✅ COMPLETE (8 hours, 5 tasks)
+- [x] ✅ Task 1.1: Add HistoryBrowser State [1h]
+- [x] ✅ Task 1.2: UI Coordinator Methods [2h]
+- [x] ✅ Task 1.3: handleHistoryBrowser Function [2h]
+- [x] ✅ Task 1.4: handleHistoryBrowserState Handler [2h]
+- [x] ✅ Task 1.5: Key Binding & Menu Integration [1h]
 
 **Story 2: Launch from History** (DEFERRED - Phase 2):
 - [ ] Task 2.1: Session creation from entry [3h]
 - [ ] Task 2.2: Worktree/branch setup [2h]
 - [ ] Task 2.3: Pre-populate fields [1h]
+
+**Status**: Story 1 complete. Story 2 deferred to future phase.
 
 **See Full Details**:
 - [History Viewer Integration Plan](docs/tasks/history-viewer-integration.md) - Complete atomic task breakdown
