@@ -46,6 +46,7 @@ type Coordinator interface {
 	CreateGitStatusOverlay() error
 	CreateClaudeSettingsOverlay(settings session.ClaudeSettings, availableSessions []session.ClaudeSession) error
 	CreateTagEditorOverlay(sessionTitle string, initialTags []string) error
+	CreateHistoryBrowserOverlay() error
 
 	// Overlay accessor methods
 	GetTextInputOverlay() *overlay.TextInputOverlay
@@ -57,6 +58,7 @@ type Coordinator interface {
 	GetGitStatusOverlay() *overlay.GitStatusOverlay
 	GetClaudeSettingsOverlay() *overlay.ClaudeSettingsOverlay
 	GetTagEditorOverlay() *overlay.TagEditorOverlay
+	GetHistoryBrowserOverlay() *overlay.HistoryBrowserOverlay
 }
 
 // coordinator implements the Coordinator interface
@@ -275,6 +277,8 @@ func (c *coordinator) HideOverlay(componentType ComponentType) error {
 		c.registry.ZFSearchOverlay = nil
 	case ComponentTagEditorOverlay:
 		c.registry.TagEditorOverlay = nil
+	case ComponentHistoryBrowserOverlay:
+		c.registry.HistoryBrowserOverlay = nil
 	}
 
 	if c.activeOverlay == componentType {
@@ -404,6 +408,16 @@ func (c *coordinator) CreateTagEditorOverlay(sessionTitle string, initialTags []
 	return c.ShowOverlay(ComponentTagEditorOverlay)
 }
 
+// CreateHistoryBrowserOverlay creates a new history browser overlay
+func (c *coordinator) CreateHistoryBrowserOverlay() error {
+	historyBrowserOverlay, err := overlay.NewHistoryBrowserOverlay()
+	if err != nil {
+		return fmt.Errorf("failed to create history browser overlay: %w", err)
+	}
+	c.registry.HistoryBrowserOverlay = historyBrowserOverlay
+	return c.ShowOverlay(ComponentHistoryBrowserOverlay)
+}
+
 // GetTextInputOverlay returns the text input overlay if active
 func (c *coordinator) GetTextInputOverlay() *overlay.TextInputOverlay {
 	if c.IsOverlayVisible(ComponentTextInputOverlay) {
@@ -470,6 +484,14 @@ func (c *coordinator) GetClaudeSettingsOverlay() *overlay.ClaudeSettingsOverlay 
 func (c *coordinator) GetTagEditorOverlay() *overlay.TagEditorOverlay {
 	if c.IsOverlayVisible(ComponentTagEditorOverlay) {
 		return c.registry.TagEditorOverlay
+	}
+	return nil
+}
+
+// GetHistoryBrowserOverlay returns the history browser overlay if active
+func (c *coordinator) GetHistoryBrowserOverlay() *overlay.HistoryBrowserOverlay {
+	if c.IsOverlayVisible(ComponentHistoryBrowserOverlay) {
+		return c.registry.HistoryBrowserOverlay
 	}
 	return nil
 }
