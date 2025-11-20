@@ -18,17 +18,35 @@ type Repository interface {
 	// Delete removes a session from storage by title
 	Delete(ctx context.Context, title string) error
 
-	// Get retrieves a single session by title
+	// Get retrieves a single session by title with full child data
+	// For selective loading, use GetWithOptions instead
 	Get(ctx context.Context, title string) (*InstanceData, error)
 
-	// List retrieves all sessions from storage
+	// GetWithOptions retrieves a single session with selective child data loading
+	// Use LoadOptions presets (LoadMinimal, LoadSummary, LoadFull) or custom options
+	GetWithOptions(ctx context.Context, title string, options LoadOptions) (*InstanceData, error)
+
+	// List retrieves all sessions with summary child data (no diff content)
+	// For selective loading, use ListWithOptions instead
 	List(ctx context.Context) ([]InstanceData, error)
 
-	// ListByStatus retrieves sessions filtered by status
+	// ListWithOptions retrieves all sessions with selective child data loading
+	// Use LoadOptions presets (LoadMinimal, LoadSummary, LoadFull) or custom options
+	ListWithOptions(ctx context.Context, options LoadOptions) ([]InstanceData, error)
+
+	// ListByStatus retrieves sessions filtered by status with summary child data
+	// For selective loading, use ListByStatusWithOptions instead
 	ListByStatus(ctx context.Context, status Status) ([]InstanceData, error)
 
-	// ListByTag retrieves sessions that have a specific tag
+	// ListByStatusWithOptions retrieves sessions filtered by status with selective loading
+	ListByStatusWithOptions(ctx context.Context, status Status, options LoadOptions) ([]InstanceData, error)
+
+	// ListByTag retrieves sessions with a specific tag with summary child data
+	// For selective loading, use ListByTagWithOptions instead
 	ListByTag(ctx context.Context, tag string) ([]InstanceData, error)
+
+	// ListByTagWithOptions retrieves sessions with a specific tag with selective loading
+	ListByTagWithOptions(ctx context.Context, tag string, options LoadOptions) ([]InstanceData, error)
 
 	// UpdateTimestamps efficiently updates only timestamp fields for a session
 	// This is optimized for frequent updates from WebSocket terminal streaming

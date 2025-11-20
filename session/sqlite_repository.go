@@ -248,225 +248,26 @@ func (r *SQLiteRepository) Delete(ctx context.Context, title string) error {
 
 // Get retrieves a single session by title
 func (r *SQLiteRepository) Get(ctx context.Context, title string) (*InstanceData, error) {
-	var data InstanceData
-
-	// Query main session data
-	err := r.db.QueryRowContext(ctx, `
-		SELECT title, path, working_dir, branch, status, height, width,
-			created_at, updated_at, auto_yes, prompt, program, existing_worktree,
-			category, is_expanded, session_type, tmux_prefix,
-			last_terminal_update, last_meaningful_output, last_output_signature,
-			last_added_to_queue, last_viewed, last_acknowledged
-		FROM sessions WHERE title = ?
-	`, title).Scan(
-		&data.Title, &data.Path, &data.WorkingDir, &data.Branch, &data.Status,
-		&data.Height, &data.Width, &data.CreatedAt, &data.UpdatedAt,
-		&data.AutoYes, &data.Prompt, &data.Program, &data.ExistingWorktree,
-		&data.Category, &data.IsExpanded, &data.SessionType, &data.TmuxPrefix,
-		&data.LastTerminalUpdate, &data.LastMeaningfulOutput, &data.LastOutputSignature,
-		&data.LastAddedToQueue, &data.LastViewed, &data.LastAcknowledged,
-	)
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("session not found: %s", title)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to query session: %w", err)
-	}
-
-	// Get session ID for child queries
-	var sessionID int64
-	err = r.db.QueryRowContext(ctx, "SELECT id FROM sessions WHERE title = ?", title).Scan(&sessionID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get session ID: %w", err)
-	}
-
-	// Load child data
-	if err := r.loadWorktree(ctx, sessionID, &data); err != nil {
-		return nil, fmt.Errorf("failed to load worktree: %w", err)
-	}
-	if err := r.loadDiffStats(ctx, sessionID, &data); err != nil {
-		return nil, fmt.Errorf("failed to load diff stats: %w", err)
-	}
-	if err := r.loadTags(ctx, sessionID, &data); err != nil {
-		return nil, fmt.Errorf("failed to load tags: %w", err)
-	}
-	if err := r.loadClaudeSession(ctx, sessionID, &data); err != nil {
-		return nil, fmt.Errorf("failed to load Claude session: %w", err)
-	}
-
-	return &data, nil
+	// Get with full data loading (includes diff content)
+	return r.GetWithOptions(ctx, title, LoadFull)
 }
 
-// List retrieves all sessions from the database
+// List retrieves all sessions from the database with summary data (no diff content)
 func (r *SQLiteRepository) List(ctx context.Context) ([]InstanceData, error) {
-	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, title, path, working_dir, branch, status, height, width,
-			created_at, updated_at, auto_yes, prompt, program, existing_worktree,
-			category, is_expanded, session_type, tmux_prefix,
-			last_terminal_update, last_meaningful_output, last_output_signature,
-			last_added_to_queue, last_viewed, last_acknowledged
-		FROM sessions ORDER BY created_at DESC
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query sessions: %w", err)
-	}
-	defer rows.Close()
-
-	var sessions []InstanceData
-	for rows.Next() {
-		var data InstanceData
-		var sessionID int64
-
-		err := rows.Scan(
-			&sessionID, &data.Title, &data.Path, &data.WorkingDir, &data.Branch, &data.Status,
-			&data.Height, &data.Width, &data.CreatedAt, &data.UpdatedAt,
-			&data.AutoYes, &data.Prompt, &data.Program, &data.ExistingWorktree,
-			&data.Category, &data.IsExpanded, &data.SessionType, &data.TmuxPrefix,
-			&data.LastTerminalUpdate, &data.LastMeaningfulOutput, &data.LastOutputSignature,
-			&data.LastAddedToQueue, &data.LastViewed, &data.LastAcknowledged,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan session: %w", err)
-		}
-
-		// Load child data
-		if err := r.loadWorktree(ctx, sessionID, &data); err != nil {
-			return nil, fmt.Errorf("failed to load worktree: %w", err)
-		}
-		if err := r.loadDiffStats(ctx, sessionID, &data); err != nil {
-			return nil, fmt.Errorf("failed to load diff stats: %w", err)
-		}
-		if err := r.loadTags(ctx, sessionID, &data); err != nil {
-			return nil, fmt.Errorf("failed to load tags: %w", err)
-		}
-		if err := r.loadClaudeSession(ctx, sessionID, &data); err != nil {
-			return nil, fmt.Errorf("failed to load Claude session: %w", err)
-		}
-
-		sessions = append(sessions, data)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating sessions: %w", err)
-	}
-
-	return sessions, nil
+	// Use summary loading (includes all child data except diff content)
+	return r.ListWithOptions(ctx, LoadSummary)
 }
 
-// ListByStatus retrieves sessions filtered by status
+// ListByStatus retrieves sessions filtered by status with summary data
 func (r *SQLiteRepository) ListByStatus(ctx context.Context, status Status) ([]InstanceData, error) {
-	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, title, path, working_dir, branch, status, height, width,
-			created_at, updated_at, auto_yes, prompt, program, existing_worktree,
-			category, is_expanded, session_type, tmux_prefix,
-			last_terminal_update, last_meaningful_output, last_output_signature,
-			last_added_to_queue, last_viewed, last_acknowledged
-		FROM sessions WHERE status = ? ORDER BY created_at DESC
-	`, status)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query sessions by status: %w", err)
-	}
-	defer rows.Close()
-
-	var sessions []InstanceData
-	for rows.Next() {
-		var data InstanceData
-		var sessionID int64
-
-		err := rows.Scan(
-			&sessionID, &data.Title, &data.Path, &data.WorkingDir, &data.Branch, &data.Status,
-			&data.Height, &data.Width, &data.CreatedAt, &data.UpdatedAt,
-			&data.AutoYes, &data.Prompt, &data.Program, &data.ExistingWorktree,
-			&data.Category, &data.IsExpanded, &data.SessionType, &data.TmuxPrefix,
-			&data.LastTerminalUpdate, &data.LastMeaningfulOutput, &data.LastOutputSignature,
-			&data.LastAddedToQueue, &data.LastViewed, &data.LastAcknowledged,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan session: %w", err)
-		}
-
-		// Load child data
-		if err := r.loadWorktree(ctx, sessionID, &data); err != nil {
-			return nil, fmt.Errorf("failed to load worktree: %w", err)
-		}
-		if err := r.loadDiffStats(ctx, sessionID, &data); err != nil {
-			return nil, fmt.Errorf("failed to load diff stats: %w", err)
-		}
-		if err := r.loadTags(ctx, sessionID, &data); err != nil {
-			return nil, fmt.Errorf("failed to load tags: %w", err)
-		}
-		if err := r.loadClaudeSession(ctx, sessionID, &data); err != nil {
-			return nil, fmt.Errorf("failed to load Claude session: %w", err)
-		}
-
-		sessions = append(sessions, data)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating sessions: %w", err)
-	}
-
-	return sessions, nil
+	// Use summary loading (no diff content)
+	return r.ListByStatusWithOptions(ctx, status, LoadSummary)
 }
 
-// ListByTag retrieves sessions that have a specific tag
+// ListByTag retrieves sessions that have a specific tag with summary data
 func (r *SQLiteRepository) ListByTag(ctx context.Context, tag string) ([]InstanceData, error) {
-	rows, err := r.db.QueryContext(ctx, `
-		SELECT s.id, s.title, s.path, s.working_dir, s.branch, s.status, s.height, s.width,
-			s.created_at, s.updated_at, s.auto_yes, s.prompt, s.program, s.existing_worktree,
-			s.category, s.is_expanded, s.session_type, s.tmux_prefix,
-			s.last_terminal_update, s.last_meaningful_output, s.last_output_signature,
-			s.last_added_to_queue, s.last_viewed, s.last_acknowledged
-		FROM sessions s
-		INNER JOIN session_tags st ON s.id = st.session_id
-		INNER JOIN tags t ON st.tag_id = t.id
-		WHERE t.name = ?
-		ORDER BY s.created_at DESC
-	`, tag)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query sessions by tag: %w", err)
-	}
-	defer rows.Close()
-
-	var sessions []InstanceData
-	for rows.Next() {
-		var data InstanceData
-		var sessionID int64
-
-		err := rows.Scan(
-			&sessionID, &data.Title, &data.Path, &data.WorkingDir, &data.Branch, &data.Status,
-			&data.Height, &data.Width, &data.CreatedAt, &data.UpdatedAt,
-			&data.AutoYes, &data.Prompt, &data.Program, &data.ExistingWorktree,
-			&data.Category, &data.IsExpanded, &data.SessionType, &data.TmuxPrefix,
-			&data.LastTerminalUpdate, &data.LastMeaningfulOutput, &data.LastOutputSignature,
-			&data.LastAddedToQueue, &data.LastViewed, &data.LastAcknowledged,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan session: %w", err)
-		}
-
-		// Load child data
-		if err := r.loadWorktree(ctx, sessionID, &data); err != nil {
-			return nil, fmt.Errorf("failed to load worktree: %w", err)
-		}
-		if err := r.loadDiffStats(ctx, sessionID, &data); err != nil {
-			return nil, fmt.Errorf("failed to load diff stats: %w", err)
-		}
-		if err := r.loadTags(ctx, sessionID, &data); err != nil {
-			return nil, fmt.Errorf("failed to load tags: %w", err)
-		}
-		if err := r.loadClaudeSession(ctx, sessionID, &data); err != nil {
-			return nil, fmt.Errorf("failed to load Claude session: %w", err)
-		}
-
-		sessions = append(sessions, data)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating sessions: %w", err)
-	}
-
-	return sessions, nil
+	// Use summary loading (no diff content)
+	return r.ListByTagWithOptions(ctx, tag, LoadSummary)
 }
 
 // UpdateTimestamps efficiently updates only timestamp fields for a session
@@ -593,6 +394,21 @@ func (r *SQLiteRepository) loadWorktree(ctx context.Context, sessionID int64, da
 	return err
 }
 
+// loadDiffStatsSummary loads only the counts (added/removed) without the heavy content field
+// This is optimized for list operations where we don't need the full diff content
+func (r *SQLiteRepository) loadDiffStatsSummary(ctx context.Context, sessionID int64, data *InstanceData) error {
+	err := r.db.QueryRowContext(ctx, `
+		SELECT added, removed FROM diff_stats WHERE session_id = ?
+	`, sessionID).Scan(&data.DiffStats.Added, &data.DiffStats.Removed)
+	if err == sql.ErrNoRows {
+		// No diff stats - this is fine
+		return nil
+	}
+	return err
+}
+
+// loadDiffStats loads the full diff stats including the content field
+// Use this only when the diff content is actually needed (e.g., viewing a specific session)
 func (r *SQLiteRepository) loadDiffStats(ctx context.Context, sessionID int64, data *InstanceData) error {
 	err := r.db.QueryRowContext(ctx, `
 		SELECT added, removed, content FROM diff_stats WHERE session_id = ?
@@ -670,4 +486,223 @@ func (r *SQLiteRepository) loadClaudeSession(ctx context.Context, sessionID int6
 
 	data.ClaudeSession = claude
 	return rows.Err()
+}
+
+// loadChildDataWithOptions loads child data based on LoadOptions configuration
+// This is a helper method that selectively loads data to optimize performance
+func (r *SQLiteRepository) loadChildDataWithOptions(ctx context.Context, sessionID int64, data *InstanceData, options LoadOptions) error {
+	// Load worktree if requested
+	if options.LoadWorktree {
+		if err := r.loadWorktree(ctx, sessionID, data); err != nil {
+			return fmt.Errorf("failed to load worktree: %w", err)
+		}
+	}
+
+	// Load diff stats - either summary or full content
+	if options.LoadDiffContent {
+		// Load full content (implies stats)
+		if err := r.loadDiffStats(ctx, sessionID, data); err != nil {
+			return fmt.Errorf("failed to load diff stats: %w", err)
+		}
+	} else if options.LoadDiffStats {
+		// Load only summary (counts)
+		if err := r.loadDiffStatsSummary(ctx, sessionID, data); err != nil {
+			return fmt.Errorf("failed to load diff stats summary: %w", err)
+		}
+	}
+
+	// Load tags if requested
+	if options.LoadTags {
+		if err := r.loadTags(ctx, sessionID, data); err != nil {
+			return fmt.Errorf("failed to load tags: %w", err)
+		}
+	}
+
+	// Load Claude session if requested
+	if options.LoadClaudeSession {
+		if err := r.loadClaudeSession(ctx, sessionID, data); err != nil {
+			return fmt.Errorf("failed to load Claude session: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// GetWithOptions retrieves a single session with selective child data loading
+func (r *SQLiteRepository) GetWithOptions(ctx context.Context, title string, options LoadOptions) (*InstanceData, error) {
+	var data InstanceData
+
+	// Query main session data
+	err := r.db.QueryRowContext(ctx, `
+		SELECT title, path, working_dir, branch, status, height, width,
+			created_at, updated_at, auto_yes, prompt, program, existing_worktree,
+			category, is_expanded, session_type, tmux_prefix,
+			last_terminal_update, last_meaningful_output, last_output_signature,
+			last_added_to_queue, last_viewed, last_acknowledged
+		FROM sessions WHERE title = ?
+	`, title).Scan(
+		&data.Title, &data.Path, &data.WorkingDir, &data.Branch, &data.Status,
+		&data.Height, &data.Width, &data.CreatedAt, &data.UpdatedAt,
+		&data.AutoYes, &data.Prompt, &data.Program, &data.ExistingWorktree,
+		&data.Category, &data.IsExpanded, &data.SessionType, &data.TmuxPrefix,
+		&data.LastTerminalUpdate, &data.LastMeaningfulOutput, &data.LastOutputSignature,
+		&data.LastAddedToQueue, &data.LastViewed, &data.LastAcknowledged,
+	)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("session not found: %s", title)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to query session: %w", err)
+	}
+
+	// Get session ID for child queries
+	var sessionID int64
+	err = r.db.QueryRowContext(ctx, "SELECT id FROM sessions WHERE title = ?", title).Scan(&sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get session ID: %w", err)
+	}
+
+	// Load child data based on options
+	if err := r.loadChildDataWithOptions(ctx, sessionID, &data, options); err != nil {
+		return nil, err
+	}
+
+	return &data, nil
+}
+
+// ListWithOptions retrieves all sessions with selective child data loading
+func (r *SQLiteRepository) ListWithOptions(ctx context.Context, options LoadOptions) ([]InstanceData, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, title, path, working_dir, branch, status, height, width,
+			created_at, updated_at, auto_yes, prompt, program, existing_worktree,
+			category, is_expanded, session_type, tmux_prefix,
+			last_terminal_update, last_meaningful_output, last_output_signature,
+			last_added_to_queue, last_viewed, last_acknowledged
+		FROM sessions ORDER BY created_at DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query sessions: %w", err)
+	}
+	defer rows.Close()
+
+	var sessions []InstanceData
+	for rows.Next() {
+		var data InstanceData
+		var sessionID int64
+
+		err := rows.Scan(
+			&sessionID, &data.Title, &data.Path, &data.WorkingDir, &data.Branch, &data.Status,
+			&data.Height, &data.Width, &data.CreatedAt, &data.UpdatedAt,
+			&data.AutoYes, &data.Prompt, &data.Program, &data.ExistingWorktree,
+			&data.Category, &data.IsExpanded, &data.SessionType, &data.TmuxPrefix,
+			&data.LastTerminalUpdate, &data.LastMeaningfulOutput, &data.LastOutputSignature,
+			&data.LastAddedToQueue, &data.LastViewed, &data.LastAcknowledged,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan session: %w", err)
+		}
+
+		// Load child data based on options
+		if err := r.loadChildDataWithOptions(ctx, sessionID, &data, options); err != nil {
+			return nil, err
+		}
+
+		sessions = append(sessions, data)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating sessions: %w", err)
+	}
+
+	return sessions, nil
+}
+
+// ListByStatusWithOptions retrieves sessions filtered by status with selective loading
+func (r *SQLiteRepository) ListByStatusWithOptions(ctx context.Context, status Status, options LoadOptions) ([]InstanceData, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, title, path, working_dir, branch, status, height, width,
+			created_at, updated_at, auto_yes, prompt, program, existing_worktree,
+			category, is_expanded, session_type, tmux_prefix,
+			last_terminal_update, last_meaningful_output, last_output_signature,
+			last_added_to_queue, last_viewed, last_acknowledged
+		FROM sessions WHERE status = ? ORDER BY created_at DESC
+	`, status)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query sessions by status: %w", err)
+	}
+	defer rows.Close()
+
+	var sessions []InstanceData
+	for rows.Next() {
+		var data InstanceData
+		var sessionID int64
+
+		err := rows.Scan(
+			&sessionID, &data.Title, &data.Path, &data.WorkingDir, &data.Branch, &data.Status,
+			&data.Height, &data.Width, &data.CreatedAt, &data.UpdatedAt,
+			&data.AutoYes, &data.Prompt, &data.Program, &data.ExistingWorktree,
+			&data.Category, &data.IsExpanded, &data.SessionType, &data.TmuxPrefix,
+			&data.LastTerminalUpdate, &data.LastMeaningfulOutput, &data.LastOutputSignature,
+			&data.LastAddedToQueue, &data.LastViewed, &data.LastAcknowledged,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan session: %w", err)
+		}
+
+		// Load child data based on options
+		if err := r.loadChildDataWithOptions(ctx, sessionID, &data, options); err != nil {
+			return nil, err
+		}
+
+		sessions = append(sessions, data)
+	}
+
+	return sessions, rows.Err()
+}
+
+// ListByTagWithOptions retrieves sessions with a specific tag with selective loading
+func (r *SQLiteRepository) ListByTagWithOptions(ctx context.Context, tag string, options LoadOptions) ([]InstanceData, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT s.id, s.title, s.path, s.working_dir, s.branch, s.status, s.height, s.width,
+			s.created_at, s.updated_at, s.auto_yes, s.prompt, s.program, s.existing_worktree,
+			s.category, s.is_expanded, s.session_type, s.tmux_prefix,
+			s.last_terminal_update, s.last_meaningful_output, s.last_output_signature,
+			s.last_added_to_queue, s.last_viewed, s.last_acknowledged
+		FROM sessions s
+		INNER JOIN session_tags st ON s.id = st.session_id
+		INNER JOIN tags t ON st.tag_id = t.id
+		WHERE t.name = ?
+		ORDER BY s.created_at DESC
+	`, tag)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query sessions by tag: %w", err)
+	}
+	defer rows.Close()
+
+	var sessions []InstanceData
+	for rows.Next() {
+		var data InstanceData
+		var sessionID int64
+
+		err := rows.Scan(
+			&sessionID, &data.Title, &data.Path, &data.WorkingDir, &data.Branch, &data.Status,
+			&data.Height, &data.Width, &data.CreatedAt, &data.UpdatedAt,
+			&data.AutoYes, &data.Prompt, &data.Program, &data.ExistingWorktree,
+			&data.Category, &data.IsExpanded, &data.SessionType, &data.TmuxPrefix,
+			&data.LastTerminalUpdate, &data.LastMeaningfulOutput, &data.LastOutputSignature,
+			&data.LastAddedToQueue, &data.LastViewed, &data.LastAcknowledged,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan session: %w", err)
+		}
+
+		// Load child data based on options
+		if err := r.loadChildDataWithOptions(ctx, sessionID, &data, options); err != nil {
+			return nil, err
+		}
+
+		sessions = append(sessions, data)
+	}
+
+	return sessions, rows.Err()
 }
