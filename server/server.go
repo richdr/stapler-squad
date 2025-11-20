@@ -56,7 +56,7 @@ func NewServer(addr string) *Server {
 		// This ensures instances have statusManager when they start, allowing
 		// controller initialization to succeed
 		statusManager := session.NewInstanceStatusManager()
-		reviewQueuePoller := session.NewReviewQueuePoller(reviewQueue, statusManager)
+		reviewQueuePoller := session.NewReviewQueuePoller(reviewQueue, statusManager, storage)
 
 		// CRITICAL: Start storage AFTER creating statusManager
 		// This loads and starts instances with proper dependency wiring

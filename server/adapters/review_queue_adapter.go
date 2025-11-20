@@ -3,6 +3,7 @@ package adapters
 import (
 	sessionv1 "claude-squad/gen/proto/go/session/v1"
 	"claude-squad/session"
+	"fmt"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -79,7 +80,7 @@ func ReviewQueueToProto(queue *session.ReviewQueue) *sessionv1.ReviewQueue {
 		byReason[int32(protoR)] = int32(count)
 	}
 
-	return &sessionv1.ReviewQueue{
+	protoQueue := &sessionv1.ReviewQueue{
 		TotalItems:         int32(stats.TotalItems),
 		Items:              protoItems,
 		ByPriority:         byPriority,
@@ -88,6 +89,12 @@ func ReviewQueueToProto(queue *session.ReviewQueue) *sessionv1.ReviewQueue {
 		OldestItemId:       stats.OldestItem,
 		OldestAgeSeconds:   int64(stats.OldestAge.Seconds()),
 	}
+
+	// DEBUG: Log serialized statistics to diagnose "20412d ago" UI issue
+	fmt.Printf("[ReviewQueueAdapter] Serializing statistics: AverageAge=%s (%d seconds), OldestAge=%s (%d seconds), TotalItems=%d\n",
+		stats.AverageAge, protoQueue.AverageAgeSeconds, stats.OldestAge, protoQueue.OldestAgeSeconds, stats.TotalItems)
+
+	return protoQueue
 }
 
 // priorityToProto converts session.Priority to proto Priority enum.

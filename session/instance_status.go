@@ -10,6 +10,7 @@ import (
 type InstanceStatusInfo struct {
 	BasicStatus        Status         // Running, Paused, Ready
 	ClaudeStatus       DetectedStatus // If ClaudeController is active
+	StatusContext      string         // Context/details about current status (e.g., error message)
 	PendingApprovals   int            // Number of pending approvals
 	QueuedCommands     int            // Number of queued commands
 	LastCommandStatus  string         // Status of last command
@@ -82,9 +83,10 @@ func (ism *InstanceStatusManager) GetStatus(instance *Instance) InstanceStatusIn
 	}
 
 	if info.IsControllerActive {
-		// Get Claude status
-		claudeStatus, _ := controller.GetCurrentStatus()
+		// Get Claude status with context (includes error details, matched patterns, etc.)
+		claudeStatus, statusContext := controller.GetCurrentStatus()
 		info.ClaudeStatus = claudeStatus
+		info.StatusContext = statusContext
 
 		// Get queued commands count
 		commands := controller.GetQueuedCommands()

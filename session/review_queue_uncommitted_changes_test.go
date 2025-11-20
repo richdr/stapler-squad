@@ -77,7 +77,7 @@ func TestReviewQueue_UncommittedChangesDetection(t *testing.T) {
 	// Create review queue infrastructure
 	queue := NewReviewQueue()
 	statusManager := NewInstanceStatusManager()
-	poller := NewReviewQueuePoller(queue, statusManager)
+	poller := NewReviewQueuePoller(queue, statusManager, nil)
 	poller.AddInstance(instance)
 
 	// Test 1: Clean worktree (no uncommitted changes) should not be added to queue
@@ -234,7 +234,7 @@ func TestReviewQueue_UncommittedChanges_NoWorktree(t *testing.T) {
 	// Create review queue infrastructure
 	queue := NewReviewQueue()
 	statusManager := NewInstanceStatusManager()
-	poller := NewReviewQueuePoller(queue, statusManager)
+	poller := NewReviewQueuePoller(queue, statusManager, nil)
 	poller.AddInstance(instance)
 
 	// Check session - should not crash and not add to queue for uncommitted changes
@@ -312,7 +312,7 @@ func TestReviewQueue_UncommittedChanges_Integration(t *testing.T) {
 	// Create review queue with poller
 	queue := NewReviewQueue()
 	statusManager := NewInstanceStatusManager()
-	poller := NewReviewQueuePoller(queue, statusManager)
+	poller := NewReviewQueuePoller(queue, statusManager, nil)
 	poller.AddInstance(instance)
 
 	// Start polling in background

@@ -74,10 +74,14 @@ func (s *SessionService) loadInstancesWithWiring() ([]*session.Instance, error) 
 	return instances, nil
 }
 
-// NewSessionServiceFromConfig creates a SessionService using the default config and state.
+// NewSessionServiceFromConfig creates a SessionService using the default config and SQLite state.
 func NewSessionServiceFromConfig() (*SessionService, error) {
-	state := config.LoadState()
-	storage, err := session.NewStorage(state)
+	// Use SQLite-backed state for better performance and reliability
+	sqliteState, err := session.LoadSQLiteState()
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize SQLite state: %w", err)
+	}
+	storage, err := session.NewStorage(sqliteState)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize storage: %w", err)
 	}

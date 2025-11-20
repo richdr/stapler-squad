@@ -249,7 +249,7 @@ type List struct {
 	reviewQueue      *session.ReviewQueue           // Review queue for tracking sessions needing attention
 
 	// State management for persistence
-	stateManager *config.State // Reference to state manager for persistence
+	stateManager config.StateManager // Reference to state manager for persistence
 
 	// Scrolling support
 	scrollOffset int // Index of the first visible item
@@ -388,7 +388,7 @@ func (s SessionSearchItem) GetID() string {
 	return s.instance.Title + "|" + s.instance.Path
 }
 
-func NewList(spinner *spinner.Model, autoYes bool, stateManager *config.State) *List {
+func NewList(spinner *spinner.Model, autoYes bool, stateManager config.StateManager) *List {
 	l := &List{
 		items:                []*session.Instance{},
 		renderer:             &InstanceRenderer{spinner: spinner, repoNameCache: make(map[string]string)},

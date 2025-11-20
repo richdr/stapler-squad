@@ -1,6 +1,7 @@
 package session
 
 import (
+	"claude-squad/log"
 	"claude-squad/session/git"
 	"fmt"
 	"sort"
@@ -361,8 +362,12 @@ func (rq *ReviewQueue) GetStatistics() ReviewQueueStatistics {
 		stats.ByPriority[item.Priority]++
 		stats.ByReason[item.Reason]++
 
-		// Skip items with zero or invalid timestamps for age calculations
-		if item.DetectedAt.IsZero() || item.DetectedAt.Before(minValidTime) {
+		// MIGRATION FIX: Skip items with zero or invalid timestamps for age calculations.
+		// This filters out old queue items that were added before the LastMeaningfulOutput
+		// migration ran, which would otherwise show "20412d ago" in statistics.
+		if item.DetectedAt.IsZero() || item.DetectedAt.Before(minValidTime) ||
+			item.LastActivity.IsZero() || item.LastActivity.Before(minValidTime) {
+			log.InfoLog.Printf("[ReviewQueue] GetStatistics: SKIPPING item '%s' due to invalid timestamps", item.SessionID)
 			continue
 		}
 
@@ -382,6 +387,9 @@ func (rq *ReviewQueue) GetStatistics() ReviewQueueStatistics {
 		if !oldestTime.IsZero() {
 			stats.OldestAge = time.Since(oldestTime)
 		}
+	} else if len(rq.items) > 0 {
+		// Only log if there are items but none are valid (indicates a problem)
+		log.InfoLog.Printf("[ReviewQueue] GetStatistics: NO VALID ITEMS (validItemCount=0, totalItems=%d)", len(rq.items))
 	}
 
 	return stats

@@ -67,8 +67,8 @@ type home struct {
 	storage *session.Storage
 	// appConfig stores persistent application configuration
 	appConfig *config.Config
-	// appState stores persistent application state like seen help screens
-	appState *config.State
+	// appState stores persistent application state like seen help screens (now using interface to support SQLite)
+	appState config.StateManager
 	// bridge provides centralized command and key management
 	bridge *cmd.Bridge
 
@@ -271,7 +271,7 @@ func newHomeWithDependencies(deps Dependencies) *home {
 	h.reviewQueue = session.NewReviewQueue()
 	h.queueView = ui.NewQueueView(h.reviewQueue)
 	h.statusManager = session.NewInstanceStatusManager()
-	h.reviewQueuePoller = session.NewReviewQueuePoller(h.reviewQueue, h.statusManager)
+	h.reviewQueuePoller = session.NewReviewQueuePoller(h.reviewQueue, h.statusManager, h.storage)
 
 	// Load saved instances and perform initialization
 	h.initializeWithSavedData()
@@ -485,6 +485,9 @@ func (m *home) initializeCommandBridge() {
 		},
 		OnHistoryBrowser: func() (tea.Model, tea.Cmd) {
 			return m.handleHistoryBrowser()
+		},
+		OnConfigEditor: func() (tea.Model, tea.Cmd) {
+			return m.handleConfigEditor()
 		},
 	}
 
@@ -874,6 +877,37 @@ func (m *home) handleHistoryBrowser() (tea.Model, tea.Cmd) {
 
 	// Change state
 	m.transitionToState(state.HistoryBrowser)
+
+	return m, tea.WindowSize()
+}
+
+func (m *home) handleConfigEditor() (tea.Model, tea.Cmd) {
+	// Create config editor overlay using coordinator
+	if err := m.uiCoordinator.CreateConfigEditorOverlay(); err != nil {
+		return m, m.handleError(fmt.Errorf("failed to create config editor overlay: %w", err))
+	}
+
+	// Get the overlay and set up callbacks
+	configEditorOverlay := m.uiCoordinator.GetConfigEditorOverlay()
+	if configEditorOverlay != nil {
+		configEditorOverlay.OnComplete = func() {
+			// Close the overlay after successful save
+			m.uiCoordinator.HideOverlay(appui.ComponentConfigEditorOverlay)
+			m.transitionToDefault()
+			m.menu.SetState(ui.StateDefault)
+			m.statusBar.SetInfo("Configuration saved successfully")
+		}
+
+		configEditorOverlay.OnCancel = func() {
+			// Close the overlay without saving
+			m.uiCoordinator.HideOverlay(appui.ComponentConfigEditorOverlay)
+			m.transitionToDefault()
+			m.menu.SetState(ui.StateDefault)
+		}
+	}
+
+	// Change state
+	m.transitionToState(state.ConfigEditor)
 
 	return m, tea.WindowSize()
 }
@@ -1786,6 +1820,10 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, teaCmd tea.Cmd) {
 		return m.handleHistoryBrowserState(msg)
 	}
 
+	if m.isInState(state.ConfigEditor) {
+		return m.handleConfigEditorState(msg)
+	}
+
 	if m.isInState(state.New) {
 		// Handle quit commands first. Don't handle q because the user might want to type that.
 		if msg.String() == "ctrl+c" {
@@ -2375,6 +2413,25 @@ func (m *home) handleHistoryBrowserState(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if shouldClose {
 		// Overlay requested close
 		m.uiCoordinator.HideOverlay(appui.ComponentHistoryBrowserOverlay)
+		m.transitionToDefault()
+	}
+
+	return m, nil
+}
+
+func (m *home) handleConfigEditorState(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	configEditorOverlay := m.uiCoordinator.GetConfigEditorOverlay()
+	if configEditorOverlay == nil {
+		// Overlay disappeared, return to default
+		m.transitionToDefault()
+		return m, nil
+	}
+
+	// Let overlay handle the key press
+	shouldClose := configEditorOverlay.HandleKeyPress(msg)
+	if shouldClose {
+		// Overlay requested close
+		m.uiCoordinator.HideOverlay(appui.ComponentConfigEditorOverlay)
 		m.transitionToDefault()
 	}
 

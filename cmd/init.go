@@ -91,6 +91,15 @@ func InitializeCommands(registry *CommandRegistry) error {
 		Contexts:    []ContextID{ContextList},
 	}).BindKey("H")
 
+	registry.Register(&Command{
+		ID:          "session.config_editor",
+		Name:        "Config Editor",
+		Description: "Edit Claude Code configuration files",
+		Category:    CategorySession,
+		Handler:     commands.ConfigEditorCommand,
+		Contexts:    []ContextID{ContextList},
+	}).BindKey("E")
+
 	// Register git integration commands
 	registry.Register(&Command{
 		ID:          "git.status",

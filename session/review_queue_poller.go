@@ -31,6 +31,7 @@ func DefaultReviewQueuePollerConfig() ReviewQueuePollerConfig {
 type ReviewQueuePoller struct {
 	queue         *ReviewQueue
 	statusManager *InstanceStatusManager
+	storage       *Storage
 	instances     []*Instance
 	config        ReviewQueuePollerConfig
 
@@ -41,15 +42,18 @@ type ReviewQueuePoller struct {
 }
 
 // NewReviewQueuePoller creates a new poller for automatically managing the review queue.
-func NewReviewQueuePoller(queue *ReviewQueue, statusManager *InstanceStatusManager) *ReviewQueuePoller {
-	return NewReviewQueuePollerWithConfig(queue, statusManager, DefaultReviewQueuePollerConfig())
+// The storage parameter is optional (can be nil) but required for persisting LastAddedToQueue timestamps.
+func NewReviewQueuePoller(queue *ReviewQueue, statusManager *InstanceStatusManager, storage *Storage) *ReviewQueuePoller {
+	return NewReviewQueuePollerWithConfig(queue, statusManager, storage, DefaultReviewQueuePollerConfig())
 }
 
 // NewReviewQueuePollerWithConfig creates a poller with custom configuration.
-func NewReviewQueuePollerWithConfig(queue *ReviewQueue, statusManager *InstanceStatusManager, config ReviewQueuePollerConfig) *ReviewQueuePoller {
+// The storage parameter is optional (can be nil) but required for persisting LastAddedToQueue timestamps.
+func NewReviewQueuePollerWithConfig(queue *ReviewQueue, statusManager *InstanceStatusManager, storage *Storage, config ReviewQueuePollerConfig) *ReviewQueuePoller {
 	return &ReviewQueuePoller{
 		queue:         queue,
 		statusManager: statusManager,
+		storage:       storage,
 		instances:     make([]*Instance, 0),
 		config:        config,
 	}
@@ -95,6 +99,10 @@ func (rqp *ReviewQueuePoller) Start(ctx context.Context) {
 	rqp.ctx, rqp.cancel = context.WithCancel(ctx)
 	rqp.mu.Unlock()
 
+	// STARTUP CLEANUP: Remove orphaned queue items with invalid timestamps
+	// This handles items that were persisted before the LastMeaningfulOutput migration
+	rqp.cleanupOrphanedItems()
+
 	// Perform initial queue population immediately on startup
 	// This ensures the queue is populated without waiting for the first poll interval
 	rqp.checkSessions()
@@ -115,6 +123,34 @@ func (rqp *ReviewQueuePoller) Stop() {
 
 	rqp.wg.Wait()
 	log.InfoLog.Printf("ReviewQueuePoller stopped")
+}
+
+// cleanupOrphanedItems removes queue items with zero or invalid LastActivity timestamps.
+// This handles orphaned items that were persisted before the LastMeaningfulOutput migration
+// and never got cleaned up. Should be called once during startup.
+func (rqp *ReviewQueuePoller) cleanupOrphanedItems() {
+	// Get all items currently in queue
+	allItems := rqp.queue.List()
+
+	// Timestamp validation threshold - any timestamp before this is considered invalid
+	minValidTime := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	removedCount := 0
+	for _, item := range allItems {
+		// Remove items with zero or invalid LastActivity timestamps
+		if item.LastActivity.IsZero() || item.LastActivity.Before(minValidTime) {
+			log.InfoLog.Printf("[ReviewQueue] STARTUP CLEANUP: Removing orphaned item '%s' with invalid LastActivity (%v)",
+				item.SessionID, item.LastActivity)
+			rqp.queue.Remove(item.SessionID)
+			removedCount++
+		}
+	}
+
+	if removedCount > 0 {
+		log.InfoLog.Printf("[ReviewQueue] STARTUP CLEANUP: Removed %d orphaned items with invalid timestamps", removedCount)
+	} else {
+		log.InfoLog.Printf("[ReviewQueue] STARTUP CLEANUP: No orphaned items found")
+	}
 }
 
 // pollLoop is the main polling loop that runs in the background.
@@ -150,6 +186,18 @@ func (rqp *ReviewQueuePoller) checkSessions() {
 func (rqp *ReviewQueuePoller) checkSession(inst *Instance) {
 	log.InfoLog.Printf("[ReviewQueue] === CHECKING SESSION '%s' === (started=%v, paused=%v)",
 		inst.Title, inst.Started(), inst.Paused())
+
+	// MIGRATION CLEANUP: Remove any existing queue item with zero LastMeaningfulOutput.
+	// This handles stale items that were added before the migration ran and never got cleaned up
+	// because they didn't meet the criteria for re-adding (e.g., in grace period).
+	if inst.LastMeaningfulOutput.IsZero() {
+		if rqp.queue.Has(inst.Title) {
+			log.InfoLog.Printf("[ReviewQueue] Session '%s': CLEANUP - Removing stale queue item with zero LastMeaningfulOutput", inst.Title)
+			rqp.queue.Remove(inst.Title)
+		}
+		// Don't process this session further if it hasn't been migrated yet
+		return
+	}
 
 	// Skip paused or unstarted sessions
 	if !inst.Started() || inst.Paused() {
@@ -206,9 +254,14 @@ func (rqp *ReviewQueuePoller) checkSession(inst *Instance) {
 				reason = ReasonApprovalPending
 				priority = PriorityHigh
 				shouldAdd = true
-				context = "Waiting for approval to proceed"
-				log.DebugLog.Printf("[ReviewQueue] Session '%s': Approval needed (status=%s, pendingApprovals=%d)",
-					inst.Title, statusInfo.ClaudeStatus.String(), statusInfo.PendingApprovals)
+				// Use the detailed context from status detector if available
+				if statusInfo.StatusContext != "" {
+					context = statusInfo.StatusContext
+				} else {
+					context = "Waiting for approval to proceed"
+				}
+				log.DebugLog.Printf("[ReviewQueue] Session '%s': Approval needed (status=%s, pendingApprovals=%d) - %s",
+					inst.Title, statusInfo.ClaudeStatus.String(), statusInfo.PendingApprovals, context)
 			}
 
 			// Check for input required (explicit prompts asking for user input)
@@ -216,8 +269,13 @@ func (rqp *ReviewQueuePoller) checkSession(inst *Instance) {
 				reason = ReasonInputRequired
 				priority = PriorityMedium
 				shouldAdd = true
-				context = "Waiting for explicit user input"
-				log.DebugLog.Printf("[ReviewQueue] Session '%s': Input required detected", inst.Title)
+				// Use the detailed context from status detector if available
+				if statusInfo.StatusContext != "" {
+					context = statusInfo.StatusContext
+				} else {
+					context = "Waiting for explicit user input"
+				}
+				log.DebugLog.Printf("[ReviewQueue] Session '%s': Input required - %s", inst.Title, context)
 			}
 
 			// Check for errors (highest priority)
@@ -225,8 +283,13 @@ func (rqp *ReviewQueuePoller) checkSession(inst *Instance) {
 				reason = ReasonErrorState
 				priority = PriorityUrgent
 				shouldAdd = true
-				context = "Error state detected"
-				log.DebugLog.Printf("[ReviewQueue] Session '%s': Error state detected", inst.Title)
+				// Use the detailed context from status detector if available
+				if statusInfo.StatusContext != "" {
+					context = statusInfo.StatusContext
+				} else {
+					context = "Error state detected"
+				}
+				log.DebugLog.Printf("[ReviewQueue] Session '%s': Error detected - %s", inst.Title, context)
 			}
 
 			// Check for tests failing (high priority - actionable failures)
@@ -234,8 +297,13 @@ func (rqp *ReviewQueuePoller) checkSession(inst *Instance) {
 				reason = ReasonTestsFailing
 				priority = PriorityHigh
 				shouldAdd = true
-				context = "Tests are failing"
-				log.InfoLog.Printf("[ReviewQueue] Session '%s': Tests failing detected", inst.Title)
+				// Use the detailed context from status detector if available
+				if statusInfo.StatusContext != "" {
+					context = statusInfo.StatusContext
+				} else {
+					context = "Tests are failing"
+				}
+				log.InfoLog.Printf("[ReviewQueue] Session '%s': Tests failing - %s", inst.Title, context)
 			}
 
 			// Check for task completion (high priority - user wants to know when work is done)
@@ -243,8 +311,13 @@ func (rqp *ReviewQueuePoller) checkSession(inst *Instance) {
 				reason = ReasonTaskComplete
 				priority = PriorityLow // Low priority since it's informational, not blocking
 				shouldAdd = true
-				context = "Task completed successfully"
-				log.InfoLog.Printf("[ReviewQueue] Session '%s': Task completion detected", inst.Title)
+				// Use the detailed context from status detector if available
+				if statusInfo.StatusContext != "" {
+					context = statusInfo.StatusContext
+				} else {
+					context = "Task completed successfully"
+				}
+				log.InfoLog.Printf("[ReviewQueue] Session '%s': Task completion - %s", inst.Title, context)
 			}
 
 			// Check for uncommitted changes (informational - user may want to review and commit)
@@ -311,56 +384,54 @@ func (rqp *ReviewQueuePoller) checkSession(inst *Instance) {
 		}
 	}
 
-	// CRITICAL FIX: Update timestamps when WebSocket isn't active
-	// The original assumption that "LastMeaningfulOutput is already updated by WebSocket terminal streaming"
-	// is ONLY true when users view the terminal in the web UI. When users directly attach to tmux
-	// (via tmux attach-session), there's NO WebSocket connection, so NO timestamp updates!
+	// NOTE: Preview() is now a read-only operation that does NOT update timestamps.
+	// Timestamps are managed by:
+	// 1. WebSocket streaming when users view the terminal in the web UI
+	// 2. User interactions (typing, viewing) via UpdateTerminalTimestamps(forceUpdate=true)
+	// 3. Automated checks in HasUpdated() which call UpdateTerminalTimestamps(forceUpdate=false)
 	//
-	// To fix this, we call Preview() to refresh timestamps, but only when:
-	// 1. Timestamps are stale (> 30 seconds old)
-	// 2. Session is running (not paused)
-	// 3. Tmux session is alive
+	// We deliberately avoid calling Preview() here because it would be an expensive operation
+	// (blocking tmux capture) that doesn't provide value since it no longer updates timestamps.
+	// Instead, we rely on the timestamps already set by the above mechanisms.
 	//
-	// This balances the need for accurate timestamps with the performance concern of blocking tmux calls.
-	timeSinceLastUpdate := time.Since(inst.LastTerminalUpdate)
-	if timeSinceLastUpdate > 30*time.Second && inst.Status == Running && inst.TmuxAlive() {
-		log.DebugLog.Printf("[ReviewQueue] Session '%s': Timestamps stale (%s), refreshing via Preview()",
-			inst.Title, formatDuration(timeSinceLastUpdate))
-
-		// Call Preview() to capture current pane content and update timestamps
-		// This is safe because we only do it when timestamps are very stale (30s+)
-		if _, err := inst.Preview(); err != nil {
-			log.ErrorLog.Printf("[ReviewQueue] Session '%s': Failed to refresh timestamps: %v", inst.Title, err)
-			// Continue processing even if Preview fails - we'll use stale timestamps
-		} else {
-			log.InfoLog.Printf("[ReviewQueue] Session '%s': Refreshed timestamps (LastMeaningfulOutput now: %v)",
-				inst.Title, inst.LastMeaningfulOutput)
-		}
-	}
+	// This approach:
+	// - Prevents breaking acknowledgment snooze (Preview() no longer updates LastMeaningfulOutput)
+	// - Avoids expensive blocking tmux calls during polling
+	// - Relies on WebSocket streaming or HasUpdated() for accurate timestamp management
 
 	// Check for terminal staleness (no meaningful output for configured threshold)
 	// This helps identify sessions that might be stuck or waiting without showing obvious idle state
+	// IMPORTANT: Respect acknowledgment - don't flag as stale if user already acknowledged
 	timeSinceOutput := inst.GetTimeSinceLastMeaningfulOutput()
 	log.InfoLog.Printf("[ReviewQueue] Session '%s': Staleness check - %s since last meaningful output (threshold: %s, shouldAdd=%v, priority=%v)",
 		inst.Title, formatDuration(timeSinceOutput), formatDuration(rqp.config.StalenessThreshold), shouldAdd, priority)
 
+	// Check if user has acknowledged this session after it became stale
+	// If acknowledged after last output, don't re-flag as stale
+	alreadyAcknowledged := !inst.LastAcknowledged.IsZero() && inst.LastAcknowledged.After(inst.LastMeaningfulOutput)
+
 	if timeSinceOutput > rqp.config.StalenessThreshold {
-		log.InfoLog.Printf("[ReviewQueue] Session '%s': STALENESS DETECTED - time since output (%s) > threshold (%s)",
-			inst.Title, formatDuration(timeSinceOutput), formatDuration(rqp.config.StalenessThreshold))
-
-		// Only override if we don't already have a higher-priority reason
-		if !shouldAdd || priority < PriorityMedium {
-			reason = ReasonIdleTimeout // Reuse idle timeout reason for staleness
-			priority = PriorityLow     // Lower priority than approval/error, but should be reviewed
-			shouldAdd = true
-			context = fmt.Sprintf("No meaningful output for %s (may be stuck or waiting)",
-				formatDuration(timeSinceOutput))
-
-			log.InfoLog.Printf("[ReviewQueue] Session '%s': SETTING shouldAdd=true - flagged as stale - %s since last meaningful output",
-				inst.Title, formatDuration(timeSinceOutput))
+		if alreadyAcknowledged {
+			log.InfoLog.Printf("[ReviewQueue] Session '%s': STALE but already acknowledged - skipping staleness flag",
+				inst.Title)
 		} else {
-			log.InfoLog.Printf("[ReviewQueue] Session '%s': Stale but already has higher priority reason (%s)",
-				inst.Title, reason.String())
+			log.InfoLog.Printf("[ReviewQueue] Session '%s': STALENESS DETECTED - time since output (%s) > threshold (%s)",
+				inst.Title, formatDuration(timeSinceOutput), formatDuration(rqp.config.StalenessThreshold))
+
+			// Only override if we don't already have a higher-priority reason
+			if !shouldAdd || priority < PriorityMedium {
+				reason = ReasonIdleTimeout // Reuse idle timeout reason for staleness
+				priority = PriorityLow     // Lower priority than approval/error, but should be reviewed
+				shouldAdd = true
+				context = fmt.Sprintf("No meaningful output for %s (may be stuck or waiting)",
+					formatDuration(timeSinceOutput))
+
+				log.InfoLog.Printf("[ReviewQueue] Session '%s': SETTING shouldAdd=true - flagged as stale - %s since last meaningful output",
+					inst.Title, formatDuration(timeSinceOutput))
+			} else {
+				log.InfoLog.Printf("[ReviewQueue] Session '%s': Stale but already has higher priority reason (%s)",
+					inst.Title, reason.String())
+			}
 		}
 	} else {
 		log.InfoLog.Printf("[ReviewQueue] Session '%s': NOT STALE - time since output (%s) <= threshold (%s)",
@@ -426,6 +497,19 @@ func (rqp *ReviewQueuePoller) checkSession(inst *Instance) {
 		// DO NOT update LastMeaningfulOutput here - it must reflect actual terminal output time
 		// Updating it would defeat staleness detection by making the session appear fresh
 
+		// MIGRATION: Skip adding items with zero LastMeaningfulOutput timestamps.
+		// These are old sessions that haven't been migrated yet. They'll be re-added
+		// automatically once the migration runs and gives them valid timestamps.
+		if inst.LastMeaningfulOutput.IsZero() {
+			log.InfoLog.Printf("[ReviewQueue] Session '%s': Skipping queue add - LastMeaningfulOutput is zero (needs migration)", inst.Title)
+			// Remove any existing stale item with zero timestamp
+			if rqp.queue.Has(inst.Title) {
+				rqp.queue.Remove(inst.Title)
+				log.InfoLog.Printf("[ReviewQueue] Session '%s': Removed stale queue item with zero timestamp", inst.Title)
+			}
+			return
+		}
+
 		item := &ReviewItem{
 			SessionID:    inst.Title,
 			SessionName:  inst.Title,
@@ -452,6 +536,19 @@ func (rqp *ReviewQueuePoller) checkSession(inst *Instance) {
 		inst.LastAddedToQueue = time.Now()
 		log.InfoLog.Printf("[ReviewQueue] Session '%s': Updated LastAddedToQueue timestamp to %v",
 			inst.Title, inst.LastAddedToQueue)
+
+		// CRITICAL: Persist LastAddedToQueue to database to prevent notification spam
+		// Without persistence, this timestamp resets on app restart or instance reload,
+		// causing the spam prevention check to fail and sessions to be re-added immediately
+		if rqp.storage != nil {
+			if err := rqp.storage.SaveInstances([]*Instance{inst}); err != nil {
+				log.ErrorLog.Printf("[ReviewQueue] Session '%s': Failed to persist LastAddedToQueue: %v", inst.Title, err)
+			} else {
+				log.DebugLog.Printf("[ReviewQueue] Session '%s': Successfully persisted LastAddedToQueue timestamp", inst.Title)
+			}
+		} else {
+			log.DebugLog.Printf("[ReviewQueue] Session '%s': Storage not available, LastAddedToQueue will not persist", inst.Title)
+		}
 
 		if !isUpdate {
 			log.InfoLog.Printf("[ReviewQueue] Session '%s': Successfully added to queue - %s (priority: %s, context: %s)",

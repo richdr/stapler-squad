@@ -35,10 +35,31 @@ type AppState interface {
 	SetHelpScreensSeen(seen uint32) error
 }
 
+// UIStateAccess provides methods for accessing and modifying UI state
+type UIStateAccess interface {
+	// GetUIState returns a copy of the current UI state
+	GetUIState() UIState
+	// SetHidePaused updates the hide paused filter state
+	SetHidePaused(hidePaused bool) error
+	// SetCategoryExpanded updates the expanded state for a category
+	SetCategoryExpanded(category string, expanded bool) error
+	// GetCategoryExpanded returns whether a category is expanded
+	GetCategoryExpanded(category string) bool
+	// SetSearchMode updates the search mode state
+	SetSearchMode(searchMode bool, query string) error
+	// GetSearchState returns the current search mode and query
+	GetSearchState() (bool, string)
+	// SetSelectedIndex updates the selected session index
+	SetSelectedIndex(index int) error
+	// GetSelectedIndex returns the last selected session index
+	GetSelectedIndex() int
+}
+
 // StateManager combines instance storage and app state management
 type StateManager interface {
 	InstanceStorage
 	AppState
+	UIStateAccess
 
 	// RefreshState reloads state from disk to detect changes made by other processes
 	RefreshState() error

@@ -17,6 +17,7 @@ type SessionHandlers struct {
 	OnClaudeSettings  func() (tea.Model, tea.Cmd)
 	OnTagEditor       func() (tea.Model, tea.Cmd)
 	OnHistoryBrowser  func() (tea.Model, tea.Cmd)
+	OnConfigEditor    func() (tea.Model, tea.Cmd)
 }
 
 var sessionHandlers = &SessionHandlers{}
@@ -104,6 +105,16 @@ func TagEditorCommand(ctx *interfaces.CommandContext) error {
 func HistoryBrowserCommand(ctx *interfaces.CommandContext) error {
 	if sessionHandlers.OnHistoryBrowser != nil {
 		model, teaCmd := sessionHandlers.OnHistoryBrowser()
+		ctx.Args["model"] = model
+		ctx.Args["cmd"] = teaCmd
+	}
+	return nil
+}
+
+// ConfigEditorCommand opens the Claude config editor overlay
+func ConfigEditorCommand(ctx *interfaces.CommandContext) error {
+	if sessionHandlers.OnConfigEditor != nil {
+		model, teaCmd := sessionHandlers.OnConfigEditor()
 		ctx.Args["model"] = model
 		ctx.Args["cmd"] = teaCmd
 	}

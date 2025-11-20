@@ -370,3 +370,198 @@ func TestIdleDetector_ConfigUpdate(t *testing.T) {
 		t.Errorf("expected timeout state, got %v", state)
 	}
 }
+
+// TestIdleDetector_InitializeFromTimestamp tests timestamp restoration functionality.
+func TestIdleDetector_InitializeFromTimestamp(t *testing.T) {
+	tests := []struct {
+		name                string
+		timestamp           time.Time
+		expectedRestoration bool
+		description         string
+	}{
+		{
+			name:                "Valid recent timestamp",
+			timestamp:           time.Now().Add(-10 * time.Minute),
+			expectedRestoration: true,
+			description:         "Should restore 10-minute-old timestamp",
+		},
+		{
+			name:                "Zero timestamp",
+			timestamp:           time.Time{},
+			expectedRestoration: false,
+			description:         "Should not restore zero timestamp",
+		},
+		{
+			name:                "Future timestamp",
+			timestamp:           time.Now().Add(1 * time.Hour),
+			expectedRestoration: false,
+			description:         "Should reject future timestamp (clock skew)",
+		},
+		{
+			name:                "Very old timestamp",
+			timestamp:           time.Now().Add(-48 * time.Hour),
+			expectedRestoration: false,
+			description:         "Should reject timestamp older than 24h threshold",
+		},
+		{
+			name:                "Boundary case - exactly 24h old",
+			timestamp:           time.Now().Add(-24 * time.Hour),
+			expectedRestoration: false,
+			description:         "Should reject timestamp exactly at 24h boundary",
+		},
+		{
+			name:                "Near boundary - 23h old",
+			timestamp:           time.Now().Add(-23 * time.Hour),
+			expectedRestoration: true,
+			description:         "Should accept timestamp just under 24h threshold",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			buffer := NewCircularBuffer(1024)
+			ptyAccess := NewPTYAccess("test-session", nil, buffer)
+			detector := NewIdleDetector("test-session", ptyAccess)
+
+			// Initialize from timestamp
+			detector.InitializeFromTimestamp(tt.timestamp)
+
+			// Check result
+			afterInit := detector.GetLastActivity()
+
+			if tt.expectedRestoration {
+				// Should match provided timestamp (within reasonable tolerance for test execution)
+				diff := afterInit.Sub(tt.timestamp)
+				if diff < 0 {
+					diff = -diff
+				}
+				if diff > 2*time.Second {
+					t.Errorf("%s: Timestamp should be restored, got diff %v", tt.description, diff)
+				}
+			} else {
+				// Should keep default (close to time.Now(), or same as before if rejected)
+				timeSinceInit := time.Since(afterInit)
+				if timeSinceInit > 3*time.Second {
+					t.Errorf("%s: Should use default/original timestamp, got age %v", tt.description, timeSinceInit)
+				}
+			}
+		})
+	}
+}
+
+// TestIdleDetector_TimeoutAfterRestoration verifies timeout detection with restored timestamps.
+func TestIdleDetector_TimeoutAfterRestoration(t *testing.T) {
+	buffer := NewCircularBuffer(1024)
+	ptyAccess := NewPTYAccess("test", nil, buffer)
+
+	// Simulate session that was idle 10 minutes ago, server restarts
+	oldTimestamp := time.Now().Add(-10 * time.Minute)
+
+	config := IdleDetectorConfig{
+		IdleThreshold: 5 * time.Second, // Short threshold for testing
+		DebounceDelay: 10 * time.Millisecond,
+		BufferSize:    4096,
+	}
+	detector := NewIdleDetectorWithConfig("test", ptyAccess, config)
+	detector.InitializeFromTimestamp(oldTimestamp)
+
+	// Write idle indicator to PTY
+	buffer.Write([]byte("— INSERT —\n"))
+
+	// Detect state - should show timeout because 10min > 5s threshold
+	state := detector.DetectState()
+
+	if state != IdleStateTimeout {
+		t.Errorf("Expected timeout for 10-minute-old activity, got %v", state)
+	}
+
+	// Verify idle duration reflects actual time
+	duration := detector.GetIdleDuration()
+	if duration < 9*time.Minute {
+		t.Errorf("Idle duration should reflect actual time (~10min), got %v", duration)
+	}
+}
+
+// TestIdleDetector_NoTimeoutForRecentRestoration verifies no false timeout for recent activity.
+func TestIdleDetector_NoTimeoutForRecentRestoration(t *testing.T) {
+	buffer := NewCircularBuffer(1024)
+	ptyAccess := NewPTYAccess("test", nil, buffer)
+
+	// Simulate session that was active 2 seconds ago, server restarts
+	recentTimestamp := time.Now().Add(-2 * time.Second)
+
+	config := IdleDetectorConfig{
+		IdleThreshold: 5 * time.Second,
+		DebounceDelay: 10 * time.Millisecond,
+		BufferSize:    4096,
+	}
+	detector := NewIdleDetectorWithConfig("test", ptyAccess, config)
+	detector.InitializeFromTimestamp(recentTimestamp)
+
+	// Write idle indicator to PTY
+	buffer.Write([]byte("— INSERT —\n"))
+
+	// Detect state - should NOT timeout (2s < 5s threshold)
+	state := detector.DetectState()
+
+	if state == IdleStateTimeout {
+		t.Errorf("Should not timeout for recent activity (2s < 5s threshold), got %v", state)
+	}
+}
+
+// TestIdleDetector_InitializeFromTimestamp_Idempotent tests multiple initialization calls.
+func TestIdleDetector_InitializeFromTimestamp_Idempotent(t *testing.T) {
+	buffer := NewCircularBuffer(1024)
+	ptyAccess := NewPTYAccess("test", nil, buffer)
+	detector := NewIdleDetector("test", ptyAccess)
+
+	firstTimestamp := time.Now().Add(-5 * time.Minute)
+	secondTimestamp := time.Now().Add(-10 * time.Minute)
+
+	// Initialize twice
+	detector.InitializeFromTimestamp(firstTimestamp)
+
+	detector.InitializeFromTimestamp(secondTimestamp)
+	afterSecond := detector.GetLastActivity()
+
+	// Second initialization should overwrite first
+	diff := afterSecond.Sub(secondTimestamp)
+	if diff < 0 {
+		diff = -diff
+	}
+	if diff > time.Second {
+		t.Errorf("Second initialization should overwrite first, expected ~%v, got %v",
+			secondTimestamp, afterSecond)
+	}
+}
+
+// TestIdleDetector_InitializeFromTimestamp_ThreadSafety tests concurrent initialization.
+func TestIdleDetector_InitializeFromTimestamp_ThreadSafety(t *testing.T) {
+	buffer := NewCircularBuffer(1024)
+	ptyAccess := NewPTYAccess("test", nil, buffer)
+	detector := NewIdleDetector("test", ptyAccess)
+
+	// Launch multiple goroutines to initialize concurrently
+	const goroutines = 10
+	done := make(chan bool, goroutines)
+
+	for i := 0; i < goroutines; i++ {
+		go func(offset time.Duration) {
+			timestamp := time.Now().Add(-offset)
+			detector.InitializeFromTimestamp(timestamp)
+			done <- true
+		}(time.Duration(i) * time.Minute)
+	}
+
+	// Wait for all goroutines
+	for i := 0; i < goroutines; i++ {
+		<-done
+	}
+
+	// Should not crash, and lastActivity should be set to one of the timestamps
+	lastActivity := detector.GetLastActivity()
+	if time.Since(lastActivity) > 12*time.Minute {
+		t.Errorf("Expected lastActivity to be set by one of the goroutines, got %v (age: %v)",
+			lastActivity, time.Since(lastActivity))
+	}
+}

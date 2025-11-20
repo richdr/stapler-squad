@@ -47,6 +47,7 @@ type Coordinator interface {
 	CreateClaudeSettingsOverlay(settings session.ClaudeSettings, availableSessions []session.ClaudeSession) error
 	CreateTagEditorOverlay(sessionTitle string, initialTags []string) error
 	CreateHistoryBrowserOverlay() error
+	CreateConfigEditorOverlay() error
 
 	// Overlay accessor methods
 	GetTextInputOverlay() *overlay.TextInputOverlay
@@ -59,6 +60,7 @@ type Coordinator interface {
 	GetClaudeSettingsOverlay() *overlay.ClaudeSettingsOverlay
 	GetTagEditorOverlay() *overlay.TagEditorOverlay
 	GetHistoryBrowserOverlay() *overlay.HistoryBrowserOverlay
+	GetConfigEditorOverlay() *overlay.ConfigEditorOverlay
 }
 
 // coordinator implements the Coordinator interface
@@ -279,6 +281,8 @@ func (c *coordinator) HideOverlay(componentType ComponentType) error {
 		c.registry.TagEditorOverlay = nil
 	case ComponentHistoryBrowserOverlay:
 		c.registry.HistoryBrowserOverlay = nil
+	case ComponentConfigEditorOverlay:
+		c.registry.ConfigEditorOverlay = nil
 	}
 
 	if c.activeOverlay == componentType {
@@ -418,6 +422,16 @@ func (c *coordinator) CreateHistoryBrowserOverlay() error {
 	return c.ShowOverlay(ComponentHistoryBrowserOverlay)
 }
 
+// CreateConfigEditorOverlay creates a new config editor overlay
+func (c *coordinator) CreateConfigEditorOverlay() error {
+	configEditorOverlay, err := overlay.NewConfigEditorOverlay()
+	if err != nil {
+		return fmt.Errorf("failed to create config editor overlay: %w", err)
+	}
+	c.registry.ConfigEditorOverlay = configEditorOverlay
+	return c.ShowOverlay(ComponentConfigEditorOverlay)
+}
+
 // GetTextInputOverlay returns the text input overlay if active
 func (c *coordinator) GetTextInputOverlay() *overlay.TextInputOverlay {
 	if c.IsOverlayVisible(ComponentTextInputOverlay) {
@@ -492,6 +506,14 @@ func (c *coordinator) GetTagEditorOverlay() *overlay.TagEditorOverlay {
 func (c *coordinator) GetHistoryBrowserOverlay() *overlay.HistoryBrowserOverlay {
 	if c.IsOverlayVisible(ComponentHistoryBrowserOverlay) {
 		return c.registry.HistoryBrowserOverlay
+	}
+	return nil
+}
+
+// GetConfigEditorOverlay returns the config editor overlay if active
+func (c *coordinator) GetConfigEditorOverlay() *overlay.ConfigEditorOverlay {
+	if c.IsOverlayVisible(ComponentConfigEditorOverlay) {
+		return c.registry.ConfigEditorOverlay
 	}
 	return nil
 }
@@ -625,6 +647,14 @@ func (c *coordinator) RenderOverlay(componentType ComponentType) string {
 		if c.registry.TagEditorOverlay != nil {
 			return c.registry.TagEditorOverlay.Render()
 		}
+	case ComponentHistoryBrowserOverlay:
+		if c.registry.HistoryBrowserOverlay != nil {
+			return c.registry.HistoryBrowserOverlay.View()
+		}
+	case ComponentConfigEditorOverlay:
+		if c.registry.ConfigEditorOverlay != nil {
+			return c.registry.ConfigEditorOverlay.View()
+		}
 	}
 
 	return ""
@@ -702,6 +732,20 @@ func (c *coordinator) routeToOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			shouldClose := c.registry.TagEditorOverlay.HandleKeyPress(msg)
 			if shouldClose {
 				c.HideOverlay(ComponentTagEditorOverlay)
+			}
+		}
+	case ComponentHistoryBrowserOverlay:
+		if c.registry.HistoryBrowserOverlay != nil {
+			shouldClose := c.registry.HistoryBrowserOverlay.HandleKeyPress(msg)
+			if shouldClose {
+				c.HideOverlay(ComponentHistoryBrowserOverlay)
+			}
+		}
+	case ComponentConfigEditorOverlay:
+		if c.registry.ConfigEditorOverlay != nil {
+			shouldClose := c.registry.ConfigEditorOverlay.HandleKeyPress(msg)
+			if shouldClose {
+				c.HideOverlay(ComponentConfigEditorOverlay)
 			}
 		}
 	}
@@ -805,6 +849,10 @@ func (c *coordinator) GetComponentByType(componentType ComponentType) interface{
 		return c.registry.ZFSearchOverlay
 	case ComponentTagEditorOverlay:
 		return c.registry.TagEditorOverlay
+	case ComponentHistoryBrowserOverlay:
+		return c.registry.HistoryBrowserOverlay
+	case ComponentConfigEditorOverlay:
+		return c.registry.ConfigEditorOverlay
 	default:
 		return nil
 	}
@@ -902,6 +950,18 @@ func (c *coordinator) SetComponent(componentType ComponentType, component interf
 			c.registry.TagEditorOverlay = overlay
 		} else {
 			return fmt.Errorf("invalid component type for TagEditorOverlay")
+		}
+	case ComponentHistoryBrowserOverlay:
+		if overlay, ok := component.(*overlay.HistoryBrowserOverlay); ok {
+			c.registry.HistoryBrowserOverlay = overlay
+		} else {
+			return fmt.Errorf("invalid component type for HistoryBrowserOverlay")
+		}
+	case ComponentConfigEditorOverlay:
+		if overlay, ok := component.(*overlay.ConfigEditorOverlay); ok {
+			c.registry.ConfigEditorOverlay = overlay
+		} else {
+			return fmt.Errorf("invalid component type for ConfigEditorOverlay")
 		}
 	default:
 		return fmt.Errorf("unknown component type: %s", componentType.String())

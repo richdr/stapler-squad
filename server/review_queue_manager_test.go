@@ -14,7 +14,7 @@ func TestReactiveQueueManagerIntegration(t *testing.T) {
 	// Setup components
 	queue := session.NewReviewQueue()
 	statusManager := session.NewInstanceStatusManager()
-	reviewQueuePoller := session.NewReviewQueuePoller(queue, statusManager)
+	reviewQueuePoller := session.NewReviewQueuePoller(queue, statusManager, nil)
 	eventBus := events.NewEventBus(10)
 
 	// Create manager
@@ -146,7 +146,7 @@ func TestReactiveQueueManagerMultipleClients(t *testing.T) {
 	// Setup
 	queue := session.NewReviewQueue()
 	statusManager := session.NewInstanceStatusManager()
-	reviewQueuePoller := session.NewReviewQueuePoller(queue, statusManager)
+	reviewQueuePoller := session.NewReviewQueuePoller(queue, statusManager, nil)
 	eventBus := events.NewEventBus(10)
 
 	reactiveQueueMgr := NewReactiveQueueManager(
@@ -227,7 +227,7 @@ func TestReactiveQueueManagerFiltering(t *testing.T) {
 	// Setup
 	queue := session.NewReviewQueue()
 	statusManager := session.NewInstanceStatusManager()
-	reviewQueuePoller := session.NewReviewQueuePoller(queue, statusManager)
+	reviewQueuePoller := session.NewReviewQueuePoller(queue, statusManager, nil)
 	eventBus := events.NewEventBus(10)
 
 	reactiveQueueMgr := NewReactiveQueueManager(
@@ -296,7 +296,7 @@ func TestReactiveQueueManagerEventTypes(t *testing.T) {
 	// Setup
 	queue := session.NewReviewQueue()
 	statusManager := session.NewInstanceStatusManager()
-	reviewQueuePoller := session.NewReviewQueuePoller(queue, statusManager)
+	reviewQueuePoller := session.NewReviewQueuePoller(queue, statusManager, nil)
 	eventBus := events.NewEventBus(10)
 
 	reactiveQueueMgr := NewReactiveQueueManager(
@@ -368,7 +368,7 @@ func BenchmarkReactiveQueueManagerThroughput(b *testing.B) {
 	// Setup
 	queue := session.NewReviewQueue()
 	statusManager := session.NewInstanceStatusManager()
-	reviewQueuePoller := session.NewReviewQueuePoller(queue, statusManager)
+	reviewQueuePoller := session.NewReviewQueuePoller(queue, statusManager, nil)
 	eventBus := events.NewEventBus(100)
 
 	reactiveQueueMgr := NewReactiveQueueManager(

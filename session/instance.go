@@ -783,8 +783,11 @@ func (i *Instance) Preview() (string, error) {
 		return "", err
 	}
 
-	// Update terminal activity timestamps based on captured content
-	i.UpdateTerminalTimestamps(content, false)
+	// REMOVED: i.UpdateTerminalTimestamps(content, false)
+	// Timestamps are managed separately by WebSocket streaming and user interactions.
+	// Preview() is now a true read-only operation that doesn't update timestamps,
+	// preventing it from breaking acknowledgment snooze when the poller refreshes stale timestamps.
+	// See session/review_queue_poller.go lines 383-408 for context.
 
 	return content, nil
 }
@@ -1303,8 +1306,10 @@ func (i *Instance) PreviewFullHistory() (string, error) {
 		return "", err
 	}
 
-	// Update terminal activity timestamps based on full history capture
-	i.UpdateTerminalTimestamps(content, false)
+	// REMOVED: i.UpdateTerminalTimestamps(content, false)
+	// Like Preview(), this is now a true read-only operation that doesn't update timestamps.
+	// Timestamps are managed separately by WebSocket streaming and user interactions.
+	// This prevents app startup from falsely updating all "Last Activity" timestamps.
 
 	return content, nil
 }
@@ -1704,8 +1709,15 @@ func (i *Instance) UpdateTerminalTimestamps(content string, forceUpdate bool) {
 	// For user-initiated interactions (viewing/typing in web UI), always update LastMeaningfulOutput
 	// This ensures "Last Activity" reflects actual user engagement, not just terminal output content
 	if forceUpdate {
+		// Filter out tmux status bar before computing signature to prevent false positives
+		// from timestamp updates in the status line
+		filteredContent := content
+		if i.tmuxSession != nil {
+			filteredContent, _ = i.tmuxSession.FilterBanners(content)
+		}
+
 		// Compute content signature to detect real changes vs restarts
-		signature := computeContentSignature(content)
+		signature := computeContentSignature(filteredContent)
 
 		// Only update timestamp if content has actually changed
 		if signature != i.LastOutputSignature {
@@ -1724,8 +1736,12 @@ func (i *Instance) UpdateTerminalTimestamps(content string, forceUpdate bool) {
 		hasMeaningful := i.tmuxSession.HasMeaningfulContent(content)
 		log.LogForSession(i.Title, "debug", "HasMeaningfulContent=%v for %d bytes: %q", hasMeaningful, len(content), content)
 		if hasMeaningful {
+			// Filter out tmux status bar before computing signature to prevent false positives
+			// from timestamp updates in the status line
+			filteredContent, _ := i.tmuxSession.FilterBanners(content)
+
 			// Compute content signature to detect real changes vs restarts
-			signature := computeContentSignature(content)
+			signature := computeContentSignature(filteredContent)
 
 			// Only update timestamp if content has actually changed
 			if signature != i.LastOutputSignature {

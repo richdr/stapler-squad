@@ -9,6 +9,7 @@ import (
 	"claude-squad/terminal"
 	"claude-squad/ui"
 	"context"
+	"fmt"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/lipgloss"
@@ -19,7 +20,7 @@ import (
 type Dependencies interface {
 	// Configuration dependencies
 	GetAppConfig() *config.Config
-	GetAppState() *config.State
+	GetAppState() config.StateManager // Changed to interface to support both JSON and SQLite backends
 	GetDiscoveryConfig() *config.DiscoveryConfig
 
 	// Storage dependencies
@@ -58,7 +59,7 @@ type ProductionDependencies struct {
 
 	// Lazy-initialized dependencies
 	appConfig       *config.Config
-	appState        *config.State
+	appState        config.StateManager // Changed to interface to support both JSON and SQLite backends
 	discoveryConfig *config.DiscoveryConfig
 	storage         *session.Storage
 	uiCoordinator   appui.Coordinator
@@ -107,9 +108,14 @@ func (p *ProductionDependencies) GetAppConfig() *config.Config {
 }
 
 // GetAppState returns the application state
-func (p *ProductionDependencies) GetAppState() *config.State {
+func (p *ProductionDependencies) GetAppState() config.StateManager {
 	if p.appState == nil {
-		p.appState = config.LoadState()
+		// Use SQLite-backed state for better performance and reliability
+		sqliteState, err := session.LoadSQLiteState()
+		if err != nil {
+			panic(fmt.Sprintf("Failed to load SQLite state: %v", err))
+		}
+		p.appState = sqliteState
 	}
 	return p.appState
 }
@@ -245,7 +251,7 @@ type MockDependencies struct {
 	program         string
 	autoYes         bool
 	appConfig       *config.Config
-	appState        *config.State
+	appState        config.StateManager // Changed to interface to support both JSON and SQLite backends
 	discoveryConfig *config.DiscoveryConfig
 	storage         *session.Storage
 	uiCoordinator   appui.Coordinator
@@ -292,7 +298,7 @@ func (m *MockDependencies) SetMockAppConfig(cfg *config.Config) *MockDependencie
 }
 
 // SetMockAppState allows tests to set a custom app state
-func (m *MockDependencies) SetMockAppState(state *config.State) *MockDependencies {
+func (m *MockDependencies) SetMockAppState(state config.StateManager) *MockDependencies {
 	m.appState = state
 	return m
 }
@@ -314,7 +320,7 @@ func (m *MockDependencies) GetContext() context.Context { return m.ctx }
 func (m *MockDependencies) GetProgram() string { return m.program }
 func (m *MockDependencies) GetAutoYes() bool { return m.autoYes }
 func (m *MockDependencies) GetAppConfig() *config.Config { return m.appConfig }
-func (m *MockDependencies) GetAppState() *config.State { return m.appState }
+func (m *MockDependencies) GetAppState() config.StateManager { return m.appState }
 func (m *MockDependencies) GetDiscoveryConfig() *config.DiscoveryConfig { return m.discoveryConfig }
 func (m *MockDependencies) GetStorage() *session.Storage { return m.storage }
 func (m *MockDependencies) GetUICoordinator() appui.Coordinator { return m.uiCoordinator }

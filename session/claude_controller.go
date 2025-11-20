@@ -72,6 +72,52 @@ func (cc *ClaudeController) Start(ctx context.Context) error {
 	// Create idle detector
 	cc.idleDetector = NewIdleDetector(cc.sessionName, cc.ptyAccess)
 
+	// CRITICAL FIX: Restore idle detector state from persisted timestamps
+	// This prevents false "timeout" detection after server restarts by maintaining
+	// temporal continuity between historical activity and idle detection.
+	//
+	// We use LastMeaningfulOutput as the source of truth because:
+	// 1. It excludes tmux status banners (more accurate activity signal)
+	// 2. It's already used by review queue for staleness detection
+	// 3. It's persisted to storage and restored on startup
+	//
+	// This restoration happens BEFORE the detector starts analyzing PTY output,
+	// so the first DetectState() call will have accurate historical context.
+	if cc.instance != nil && !cc.instance.LastMeaningfulOutput.IsZero() {
+		cc.idleDetector.InitializeFromTimestamp(cc.instance.LastMeaningfulOutput)
+	}
+
+	// MIGRATION: Handle old sessions without LastMeaningfulOutput timestamp.
+	// These sessions were created before this tracking was implemented and show
+	// "20412d ago" (epoch: 1970-01-01) in the review queue.
+	//
+	// Migration strategy (in order of preference):
+	// 1. Use CreatedAt if available (best approximation of session age)
+	// 2. Use time.Now() as last resort (for transient tmux-only sessions)
+	//
+	// This timestamp will be persisted the next time the session state is saved,
+	// completing the migration.
+	if cc.instance != nil && cc.instance.LastMeaningfulOutput.IsZero() {
+		var migrationTime time.Time
+		var migrationSource string
+
+		if !cc.instance.CreatedAt.IsZero() {
+			// Prefer CreatedAt: gives accurate age for persistent sessions
+			migrationTime = cc.instance.CreatedAt
+			migrationSource = "CreatedAt"
+		} else {
+			// Fallback for transient sessions: use current time
+			// Better to show "idle for 0s" than "20412d ago"
+			migrationTime = time.Now()
+			migrationSource = "time.Now()"
+		}
+
+		log.InfoLog.Printf("[ClaudeController] Migrating old session '%s': initializing LastMeaningfulOutput from %s (%v)",
+			cc.sessionName, migrationSource, migrationTime)
+		cc.instance.LastMeaningfulOutput = migrationTime
+		cc.idleDetector.InitializeFromTimestamp(migrationTime)
+	}
+
 	// Create command queue with persistence
 	queue, err := NewCommandQueueWithPersistence(cc.sessionName, getQueuePersistDir())
 	if err != nil {
@@ -341,7 +387,114 @@ func (cc *ClaudeController) GetCurrentStatus() (DetectedStatus, string) {
 	}
 
 	output := cc.ptyAccess.GetBuffer()
-	return cc.statusDetector.DetectWithContext(output)
+
+	// CRITICAL FIX: Filter tmux status bars before pattern matching to prevent false positives
+	// The PTY buffer contains full terminal output including tmux status bars and shell prompts
+	// which may include session names, directory paths, or other metadata containing keywords
+	// like "error", "fail", etc. We must filter these out before status detection.
+	//
+	// Example false positive: Session named "actions-build-errors-mvn" appears in:
+	// - tmux window title: "claudesquad_actions-build-errors-mvn"
+	// - shell prompt: "~/actions-build-errors-mvn $ "
+	// - tmux status bar showing session name
+	//
+	// By filtering banners, we ensure status patterns only match actual terminal output content,
+	// not metadata/UI elements that happen to contain keyword matches.
+	filteredOutput := output
+	if cc.instance != nil {
+		// Use instance's tmux session to filter banners if available
+		tmuxSession, err := cc.instance.GetPTYReader()
+		if err == nil && tmuxSession != nil {
+			// Get the tmux session from instance for banner filtering
+			// Note: We can't directly access tmuxSession.FilterBanners() here because
+			// GetPTYReader() returns *os.File, not *TmuxSession. We need to use the
+			// instance's methods that have access to the TmuxSession.
+			if cc.instance.TmuxAlive() {
+				// Convert bytes to string for filtering
+				content := string(output)
+				// Filter using instance's helper method (which has tmuxSession access)
+				// Since we don't have direct access to tmuxSession here, we'll use
+				// a simple heuristic: remove lines that look like tmux status bars
+				// (lines starting with "[" and containing session name patterns)
+				filtered, _ := filterTmuxMetadata(content)
+				filteredOutput = []byte(filtered)
+			}
+		}
+	}
+
+	return cc.statusDetector.DetectWithContext(filteredOutput)
+}
+
+// filterTmuxMetadata removes common tmux UI elements from terminal output.
+// This prevents false positive status detections from metadata like session names
+// appearing in window titles, status bars, or shell prompts.
+func filterTmuxMetadata(content string) (string, int) {
+	lines := []string{}
+	removedCount := 0
+
+	for _, line := range splitLines(content) {
+		// Skip lines that look like tmux status bars
+		// Common patterns:
+		// - "[claudesquad_session-name]" window title format
+		// - Lines with only whitespace and status indicators
+		// - Lines starting with "[" followed by timestamp or session info
+		trimmed := []byte(line)
+		// Trim leading/trailing whitespace
+		start := 0
+		end := len(trimmed)
+		for start < end && (trimmed[start] == ' ' || trimmed[start] == '\t') {
+			start++
+		}
+		for end > start && (trimmed[end-1] == ' ' || trimmed[end-1] == '\t' || trimmed[end-1] == '\r' || trimmed[end-1] == '\n') {
+			end--
+		}
+		trimmed = trimmed[start:end]
+
+		// Check if this looks like a tmux status bar
+		isStatusBar := false
+		if len(trimmed) > 0 && trimmed[0] == '[' {
+			// Likely a tmux window title or status indicator
+			isStatusBar = true
+		}
+
+		if isStatusBar {
+			removedCount++
+			continue
+		}
+
+		lines = append(lines, line)
+	}
+
+	result := ""
+	for i, line := range lines {
+		result += line
+		if i < len(lines)-1 {
+			result += "\n"
+		}
+	}
+
+	return result, removedCount
+}
+
+// splitLines splits content into lines while preserving line endings.
+func splitLines(content string) []string {
+	lines := []string{}
+	currentLine := ""
+
+	for _, ch := range content {
+		currentLine += string(ch)
+		if ch == '\n' {
+			lines = append(lines, currentLine)
+			currentLine = ""
+		}
+	}
+
+	// Add remaining content if any
+	if len(currentLine) > 0 {
+		lines = append(lines, currentLine)
+	}
+
+	return lines
 }
 
 // GetRecentOutput returns recent output from the PTY buffer.

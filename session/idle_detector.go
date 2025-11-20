@@ -1,6 +1,7 @@
 package session
 
 import (
+	"claude-squad/log"
 	"fmt"
 	"sync"
 	"time"
@@ -192,6 +193,58 @@ func (id *IdleDetector) Reset() {
 	id.currentState = IdleStateUnknown
 	id.lastStateChange = now
 	id.lastActivity = now
+}
+
+// InitializeFromTimestamp restores the idle detector state from a persisted timestamp.
+// This should be called immediately after creation when restoring a session from storage
+// to maintain temporal continuity across server restarts.
+//
+// This method prevents false "timeout" detection after server restarts by preserving
+// the historical activity timeline. Without this restoration, all sessions would show
+// "Timed out after Xs" immediately after restart because the idle detector initializes
+// with time.Now() by default.
+//
+// Parameters:
+//   - timestamp: The last known activity timestamp (typically Instance.LastMeaningfulOutput)
+//
+// Thread-safety: Safe to call concurrently (uses mutex)
+//
+// Validation:
+//   - Zero timestamps are ignored (no restoration)
+//   - Future timestamps are rejected (clock skew protection)
+//   - Very old timestamps (>24h) are rejected to prevent misleading timeout messages
+func (id *IdleDetector) InitializeFromTimestamp(timestamp time.Time) {
+	id.mu.Lock()
+	defer id.mu.Unlock()
+
+	// Ignore zero timestamps (session never had meaningful output)
+	if timestamp.IsZero() {
+		return
+	}
+
+	now := time.Now()
+
+	// Reject future timestamps (clock skew protection)
+	if timestamp.After(now) {
+		log.WarningLog.Printf("[IdleDetector] Rejecting future timestamp for '%s': %s (now: %s) - possible clock skew",
+			id.sessionName, timestamp.Format(time.RFC3339), now.Format(time.RFC3339))
+		return
+	}
+
+	// Reject very old timestamps to prevent misleading timeout messages
+	// If a session was idle for >24h, it's reasonable to show timeout immediately
+	const maxRestorationAge = 24 * time.Hour
+	age := now.Sub(timestamp)
+	if age > maxRestorationAge {
+		log.InfoLog.Printf("[IdleDetector] Timestamp too old for '%s' (age: %s), using default",
+			id.sessionName, formatDuration(age))
+		return
+	}
+
+	// Restore the historical timestamp
+	id.lastActivity = timestamp
+	log.DebugLog.Printf("[IdleDetector] Restored lastActivity for '%s' to %s (age: %s)",
+		id.sessionName, timestamp.Format(time.RFC3339), formatDuration(age))
 }
 
 // UpdateConfig updates the idle detector configuration.
