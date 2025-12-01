@@ -16,12 +16,26 @@ function getLanguageFromFilename(filename: string): string {
   return 'plaintext';
 }
 
+// Helper function to get file icon based on filename
+function getFileIcon(filename: string): string {
+  if (filename.endsWith('.json')) return '📋';
+  if (filename.endsWith('.md')) return '📝';
+  if (filename === 'CLAUDE.md') return '🤖';
+  return '📄';
+}
+
 // Validation error type
 interface ValidationError {
   line: number;
   column: number;
   message: string;
   severity: 'error' | 'warning';
+}
+
+// Track modified content per file
+interface FileState {
+  content: string;
+  originalContent: string;
 }
 
 export default function ConfigEditorPage() {
@@ -35,6 +49,8 @@ export default function ConfigEditorPage() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<ValidationError[]>([]);
   const [isValidating, setIsValidating] = useState(false);
+  // Per-file state tracking for multi-file navigation
+  const [fileStates, setFileStates] = useState<Record<string, FileState>>({});
 
   const clientRef = useRef<any>(null);
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
@@ -170,6 +186,30 @@ export default function ConfigEditorPage() {
   const loadConfig = async (filename: string) => {
     if (!clientRef.current) return;
 
+    // Save current file state before switching
+    if (selectedConfig && content !== undefined) {
+      setFileStates(prev => ({
+        ...prev,
+        [selectedConfig.name]: {
+          content,
+          originalContent,
+        }
+      }));
+    }
+
+    // Check if we have cached state for this file
+    const cachedState = fileStates[filename];
+    if (cachedState) {
+      // Find the config in our list
+      const config = configs.find(c => c.name === filename);
+      if (config) {
+        setSelectedConfig(config);
+        setContent(cachedState.content);
+        setOriginalContent(cachedState.originalContent);
+        return;
+      }
+    }
+
     try {
       setError(null);
       const response = await clientRef.current.getClaudeConfig({ filename });
@@ -177,6 +217,14 @@ export default function ConfigEditorPage() {
         setSelectedConfig(response.config);
         setContent(response.config.content);
         setOriginalContent(response.config.content);
+        // Cache the initial state
+        setFileStates(prev => ({
+          ...prev,
+          [filename]: {
+            content: response.config!.content,
+            originalContent: response.config!.content,
+          }
+        }));
       }
     } catch (err) {
       setError(`Failed to load config: ${err}`);
@@ -197,6 +245,14 @@ export default function ConfigEditorPage() {
       });
 
       setOriginalContent(content);
+      // Update cached file state to reflect saved content
+      setFileStates(prev => ({
+        ...prev,
+        [selectedConfig.name]: {
+          content,
+          originalContent: content,
+        }
+      }));
       setSuccessMessage(`✓ Saved ${selectedConfig.name}`);
 
       // Auto-clear success message after 3 seconds
@@ -210,7 +266,21 @@ export default function ConfigEditorPage() {
 
   const hasUnsavedChanges = content !== originalContent;
 
-  // Handle keyboard shortcuts (Ctrl+S to save)
+  // Check if a specific file has unsaved changes
+  const fileHasUnsavedChanges = useCallback((filename: string): boolean => {
+    // If it's the current file, use the live state
+    if (selectedConfig?.name === filename) {
+      return content !== originalContent;
+    }
+    // Otherwise check cached state
+    const state = fileStates[filename];
+    return state ? state.content !== state.originalContent : false;
+  }, [selectedConfig, content, originalContent, fileStates]);
+
+  // Count total unsaved files
+  const unsavedFilesCount = configs.filter(c => fileHasUnsavedChanges(c.name)).length;
+
+  // Handle keyboard shortcuts (Ctrl+S to save, Ctrl+1-9 for file switching)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Ctrl+S or Cmd+S to save
@@ -219,12 +289,45 @@ export default function ConfigEditorPage() {
         if (hasUnsavedChanges && !saving && canSave) {
           saveConfig();
         }
+        return;
+      }
+
+      // Ctrl+1-9 or Cmd+1-9 for quick file switching
+      if ((e.ctrlKey || e.metaKey) && e.key >= '1' && e.key <= '9') {
+        e.preventDefault();
+        const index = parseInt(e.key, 10) - 1;
+        if (index < configs.length) {
+          loadConfig(configs[index].name);
+        }
+        return;
+      }
+
+      // Ctrl+[ or Cmd+[ for previous file
+      if ((e.ctrlKey || e.metaKey) && e.key === '[') {
+        e.preventDefault();
+        if (selectedConfig && configs.length > 0) {
+          const currentIndex = configs.findIndex(c => c.name === selectedConfig.name);
+          const prevIndex = currentIndex > 0 ? currentIndex - 1 : configs.length - 1;
+          loadConfig(configs[prevIndex].name);
+        }
+        return;
+      }
+
+      // Ctrl+] or Cmd+] for next file
+      if ((e.ctrlKey || e.metaKey) && e.key === ']') {
+        e.preventDefault();
+        if (selectedConfig && configs.length > 0) {
+          const currentIndex = configs.findIndex(c => c.name === selectedConfig.name);
+          const nextIndex = currentIndex < configs.length - 1 ? currentIndex + 1 : 0;
+          loadConfig(configs[nextIndex].name);
+        }
+        return;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [hasUnsavedChanges, saving, canSave, content, selectedConfig]);
+  }, [hasUnsavedChanges, saving, canSave, content, selectedConfig, configs, loadConfig]);
 
   return (
     <div className={styles.container}>
@@ -249,24 +352,50 @@ export default function ConfigEditorPage() {
         <div className={styles.fileList}>
           <h2 className={styles.sectionTitle}>
             Config Files
+            {unsavedFilesCount > 0 && (
+              <span className={styles.unsavedCount}>
+                {unsavedFilesCount} unsaved
+              </span>
+            )}
           </h2>
           {loading ? (
             <div>Loading...</div>
           ) : (
             <div className={styles.fileListItems}>
-              {configs.map((config) => (
+              {configs.map((config, index) => (
                 <button
                   key={config.name}
                   onClick={() => loadConfig(config.name)}
                   className={`${styles.fileButton} ${
                     selectedConfig?.name === config.name ? styles.fileButtonSelected : ""
-                  }`}
+                  } ${fileHasUnsavedChanges(config.name) ? styles.fileButtonModified : ""}`}
+                  title={`${config.name}${index < 9 ? ` (Ctrl+${index + 1})` : ''}`}
                 >
-                  {config.name}
+                  <span className={styles.fileIcon}>{getFileIcon(config.name)}</span>
+                  <span className={styles.fileName}>{config.name}</span>
+                  {fileHasUnsavedChanges(config.name) && (
+                    <span className={styles.fileModifiedDot}>●</span>
+                  )}
+                  {index < 9 && (
+                    <span className={styles.fileShortcut}>{index + 1}</span>
+                  )}
                 </button>
               ))}
             </div>
           )}
+          {/* Keyboard shortcuts help */}
+          <div className={styles.shortcutsHelp}>
+            <div className={styles.shortcutsTitle}>Shortcuts</div>
+            <div className={styles.shortcutItem}>
+              <kbd>Ctrl+S</kbd> Save
+            </div>
+            <div className={styles.shortcutItem}>
+              <kbd>Ctrl+1-9</kbd> Switch file
+            </div>
+            <div className={styles.shortcutItem}>
+              <kbd>Ctrl+[/]</kbd> Prev/Next
+            </div>
+          </div>
         </div>
 
         {/* Editor */}

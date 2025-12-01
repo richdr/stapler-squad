@@ -35,6 +35,9 @@
 }
 
 .fileButton {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 10px;
   text-align: left;
   border: 1px solid var(--border-color);
@@ -43,7 +46,7 @@
   cursor: pointer;
   font-weight: normal;
   color: var(--text-primary);
-  transition: background-color 0.2s;
+  transition: background-color 0.2s, border-color 0.2s;
 }
 
 .fileButton:hover {
@@ -59,6 +62,53 @@
 
 .fileButtonSelected:hover {
   background-color: var(--primary-hover);
+}
+
+.fileButtonModified {
+  border-color: var(--warning, #f59e0b);
+}
+
+.fileIcon {
+  flex-shrink: 0;
+  font-size: 14px;
+}
+
+.fileName {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileModifiedDot {
+  color: var(--warning, #f59e0b);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.fileShortcut {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background-color: rgba(255, 255, 255, 0.1);
+  color: var(--text-muted);
+  font-family: monospace;
+}
+
+.fileButtonSelected .fileShortcut {
+  background-color: rgba(255, 255, 255, 0.2);
+  color: var(--primary-text);
+}
+
+.unsavedCount {
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: normal;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background-color: rgba(245, 158, 11, 0.15);
+  color: var(--warning, #f59e0b);
 }
 
 .editor {
@@ -203,4 +253,47 @@
   font-size: 13px;
   color: var(--text-primary);
   word-break: break-word;
+}
+
+/* Keyboard Shortcuts Help */
+.shortcutsHelp {
+  margin-top: 20px;
+  padding: 12px;
+  border-radius: 6px;
+  background-color: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-color);
+}
+
+.shortcutsTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.shortcutItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.shortcutItem:last-child {
+  margin-bottom: 0;
+}
+
+.shortcutItem kbd {
+  display: inline-block;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-family: monospace;
+  color: var(--text-primary);
+  background-color: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
