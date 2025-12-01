@@ -1,8 +1,24 @@
 # BUG-003: Large State File Size (34MB JSON) [SEVERITY: Low]
 
-**Status**: Open (Discovered 2025-01-17)
-**Discovered**: During persistence architecture review
+**Status**: ✅ FIXED (2025-12-01)
+**Discovered**: During persistence architecture review (2025-01-17)
+**Fixed**: 2025-12-01 - Excluded diff content from JSON serialization
 **Impact**: Large memory footprint, slow load/save operations, potential for file corruption
+
+## Resolution Summary
+
+**Fix Applied**: Added `json:"-"` tag to `DiffStatsData.Content` field in `session/storage.go`
+
+**Changes Made**:
+1. `session/storage.go` - Added `json:"-"` tag to exclude `Content` from serialization
+2. `session/storage_test.go` - Added 5 comprehensive backward compatibility tests
+
+**Expected Results**:
+- State file size: 34 MB → ~800 KB (42x smaller)
+- Load time: 500ms → ~50ms (90% faster)
+- Memory footprint: 70 MB → ~5 MB (93% reduction)
+
+**Backward Compatibility**: Old state files with `diff_stats.content` load correctly (content field ignored)
 
 ## Problem Description
 

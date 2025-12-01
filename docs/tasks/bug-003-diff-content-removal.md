@@ -1,5 +1,23 @@
 # BUG-003 Resolution: Remove Diff Content from State Persistence
 
+## Status: ✅ COMPLETE (2025-12-01)
+
+**Implemented By**: Claude Code
+**Date Completed**: 2025-12-01
+
+### Changes Made:
+1. `session/storage.go` - Added `json:"-"` tag to `DiffStatsData.Content` field
+2. `session/storage_test.go` - Added 5 backward compatibility tests
+
+### Tests Passing:
+- `TestDiffStatsDataSerializationExcludesContent`
+- `TestDiffStatsDataBackwardCompatibility`
+- `TestInstanceDataSaveExcludesDiffContent`
+- `TestInstanceDataLoadWithDiffContent`
+- `TestDiffStatsDataRoundTrip`
+
+---
+
 ## Epic Overview
 
 **Goal**: Eliminate the 34MB state file bloat by removing full git diff content from serialization, reducing state file size by 97.6% (34 MB → 800 KB).

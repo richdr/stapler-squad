@@ -73,10 +73,12 @@ type GitWorktreeData struct {
 }
 
 // DiffStatsData represents the serializable data of a DiffStats
+// Note: Content is excluded from JSON serialization to reduce state file size.
+// Diffs are generated on-demand via GetSessionDiff RPC when needed.
 type DiffStatsData struct {
 	Added   int    `json:"added"`
 	Removed int    `json:"removed"`
-	Content string `json:"content"`
+	Content string `json:"-"` // Excluded from serialization - generated on-demand
 }
 
 // ClaudeSessionData represents Claude Code session information
