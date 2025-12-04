@@ -1328,7 +1328,9 @@ func (m *home) updateHandleWindowSizeEvent(msg tea.WindowSizeMsg) {
 
 	// Update PTY list and review queue view sizes
 	m.ptyList.SetSize(listWidth, contentHeight)
-	m.queueView.SetSize(msg.Width, contentHeight)
+	if m.queueView != nil {
+		m.queueView.SetSize(msg.Width, contentHeight)
+	}
 
 	// Update overlay sizes using coordinator
 	if textInputOverlay := m.uiCoordinator.GetTextInputOverlay(); textInputOverlay != nil {
