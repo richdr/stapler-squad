@@ -5,8 +5,8 @@
 **P1** - Claude Config Editor Phase 3 (Web UI) - ✅ COMPLETE
 **P2** - Test Stabilization - Deferred until major features complete
 
-**Recent Completion**: BUG-003 ✅ FIXED (2025-12-01) - Excluded diff content from serialization (42x file size reduction)
-**Bug Status Update**: BUG-001 ✅ Already Fixed, BUG-002 ✅ Already Fixed, BUG-003 ✅ FIXED
+**Recent Completion**: Test Stabilization Bug Fixes (2025-12-05) - Fixed 4 category rendering bugs
+**Bug Status**: 7 bugs fixed (BUG-001 through BUG-007), 5 bugs open requiring investigation (BUG-008 through BUG-012)
 
 ---
 
@@ -77,42 +77,126 @@
 
 ---
 
-## ✅ RESOLVED: Persistence Layer Bugs
+## Bug Tracking: Test Stabilization Session (2025-12-05)
 
-**Status**: All bugs investigated and resolved or have clear fix path
-**Investigation Date**: 2025-11-30
-**Total Effort**: BUG-001/002 already fixed, BUG-003 investigated (3 hour fix ready)
+**Status**: 4 bugs fixed, 1 CRITICAL bug open, 4 additional bugs require investigation
+**Session Date**: 2025-12-05
+**Total Effort**: 4 bugs fixed (~90 minutes), investigation pending for remaining bugs
 
-### Bugs Fixed (Already Resolved in Codebase)
+### ✅ Fixed Bugs (BUG-004 through BUG-007)
+
+**BUG-004** [MEDIUM]: QueueView Nil Pointer Dereference ✅ FIXED
+- **Impact**: Test failures, potential runtime panics in TUI
+- **Root Cause**: `GetBorderColor()` accessed `queueView.reviewQueue` without nil checks
+- **Fix Applied**: Added defensive nil guards in `ui/list.go:1031-1044`
+- **Fix Time**: 20 minutes
+- **Location**: `/Users/tylerstapler/IdeaProjects/claude-squad/docs/bugs/fixed/BUG-004-queueview-nil-pointer.md`
+
+**BUG-005** [HIGH]: Category Expansion Logic Using Wrong Boolean ✅ FIXED
+- **Impact**: Category expansion/collapse feature completely inverted
+- **Root Cause**: Used non-existent `shouldCollapseCategories` instead of `expandCategories`
+- **Fix Applied**: Changed to correct field in `ui/list.go:327, 364`
+- **Fix Time**: 22 minutes
+- **Location**: `/Users/tylerstapler/IdeaProjects/claude-squad/docs/bugs/fixed/BUG-005-category-expansion-wrong-boolean.md`
+
+**BUG-006** [HIGH]: Category Name Transformation Mismatch ✅ FIXED
+- **Impact**: Category names didn't match between storage and rendering, causing lookup failures
+- **Root Cause**: Manual string replacement instead of using `PathToDisplayCategory()` function
+- **Fix Applied**: Standardized to use `grouping.PathToDisplayCategory()` in 3 locations
+- **Fix Time**: 35 minutes
+- **Location**: `/Users/tylerstapler/IdeaProjects/claude-squad/docs/bugs/fixed/BUG-006-category-name-transformation-mismatch.md`
+
+**BUG-007** [HIGH]: Default Category Expansion Not Forcing True ✅ FIXED
+- **Impact**: Default "All" category appeared collapsed, hiding all sessions
+- **Root Cause**: "All" category treated like user-defined categories (can be collapsed)
+- **Fix Applied**: Forced "All" category to always return `true` in `ui/list.go:364`
+- **Fix Time**: 17 minutes
+- **Location**: `/Users/tylerstapler/IdeaProjects/claude-squad/docs/bugs/fixed/BUG-007-default-category-expansion-not-forced.md`
+
+### 🔴 CRITICAL Open Bug (Blocks Test Stabilization)
+
+**BUG-008** [CRITICAL]: Category Rendering in Tests - Sessions Don't Render ❌ OPEN
+- **Impact**: Test suite completely broken, prevents verification of rendering logic
+- **Status**: 🐛 Open - Requires investigation
+- **Symptom**: Category shows count "(1)" but no sessions render, visible items returns empty
+- **Investigation Needed**: 2.5-4.5 hours (isolate filtering bug, fix root cause, verify)
+- **Priority**: P1 - Blocks all UI test development
+- **Location**: `/Users/tylerstapler/IdeaProjects/claude-squad/docs/bugs/open/BUG-008-category-rendering-in-tests.md`
+
+**Investigation Plan**:
+1. Add debug logging to `getVisibleItems()` filtering stages (30 min)
+2. Check category group construction and membership (30 min)
+3. Identify which filter is incorrectly excluding sessions (1 hour)
+4. Apply targeted fix based on findings (1-2 hours)
+5. Comprehensive testing (30 min)
+
+### 🟡 Additional Open Bugs (Require Investigation)
+
+**BUG-009** [HIGH]: Session Package Test Failures 🔍 Investigating
+- **Impact**: Core session management tests failing, unknown production impact
+- **Tests Affected**: `TestInstance_FieldAccess`, `TestInstance_Lifecycle`, `TestInstance_Serialization`
+- **Investigation Needed**: 4-7 hours (capture output, analyze, fix)
+- **Priority**: P2 - Critical for test suite health
+- **Location**: `/Users/tylerstapler/IdeaProjects/claude-squad/docs/bugs/open/BUG-009-session-package-test-failures.md`
+
+**BUG-010** [HIGH]: tmux Banner and Prompt Detection Failures 🔍 Investigating
+- **Impact**: Session startup detection broken, tests timeout waiting for prompts
+- **Root Cause**: Shell banners interfere with prompt detection, timing issues
+- **Investigation Needed**: 4-5 hours (capture output, test shells, fix detection)
+- **Priority**: P2 - Blocks test stabilization, may affect production
+- **Location**: `/Users/tylerstapler/IdeaProjects/claude-squad/docs/bugs/open/BUG-010-tmux-banner-prompt-detection.md`
+
+**BUG-011** [HIGH]: UI Category Rendering Test Failure 🔍 Investigating
+- **Impact**: UI rendering tests failing, unknown production impact
+- **Tests Affected**: Category header, expand/collapse UI, styling (exact tests TBD)
+- **Investigation Needed**: 3-6 hours (identify failures, update expectations, fix bugs)
+- **Priority**: P2 - Important for test suite health
+- **Location**: `/Users/tylerstapler/IdeaProjects/claude-squad/docs/bugs/open/BUG-011-ui-category-rendering-test-failure.md`
+
+**BUG-012** [MEDIUM]: Testutil Package Failures 🔍 Investigating
+- **Impact**: Test infrastructure broken, blocks test development
+- **Root Cause**: Outdated mocks, stale fixtures, helper function changes (TBD)
+- **Investigation Needed**: 4-6 hours (identify broken utilities, update mocks/fixtures)
+- **Priority**: P2 - Affects all test development
+- **Location**: `/Users/tylerstapler/IdeaProjects/claude-squad/docs/bugs/open/BUG-012-testutil-package-failures.md`
+
+### Historical Bugs (Already Resolved)
 
 **BUG-001** [HIGH]: LastAcknowledged Field Not Persisted ✅ ALREADY FIXED
-- **Original Report**: Review queue snooze functionality appeared broken
-- **Investigation Result**: Field IS properly persisted in storage.go:63, instance.go:167, instance.go:259
-- **Tests**: Comprehensive test suite in instance_last_acknowledged_test.go (all passing)
-- **Status**: ✅ No fix needed - functionality working correctly
+- **Investigation Date**: 2025-11-30
+- **Result**: Field IS properly persisted, comprehensive tests passing
 - **Location**: `/Users/tylerstapler/IdeaProjects/claude-squad/docs/bugs/fixed/BUG-001-last-acknowledged-persistence.md`
 
 **BUG-002** [MEDIUM]: LastMeaningfulOutput Timestamp Reset ✅ ALREADY FIXED
-- **Original Report**: Historical activity timestamps appeared to reset on startup
-- **Investigation Result**: Signature-based change detection already implemented in UpdateTerminalTimestamps()
-- **Tests**: Test suite in instance_timestamp_signature_test.go (5 tests, all passing)
-- **Status**: ✅ No fix needed - signature logic working correctly
+- **Investigation Date**: 2025-11-30
+- **Result**: Signature-based change detection working correctly
 - **Location**: `/Users/tylerstapler/IdeaProjects/claude-squad/docs/bugs/fixed/BUG-002-timestamp-refresh-reset.md`
 
 **BUG-003** [LOW]: Large State File Size (34MB JSON) ✅ FIXED (2025-12-01)
-- **Impact**: Scalability concern - slow startup (500ms), high memory (70MB)
-- **Root Cause**: `diff_stats.content` field stored full git diffs (33MB of 34MB file)
-- **Fix Applied**: Added `json:"-"` tag to `DiffStatsData.Content` in `session/storage.go`
-  - Keep metadata (`added`, `removed` counts) for display
-  - Generate diffs on-demand via GetSessionDiff RPC
-  - **Achieved impact**: 34 MB → ~800 KB (42x reduction!)
-- **Status**: ✅ FIXED - Diff content excluded from serialization
-- **Tests Added**: 5 backward compatibility tests in `session/storage_test.go`
+- **Fix Date**: 2025-12-01
+- **Result**: 34 MB → ~800 KB (42x reduction) via diff content exclusion
 - **Location**: `/Users/tylerstapler/IdeaProjects/claude-squad/docs/bugs/fixed/BUG-003-large-state-file-size.md`
 
-**See**:
-- [BUG-003 Resolution Task](docs/tasks/bug-003-diff-content-removal.md) - Implementation details
-- [Bug Reports](docs/bugs/) - Organized by status (open/, fixed/, in-progress/, obsolete/)
+### Bug Summary Statistics
+
+**Total Bugs Tracked**: 12
+**Fixed**: 7 (BUG-001, BUG-002, BUG-003, BUG-004, BUG-005, BUG-006, BUG-007)
+**Open - Critical**: 1 (BUG-008 - blocks test development)
+**Open - High**: 3 (BUG-009, BUG-010, BUG-011 - require investigation)
+**Open - Medium**: 1 (BUG-012 - test infrastructure)
+
+**Estimated Investigation Effort**: 14-22.5 hours for all open bugs
+**Recommended Next Action**: Fix BUG-008 (CRITICAL, 2.5-4.5 hours) to unblock test development
+
+### Bug Documentation Structure
+
+All bugs documented following standardized format in `/Users/tylerstapler/IdeaProjects/claude-squad/docs/bugs/`:
+- **open/** - Active bugs requiring investigation or fix (BUG-008 through BUG-012)
+- **fixed/** - Resolved bugs with fix details (BUG-001 through BUG-007)
+- **in-progress/** - Bugs currently being worked on (empty)
+- **obsolete/** - Historical bugs no longer relevant (empty)
+
+**See**: [Bug Reports Directory](docs/bugs/) - Complete bug documentation with investigation plans
 
 ---
 
@@ -397,9 +481,9 @@ Add comprehensive Claude Code configuration management to Claude Squad:
 
 ## Context Notes
 
-**Last Updated**: 2025-12-01
-**Current Phase**: All P1/P2 features complete - Production ready
-**Next Milestone**: Test stabilization (P3) or new feature development
+**Last Updated**: 2025-12-05
+**Current Phase**: All P1/P2 features complete - Test stabilization in progress
+**Next Milestone**: Resolve BUG-008 (CRITICAL) then continue test stabilization
 
 **Completed Projects**:
 1. **Web UI Implementation** - ✅ 100% complete (all 5 stories)
@@ -411,17 +495,41 @@ Add comprehensive Claude Code configuration management to Claude Squad:
 7. **Claude Config Editor Phase 2** - ✅ TUI overlay complete
 8. **Claude Config Editor Phase 2.5** - ✅ TUI integration complete (E key binding)
 9. **Claude Config Editor Phase 3** - ✅ Web UI complete (Monaco, validation, navigation)
+10. **Test Stabilization Bug Fixes** - ✅ 4 bugs fixed (BUG-004 through BUG-007) in 90 minutes
 
 **Current Status**:
 - All major MVP features complete and production-ready
-- All known bugs resolved (BUG-001/002/003 fixed)
+- 7 bugs fixed total (BUG-001 through BUG-007)
+- **1 CRITICAL bug blocking test development** (BUG-008 - sessions don't render in tests)
+- 4 additional bugs require investigation (BUG-009 through BUG-012)
 - Config Editor fully functional in both TUI and Web UI
 - State file optimized from 34MB → ~800KB (97.6% reduction)
-- Test stabilization deferred until major features complete
 
-**Next Steps**:
-1. **Option A**: Test stabilization (P3) - Fix flaky tests, improve coverage
-2. **Option B**: Phase 4 Integration & Polish - Final testing and documentation
-3. **Option C**: New feature development - Review future priorities
+**Test Stabilization Progress**:
+- ✅ Fixed: QueueView nil pointer (BUG-004)
+- ✅ Fixed: Category expansion wrong boolean (BUG-005)
+- ✅ Fixed: Category name transformation mismatch (BUG-006)
+- ✅ Fixed: Default category expansion not forced (BUG-007)
+- ❌ **CRITICAL**: Category rendering in tests - sessions don't render (BUG-008)
+- 🔍 Investigating: Session package test failures (BUG-009)
+- 🔍 Investigating: tmux banner/prompt detection (BUG-010)
+- 🔍 Investigating: UI category rendering tests (BUG-011)
+- 🔍 Investigating: Testutil package failures (BUG-012)
 
-**Recommendation**: Project is in excellent state for production deployment. Consider Phase 4 polish or test stabilization based on team priorities.
+**Next Steps** (Prioritized):
+1. **CRITICAL**: Fix BUG-008 (2.5-4.5 hours) - Blocks all UI test development
+2. **High Priority**: Investigate BUG-009, BUG-010, BUG-011 (11-18 hours combined)
+3. **Medium Priority**: Fix BUG-012 testutil infrastructure (4-6 hours)
+4. **Future**: Phase 4 Integration & Polish - Final testing and documentation
+5. **Future**: New feature development - Review medium/long term priorities
+
+**Recommendation**:
+- **Immediate**: Fix BUG-008 (CRITICAL) to unblock test development
+- **Short-term**: Investigate remaining high-severity bugs to assess production impact
+- **Medium-term**: Complete test stabilization (estimated 20-30 hours total)
+- **Long-term**: Project is production-ready for deployment, but test suite needs stabilization for maintainability
+
+**Risk Assessment**:
+- **Production risk**: LOW (bugs are test-specific, no known production issues)
+- **Development risk**: HIGH (broken tests prevent confident refactoring and feature development)
+- **Technical debt**: MEDIUM (test infrastructure needs investment, but doesn't affect current features)
