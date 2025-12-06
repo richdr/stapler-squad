@@ -464,10 +464,74 @@ Add comprehensive Claude Code configuration management to Claude Squad:
 5. **STORY-010: Testing & Documentation** [1 day]
 
 **Milestone 4**: Feature Complete - Ready for production release
+## READY: Session Search and Sort Feature
+
+**Status**: Planning Complete, Ready for Implementation
+**Priority**: P2 - Enhanced session discovery and management
+**Epic ID**: EPIC-SEARCH-001
+**Estimated Effort**: 2-3 weeks (1 engineer)
+**Progress**: 0% (Planning 100%, Implementation 0%)
+
+### Overview
+
+Comprehensive search and sort functionality for session management:
+- Multi-field search (title, repository, branch, tags, category, program)
+- Flexible sorting (Last Activity, Creation Date, Title, Repository, Branch, Status)
+- Combined search + filter + sort operations
+- TUI and Web UI integration
+
+**Strategic Value**:
+- **Time Savings**: Reduce session discovery time from minutes to seconds
+- **Workflow Optimization**: Find sessions by project context (repo, branch) not just title
+- **Multi-dimensional Organization**: Search by tags for cross-cutting concerns
+
+### Implementation Plan
+
+#### Story 1: Core Sort Infrastructure (Backend) - ⏳ READY
+**Duration**: 3-5 days
+**Dependencies**: None (extends existing SearchIndex)
+
+- [ ] Task 1.1: Extend SearchIndex with sort core logic [3h] - NEXT ACTION
+- [ ] Task 1.2: Sort performance benchmarks [2h]
+- [ ] Task 1.3: Sort state persistence [2h]
+- [ ] Task 1.4: Integration testing [2h]
+
+#### Story 2: TUI Sort Integration - 🔒 BLOCKED
+**Duration**: 2-3 days
+**Dependencies**: Story 1 complete
+
+- [ ] Task 2.1: 'S' key cycling through sort modes [2h]
+- [ ] Task 2.2: Title bar sort indicator [1h]
+- [ ] Task 2.3: Help screen documentation [1h]
+- [ ] Task 2.4: Sort stability validation [2h]
+
+#### Story 3: Web UI Sort Integration - 🔒 BLOCKED
+**Duration**: 2-3 days
+**Dependencies**: Story 1 complete
+
+- [ ] Task 3.1: Sort dropdown component [2h]
+- [ ] Task 3.2: Sort direction toggle [1h]
+- [ ] Task 3.3: Sort persistence in localStorage [1h]
+- [ ] Task 3.4: Combined search/filter/sort [2h]
+
+#### Story 4: Enhanced Search Experience - ⏳ READY
+**Duration**: 2 days
+**Dependencies**: None (enhances existing search)
+
+- [ ] Task 4.1: Search result count display [1h]
+- [ ] Task 4.2: No results messaging [1h]
+- [ ] Task 4.3: Query highlighting (Web UI) [2h]
+- [ ] Task 4.4: Clear search shortcuts [1h]
+
+**See Full Details**: [Session Search and Sort Feature Plan](docs/tasks/session-search-and-sort.md)
+
+**Next Action**: Task 1.1 - Extend SearchIndex with sort core logic (3 hours)
+
+---
+
 ## Future Priorities
 
-### Medium Term (After Web UI MVP):
-- [ ] **Claude Config Editor** - View/edit Claude configs (PLANNED - see above)
+### Medium Term (After Search & Sort):
 - [ ] **Session Health Check Integration** - Evaluate health check system
 - [ ] **Filtering System Enhancement** - Tag vs Category analysis
 - [ ] **Help System Consolidation** - Compare current vs unused help generator
