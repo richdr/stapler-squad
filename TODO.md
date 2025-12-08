@@ -529,12 +529,284 @@ Comprehensive search and sort functionality for session management:
 
 ---
 
+## READY: History Page UX Improvements
+
+**Status**: Planning Complete, Ready for Implementation
+**Priority**: P2 - User Experience and Accessibility
+**Epic ID**: EPIC-HISTORY-UX-001
+**Estimated Effort**: 7 weeks (1 engineer, 46 hours development + testing)
+**Progress**: 0% (Planning 100%, Implementation 0%)
+
+### Overview
+
+Comprehensive UX overhaul of the History Browser page (`/history`) to achieve feature parity with Sessions page, address 23 usability issues across Nielsen's 10 Usability Heuristics and WCAG POUR principles (Perceivable, Operable, Understandable, Robust).
+
+**Key Problems**:
+- **No keyboard navigation** - Power users cannot use arrow keys, j/k, /, or Escape (CRITICAL)
+- **Missing filtering and grouping** - Flat 100-entry list vs Sessions' 8 grouping modes (CRITICAL)
+- **Poor error handling** - No retry buttons, unclear empty states (CRITICAL)
+- **Accessibility gaps** - Modal lacks focus trap, ARIA attributes (CRITICAL)
+- **Information overload** - Cards cram too much text, poor visual hierarchy (HIGH)
+- **No bulk actions** - Cannot select multiple entries for batch operations (HIGH)
+
+**Strategic Value**:
+- **Consistency**: Unified UX across Sessions and History pages reduces cognitive load
+- **Accessibility**: WCAG 2.1 AA compliance enables users with disabilities
+- **Efficiency**: Keyboard shortcuts and bulk actions reduce repetitive work
+- **Scalability**: Grouping and pagination handle 1000+ history entries
+
+### Sprint Breakdown
+
+#### Sprint 1: Foundation (2 weeks, 20h) - ⏳ READY
+**Goal**: Keyboard navigation, error handling, basic filtering
+
+**Story 1: Keyboard Navigation and Accessibility (CRITICAL)**
+- [ ] Task 1.1: Add keyboard navigation hook (arrow keys, j/k, /, Escape) [3h] - NEXT ACTION
+- [ ] Task 1.2: Implement loading states and feedback [2h]
+- [ ] Task 1.3: Fix modal accessibility (focus trap, ARIA, Escape) [3h]
+- [ ] Task 1.4: Add keyboard shortcuts help modal [1h]
+- [ ] Task 1.5: Mobile responsive breakpoints (375px, 768px, 1024px) [1h]
+
+**Story 2: Error Handling and Empty States (CRITICAL)**
+- [ ] Task 2.1: Implement contextual empty states [2h]
+- [ ] Task 2.2: Add error retry functionality [2h]
+
+**Story 3: Filtering (Partial)**
+- [ ] Task 3.1: Add filter bar component (model, date, status) [3h]
+- [ ] Task 3.4: Persist filter state in localStorage [1h]
+- [ ] Task 3.5: Add clear all filters button [1h]
+
+**Deliverables**:
+- Full keyboard navigation matching Sessions page
+- Loading states and error recovery without page refresh
+- Basic filtering (model, date range, status)
+- Mobile responsive at all breakpoints
+- localStorage persistence for filters
+
+---
+
+#### Sprint 2: Organization (2 weeks, 16h) - 🔒 BLOCKED by Sprint 1
+**Goal**: Grouping, autocomplete, filter combinations
+
+**Story 3: Filtering and Grouping (HIGH PRIORITY)**
+- [ ] Task 3.2: Implement grouping strategies (8 modes: Date, Project, Model, Status, Branch, Tag, Type, None) [4h]
+- [ ] Task 3.3: Add autocomplete search with suggestions [2h]
+- [ ] Task 3.6: Implement "Group by" dropdown UI [2h]
+- [ ] Task 3.7: Add filter combination logic [1h]
+
+**Story 4: Information Architecture (Partial)**
+- [ ] Task 4.1: Redesign history card with visual hierarchy (relative time, truncated UUIDs) [3h]
+
+**Story 5: Enhanced Features (Partial)**
+- [ ] Task 5.6: Audit and fix dark mode contrast (WCAG AA) [1h]
+
+**Deliverables**:
+- 8 grouping strategies (G key to cycle)
+- Autocomplete search with project/model/branch suggestions
+- Redesigned cards with improved scannability
+- WCAG AA compliant dark mode colors
+- Combined filter + search + group operations
+
+---
+
+#### Sprint 3: Actions (2 weeks, 14h) - 🔒 BLOCKED by Sprint 2
+**Goal**: Bulk actions, pagination, detail panel enhancements
+
+**Story 4: Information Architecture and Bulk Actions (HIGH PRIORITY)**
+- [ ] Task 4.2: Implement bulk selection mode (checkboxes, toolbar) [3h]
+- [ ] Task 4.3: Add action toolbar to detail panel (Export, Copy ID, Open Folder, Delete) [2h]
+- [ ] Task 4.4: Add message search in modal [2h]
+- [ ] Task 4.5: Implement pagination controls (Previous/Next, entries-per-page) [2h]
+
+**Story 5: Enhanced Features (Partial)**
+- [ ] Task 5.1: Add read/unread indicators [2h]
+- [ ] Task 5.4: Truncate UUIDs with copy button [1h]
+- [ ] Task 5.7: Preserve scroll position on navigation [1h]
+
+**Deliverables**:
+- Bulk selection and delete operations
+- Pagination with configurable entries-per-page
+- Action toolbar in detail panel
+- Message search within conversations
+- Read/unread status tracking
+- Scroll position preservation
+
+---
+
+#### Sprint 4: Polish (1 week, 6h) - 🔒 BLOCKED by Sprint 3
+**Goal**: Export, syntax highlighting, final enhancements
+
+**Story 5: Enhanced Features (MEDIUM/LOW PRIORITY)**
+- [ ] Task 5.2: Implement export functionality (JSON/Markdown) [2h]
+- [ ] Task 5.3: Add progress count to loading state [1h]
+- [ ] Task 5.5: Add syntax highlighting for code messages [2h]
+
+**Testing and Bug Fixes**
+- [ ] E2E tests for critical paths [variable]
+- [ ] Accessibility audit (Lighthouse, axe-core) [1h]
+- [ ] Performance benchmarks (search < 200ms, filter < 100ms) [1h]
+- [ ] Bug fixes and polish [variable]
+
+**Deliverables**:
+- Export to JSON and Markdown
+- Syntax highlighting for code blocks
+- Loading progress indicators
+- 100% WCAG 2.1 AA compliance
+- Performance benchmarks passed
+- Feature complete and production-ready
+
+---
+
+### Dependencies and Risks
+
+**External Dependencies**:
+1. **Backend API Updates** (Optional but recommended):
+   - Pagination support (offset/limit params) - Improves Task 4.5
+   - Delete single/bulk entries API - Required for Tasks 4.2, 4.3
+   - Export API - Optional, improves Task 5.2 performance
+
+2. **Library Dependencies**:
+   - `react-syntax-highlighter` - Required for Task 5.5
+   - `focus-trap-react` - Required for Task 1.3 (may already exist)
+   - `react-window` - Optional optimization for Task 4.4 (large message lists)
+
+**Known Risks**:
+1. **API Pagination Not Implemented**: Task 4.5 blocked until backend adds offset/limit support
+   - **Mitigation**: Implement client-side pagination as temporary solution
+2. **Large Message Performance**: Rendering 1000+ messages may cause lag
+   - **Mitigation**: Virtual scrolling with react-window (adds 3h to Task 4.4)
+3. **Export File Size**: Exporting 1000 entries may hit browser memory limits
+   - **Mitigation**: Add warning for large exports, implement streaming (adds 2h to Task 5.2)
+4. **localStorage Quota**: Storing read status for 10000 entries may exceed 5MB quota
+   - **Mitigation**: LRU cache for recent 1000 entries, QuotaExceededError handling (adds 1h to Task 5.1)
+
+**Critical Path**: Sprint 1 → Sprint 2 → Sprint 3 → Sprint 4 (sequential dependencies)
+
+---
+
+### Success Metrics
+
+**Feature Parity**:
+- [ ] All keyboard shortcuts from Sessions page work in History page
+- [ ] All 8 grouping strategies implemented
+- [ ] Filter UI matches Sessions page patterns
+- [ ] Bulk operations available
+
+**Accessibility**:
+- [ ] WCAG 2.1 AA compliance verified (Lighthouse 100% score)
+- [ ] Screen reader test passed (VoiceOver, NVDA)
+- [ ] Keyboard-only navigation complete
+- [ ] Color contrast audit passed
+
+**Performance**:
+- [ ] Search latency < 200ms (1000 entries)
+- [ ] Filter/group latency < 100ms (1000 entries)
+- [ ] Page load time < 2s (50 entries)
+- [ ] Modal open time < 100ms
+
+**User Experience**:
+- [ ] Power user can navigate without mouse
+- [ ] User can search and open entry in < 5 seconds
+- [ ] User can bulk delete 20 entries in < 10 seconds
+- [ ] Error recovery works without page refresh
+
+---
+
+### Nielsen Heuristics and WCAG Violations Fixed
+
+**Nielsen's 10 Usability Heuristics**:
+- **H1 - Visibility of System Status**: Issues #2, #13 → Tasks 1.2, 4.5, 5.3
+- **H3 - User Control and Freedom**: Issues #4, #5 → Tasks 1.3, 2.2
+- **H4 - Consistency and Standards**: Issues #6, #7 → Tasks 3.1, 3.2
+- **H7 - Flexibility and Efficiency**: Issues #1, #9 → Tasks 1.1, 4.2
+- **H8 - Aesthetic and Minimalist Design**: Issue #8 → Task 4.1
+- **H9 - Error Recovery**: Issues #3, #4 → Tasks 2.1, 2.2
+- **H10 - Help and Documentation**: Issue #19 → Task 1.4
+
+**WCAG POUR Principles**:
+- **Perceivable**: Issues #2, #5, #21 → Tasks 1.2, 1.3, 5.6
+- **Operable**: Issues #1, #5 → Tasks 1.1, 1.3
+- **Understandable**: Issues #3, #4 → Tasks 2.1, 2.2
+- **Robust**: Issue #5 → Task 1.3
+
+---
+
+### Files to Modify
+
+**Primary**:
+- `web-app/src/app/history/page.tsx` - Main history page component
+- `web-app/src/app/history/history.module.css` - Page styles
+
+**New Components**:
+- `web-app/src/components/history/HistoryFilters.tsx` - Filter bar
+- `web-app/src/components/history/HistoryCard.tsx` - Redesigned card component
+- `web-app/src/components/history/MessageSearch.tsx` - Modal message search
+- `web-app/src/components/history/GroupedHistoryList.tsx` - Grouping logic
+- `web-app/src/components/history/BulkActionToolbar.tsx` - Bulk operations
+- `web-app/src/components/history/DetailPanelActions.tsx` - Action toolbar
+- `web-app/src/components/history/Pagination.tsx` - Pagination controls
+- `web-app/src/components/history/AutocompleteSearch.tsx` - Search with suggestions
+- `web-app/src/components/history/KeyboardShortcutsHelp.tsx` - Help modal
+- `web-app/src/components/history/EmptyState.tsx` - Contextual empty states
+
+**New Hooks**:
+- `web-app/src/lib/hooks/useKeyboard.ts` - Keyboard navigation
+- `web-app/src/lib/hooks/useHistoryFilters.ts` - Filter state management
+- `web-app/src/lib/hooks/useAutocompleteSuggestions.ts` - Search suggestions
+- `web-app/src/lib/hooks/useSelection.ts` - Bulk selection
+- `web-app/src/lib/hooks/useReadStatus.ts` - Read/unread tracking
+- `web-app/src/lib/hooks/useFocusTrap.ts` - Modal accessibility
+- `web-app/src/lib/hooks/useScrollRestoration.ts` - Scroll position
+
+**New Utilities**:
+- `web-app/src/lib/grouping/historyGrouping.ts` - Grouping strategies
+- `web-app/src/lib/export/historyExporter.ts` - Export to JSON/Markdown
+
+**Reference Patterns From**:
+- `web-app/src/components/sessions/SessionList.tsx` - Filtering, keyboard, grouping
+- `web-app/src/components/sessions/SessionCard.tsx` - Card design patterns
+- `web-app/src/lib/hooks/useRepositorySuggestions.ts` - Autocomplete pattern
+
+**See Full Details**: [History Page UX Improvements Feature Plan](docs/tasks/history-page-ux-improvements.md)
+
+**Next Action**: Task 1.1 - Add keyboard navigation hook (3 hours)
+
+---
+
 ## Future Priorities
 
 ### Medium Term (After Search & Sort):
+- [ ] **External Claude PTY Interception** - Discover and monitor external Claude processes
 - [ ] **Session Health Check Integration** - Evaluate health check system
 - [ ] **Filtering System Enhancement** - Tag vs Category analysis
 - [ ] **Help System Consolidation** - Compare current vs unused help generator
+
+---
+
+## PLANNED: External Claude PTY Interception
+
+**Status**: Planned (Feature Plan Complete)
+**Priority**: Medium Term - Enhances multi-session workflow
+**Estimated Effort**: 4-5 weeks (4 stories, 15 atomic tasks)
+
+### User Value
+Enable users to discover, monitor, and interact with external Claude Code processes running on their machine through the claude-squad web interface, without requiring those sessions to be started by claude-squad.
+
+### Key Features:
+- [ ] **Story 1**: Enhanced external tmux session discovery (1 week)
+- [ ] **Story 2**: Real-time terminal streaming for external sessions (1.5 weeks)
+- [ ] **Story 3**: Approval detection and notifications for external sessions (1 week)
+- [ ] **Story 4**: Session adoption (external to managed) (1 week)
+
+### Technical Approach:
+- Hybrid multi-tier discovery using tmux as primary interception layer
+- tmux `pipe-pane` for real-time streaming to Unix domain sockets
+- Extends existing `PTYDiscovery` infrastructure
+- Integrates with existing notification and review queue systems
+
+**See Full Details**: [External Claude PTY Interception Feature Plan](docs/tasks/pty-interception-external-claude.md)
+
+**Next Action**: Task 1.1 - Extend PTYDiscovery for comprehensive tmux scanning (3 hours)
 
 ### Long Term (Future Sessions):
 - [ ] **Dead Code Removal** - Clean up unused constructors and test mocks
