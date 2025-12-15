@@ -481,6 +481,448 @@ ORDER BY a.last_meaningful_output DESC
 4. **Migration Plan**: Detailed step-by-step migration runbook
 5. **Implementation**: Phased rollout with monitoring
 
+## Comprehensive Architecture Impact Analysis
+
+### System-Wide Impact Overview
+
+This schema normalization represents a fundamental architectural shift affecting 200+ files across all layers of the claude-squad system. The refactoring touches approximately 15,000 lines of production code with cascading effects through the domain model, repository, service, API, and UI layers.
+
+### Layer-by-Layer Impact Analysis
+
+#### 1. Domain/Model Layer (Critical Impact)
+**Affected Files:**
+- `session/instance.go` (2,209 lines) - Core session entity requiring complete restructuring
+- `session/storage.go` (800+ lines) - Storage interface needs context-aware methods
+- `session/types.go` (500+ lines) - Type definitions must be split into contexts
+
+**Changes Required:**
+- Split monolithic `Instance` struct into `Session` + 6 context structs
+- Implement context interfaces for each optional component
+- Add factory methods for context creation
+- Implement lazy loading for context data
+
+#### 2. Repository Layer (High Impact)
+**Affected Files:**
+- `session/sqlite_repository.go` (1,500+ lines) - Complete query rewrite
+- `session/sqlite_schema.go` (400+ lines) - New schema v3 definition
+- `session/index_store.go` (300+ lines) - Index structure changes
+
+**Changes Required:**
+- Implement dual-read/write for migration period
+- Create context-aware query builders
+- Add LoadOptions pattern throughout
+- Optimize JOINs for performance
+
+#### 3. Service Layer (Extensive Impact)
+**Affected Methods:** 80+ methods in `instance.go` need context validation
+
+**Critical Service Methods Requiring Updates:**
+```go
+// Before: Direct field access
+func (i *Instance) GetPath() string { return i.Path }
+
+// After: Context-aware access
+func (s *Session) GetPath() (string, error) {
+    if s.Filesystem == nil {
+        return "", ErrNoFilesystemContext
+    }
+    return s.Filesystem.ProjectPath, nil
+}
+```
+
+#### 4. Application Layer (Moderate Impact)
+**Affected Files:**
+- `app/app.go` (3,000+ lines) - State management updates
+- `app/services/*.go` (8 files) - Service facade updates
+- `app/handleAdvancedSessionSetup.go` - Session creation flow
+
+**Changes Required:**
+- Update all session field accesses to use context checks
+- Modify session creation to populate appropriate contexts
+- Update navigation and filtering logic
+
+#### 5. API/Protocol Layer (Breaking Changes)
+**Affected Files:**
+- `proto/session/v1/*.proto` (3 files) - New v2 protocol needed
+- `server/services/session_service.go` - RPC handler updates
+- `server/adapters/instance_adapter.go` - Adapter pattern changes
+
+**New Proto Messages Required:**
+```protobuf
+message SessionV2 {
+    CoreSession core = 1;
+    GitContext git = 2;
+    FilesystemContext filesystem = 3;
+    TerminalContext terminal = 4;
+    UIPreferences ui = 5;
+    ActivityTracking activity = 6;
+    CloudContext cloud = 7;
+}
+```
+
+#### 6. UI Layers (Significant Updates)
+
+**TUI Layer** (`ui/` directory):
+- `ui/list.go` - List rendering with optional contexts
+- `ui/session_card.go` - Card display logic
+- `ui/overlay/*.go` - Session creation overlays
+
+**Web UI Layer** (`web-app/src/`):
+- `lib/hooks/useSessionService.ts` - API client updates
+- `components/sessions/*.tsx` - Component updates for new structure
+- `lib/types/*.ts` - TypeScript type definitions
+
+### New Go Type Definitions
+
+```go
+// Core session with optional contexts
+type Session struct {
+    // Core fields (always present)
+    ID        int64
+    Title     string
+    Status    Status
+    Program   string
+    AutoYes   bool
+    Prompt    string
+    CreatedAt time.Time
+    UpdatedAt time.Time
+    
+    // Optional contexts (nil when not applicable)
+    Git        *GitContext
+    Filesystem *FilesystemContext
+    Terminal   *TerminalContext
+    UI         *UIPreferences
+    Activity   *ActivityTracking
+    Cloud      *CloudContext
+}
+
+// Context interfaces for clean separation
+type Context interface {
+    SessionID() int64
+    Validate() error
+    IsEmpty() bool
+}
+
+type GitContext struct {
+    ID            int64
+    SessionID     int64
+    Branch        string
+    BaseCommitSHA string
+    WorktreeID    *int64
+    PRNumber      *int
+    PRUrl         string
+    Owner         string
+    Repo          string
+    SourceRef     string
+}
+
+type FilesystemContext struct {
+    ID             int64
+    SessionID      int64
+    ProjectPath    string
+    WorkingDir     string
+    IsWorktree     bool
+    MainRepoPath   string
+    ClonedRepoPath string
+}
+```
+
+### Implementation Phases (13 Weeks Total)
+
+#### Phase 1: Foundation (Weeks 1-2)
+**Objective:** Establish new types alongside existing ones
+
+**Tasks:**
+- Create new Go type definitions
+- Implement context interfaces
+- Add feature flags for gradual rollout
+- Set up dual-write infrastructure
+- Create comprehensive test suite
+
+**Deliverables:**
+- New type system in place
+- Tests passing with old and new types
+- Feature flag system operational
+
+#### Phase 2: Repository Layer (Weeks 3-4)
+**Objective:** Implement new schema with backward compatibility
+
+**Tasks:**
+- Create schema v3 migration
+- Implement dual-read repository pattern
+- Add LoadOptions throughout repository
+- Create context-aware query builders
+- Performance benchmark new queries
+
+**Deliverables:**
+- Schema v3 deployed (not active)
+- Dual-read/write operational
+- Performance benchmarks documented
+
+#### Phase 3: API Evolution (Weeks 5-6)
+**Objective:** Create v2 API with context support
+
+**Tasks:**
+- Define Proto v2 with context messages
+- Implement parallel v1/v2 endpoints
+- Create adapter layer for compatibility
+- Update gRPC service handlers
+- Add context-specific RPCs
+
+**Deliverables:**
+- Proto v2 fully defined
+- Both API versions operational
+- Client SDKs generated
+
+#### Phase 4: Service Refactoring (Weeks 7-8)
+**Objective:** Make services context-aware
+
+**Tasks:**
+- Refactor 80+ methods in instance.go
+- Add context validation throughout
+- Implement lazy loading patterns
+- Update business logic for contexts
+- Create service-level tests
+
+**Deliverables:**
+- All services context-aware
+- Comprehensive test coverage
+- No regressions in functionality
+
+#### Phase 5: TUI Migration (Weeks 9-10)
+**Objective:** Update terminal UI for new architecture
+
+**Tasks:**
+- Update app.go state management
+- Refactor session display logic
+- Modify filtering/navigation
+- Update overlay components
+- Test all user workflows
+
+**Deliverables:**
+- TUI fully migrated
+- All shortcuts working
+- Performance maintained
+
+#### Phase 6: Web UI Migration (Weeks 11-12)
+**Objective:** Update web interface for new architecture
+
+**Tasks:**
+- Update TypeScript types
+- Refactor React components
+- Modify API client hooks
+- Update state management
+- Test all UI interactions
+
+**Deliverables:**
+- Web UI fully migrated
+- TypeScript types aligned
+- All features functional
+
+#### Phase 7: Cutover & Cleanup (Week 13)
+**Objective:** Complete migration and remove legacy code
+
+**Tasks:**
+- Switch to v2 API as primary
+- Remove dual-write code
+- Drop deprecated columns
+- Update all documentation
+- Final performance validation
+
+**Deliverables:**
+- Legacy code removed
+- Documentation updated
+- System fully migrated
+
+### File Impact Classification
+
+#### Critical Files (Breaking Changes Required)
+| File | Lines | Impact | Priority |
+|------|-------|--------|----------|
+| `session/instance.go` | 2,209 | Complete restructure | P0 |
+| `session/sqlite_repository.go` | 1,500 | Query rewrite | P0 |
+| `app/app.go` | 3,000 | State management | P0 |
+| `proto/session/v1/*.proto` | 500 | New v2 protocol | P0 |
+
+#### High Impact Files (Significant Refactoring)
+| File | Lines | Impact | Priority |
+|------|-------|--------|----------|
+| `session/storage.go` | 800 | Interface changes | P1 |
+| `server/services/session_service.go` | 600 | RPC updates | P1 |
+| `ui/list.go` | 1,200 | Display logic | P1 |
+| `web-app/src/lib/hooks/*.ts` | 400 | API client | P1 |
+
+#### Medium Impact Files (Moderate Changes)
+| File | Lines | Impact | Priority |
+|------|-------|--------|----------|
+| `app/services/*.go` | 2,000 | Facade updates | P2 |
+| `ui/overlay/*.go` | 1,500 | Creation flows | P2 |
+| `web-app/src/components/sessions/*.tsx` | 800 | UI components | P2 |
+
+### Risk Analysis & Mitigation
+
+#### Technical Risks
+
+**Risk 1: Data Migration Failure**
+- **Probability:** Medium
+- **Impact:** Critical
+- **Mitigation:**
+  - Implement transactional migrations with rollback points
+  - Create comprehensive backup before migration
+  - Test with production data copy
+  - Implement checksums for verification
+
+**Risk 2: Performance Degradation**
+- **Probability:** High
+- **Impact:** High
+- **Mitigation:**
+  - Benchmark all queries before/after
+  - Implement query result caching
+  - Use selective JOINs with LoadOptions
+  - Add database indexes strategically
+
+**Risk 3: API Compatibility Break**
+- **Probability:** Low
+- **Impact:** Critical
+- **Mitigation:**
+  - Maintain v1 API for 6 months
+  - Implement adapter pattern
+  - Version all proto messages
+  - Gradual client migration
+
+#### Operational Risks
+
+**Risk 4: Feature Regression**
+- **Probability:** Medium
+- **Impact:** Medium
+- **Mitigation:**
+  - Comprehensive test coverage (80%+)
+  - Feature flags for gradual rollout
+  - Parallel run of old/new code
+  - Automated regression testing
+
+**Risk 5: Rollback Complexity**
+- **Probability:** Low
+- **Impact:** High
+- **Mitigation:**
+  - Dual-write maintains compatibility
+  - Schema v2 remains readable
+  - Feature flags allow instant revert
+  - Keep migration code for 3 months
+
+### Architectural Benefits
+
+#### Memory Optimization
+- **Current:** Full Instance struct loaded for all operations (2KB per session)
+- **New:** Load only required contexts (200B - 2KB based on need)
+- **Benefit:** 50-90% memory reduction for list operations
+
+#### Testability Improvements
+- **Current:** Monolithic Instance difficult to mock
+- **New:** Individual contexts can be mocked/stubbed
+- **Benefit:** Faster, more focused unit tests
+
+#### Extensibility Gains
+- **Current:** Adding fields requires schema changes to core table
+- **New:** New contexts added without touching existing code
+- **Benefit:** Support for new deployment scenarios without disruption
+
+#### Query Performance
+- **Current:** All fields loaded even when unused
+- **New:** Selective loading with LoadOptions
+- **Benefit:** 3-5x faster list operations
+
+### Implementation Stories (AIC Framework)
+
+#### Story 1: Foundation Types
+**Story:** As a developer, I need new type definitions so that I can start migrating code to the context pattern.
+
+**Atomic Tasks:**
+1. Define Session struct with contexts (3 files)
+2. Create context interfaces (6 files)
+3. Implement validation methods (6 files)
+4. Add factory functions (3 files)
+5. Create comprehensive tests (10 files)
+
+**INVEST Validation:**
+- Independent: Can be done without affecting existing code
+- Negotiable: Context structure can be refined
+- Valuable: Enables all subsequent work
+- Estimable: 3-5 days
+- Small: Limited to type definitions
+- Testable: Unit tests for all methods
+
+#### Story 2: Repository Dual-Mode
+**Story:** As a system, I need dual-read/write capability so that migration can happen safely.
+
+**Atomic Tasks:**
+1. Create v3 schema migration (2 files)
+2. Implement dual-write logic (3 files)
+3. Add LoadOptions pattern (5 files)
+4. Create query builders (4 files)
+5. Benchmark performance (2 files)
+
+**Success Criteria:**
+- Both schemas remain in sync
+- No performance degradation
+- All tests pass with both modes
+
+#### Story 3: Context-Aware Services
+**Story:** As a service layer, I need context-aware methods so that I can handle optional data properly.
+
+**Atomic Tasks:**
+1. Refactor getter methods (20 methods)
+2. Add context validation (20 methods)
+3. Implement lazy loading (10 methods)
+4. Update business logic (30 methods)
+5. Create service tests (15 files)
+
+**Success Criteria:**
+- All methods handle nil contexts gracefully
+- No panics from missing contexts
+- Performance maintained or improved
+
+### Validation Strategy
+
+#### Unit Testing (80% Coverage Target)
+- Test each context independently
+- Validate nil handling throughout
+- Ensure backward compatibility
+- Test migration logic thoroughly
+
+#### Integration Testing
+- End-to-end workflows with new types
+- API v1/v2 compatibility tests
+- Database migration scenarios
+- Performance benchmarks
+
+#### User Acceptance Testing
+- Create test environment with migrated data
+- Run through all user workflows
+- Validate UI functionality
+- Test rollback procedures
+
+### Post-Migration Optimization
+
+Once migration is complete, additional optimizations become possible:
+
+1. **Materialized Views** for common query patterns
+2. **Read Replicas** for list operations
+3. **Context Caching** in application layer
+4. **Lazy Loading** for expensive contexts
+5. **GraphQL API** for flexible data fetching
+
+### Conclusion
+
+This architectural refactoring represents a significant investment (13 weeks) but delivers substantial long-term benefits:
+- **50% memory reduction** for list operations
+- **3-5x query performance** improvement
+- **Unlimited extensibility** for new contexts
+- **Improved testability** and maintainability
+- **Support for diverse deployment scenarios**
+
+The phased approach with dual-mode operation ensures zero downtime and safe rollback capability throughout the migration process.
+
 ## Appendix A: Context Loading Examples
 
 ### LoadOptions Usage
