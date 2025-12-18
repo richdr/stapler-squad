@@ -9,6 +9,7 @@ import (
 
 	"claude-squad/log"
 	"claude-squad/session/mux"
+	"claude-squad/session/tmux"
 )
 
 // ExternalSessionDiscovery discovers and manages external Claude sessions
@@ -20,9 +21,9 @@ type ExternalSessionDiscovery struct {
 	sessions   map[string]*Instance
 	sessionsMu sync.RWMutex
 
-	// Callbacks for session events
-	onSessionAdded   func(*Instance)
-	onSessionRemoved func(*Instance)
+	// Callbacks for session events (supports multiple callbacks)
+	onSessionAddedCallbacks   []func(*Instance)
+	onSessionRemovedCallbacks []func(*Instance)
 
 	// Context for lifecycle management
 	ctx    context.Context
@@ -38,13 +39,15 @@ func NewExternalSessionDiscovery() *ExternalSessionDiscovery {
 }
 
 // OnSessionAdded registers a callback for when a new external session is discovered.
+// Multiple callbacks can be registered and will all be invoked.
 func (e *ExternalSessionDiscovery) OnSessionAdded(callback func(*Instance)) {
-	e.onSessionAdded = callback
+	e.onSessionAddedCallbacks = append(e.onSessionAddedCallbacks, callback)
 }
 
 // OnSessionRemoved registers a callback for when an external session is removed.
+// Multiple callbacks can be registered and will all be invoked.
 func (e *ExternalSessionDiscovery) OnSessionRemoved(callback func(*Instance)) {
-	e.onSessionRemoved = callback
+	e.onSessionRemovedCallbacks = append(e.onSessionRemovedCallbacks, callback)
 }
 
 // Start begins periodic discovery of external sessions.
@@ -86,11 +89,24 @@ func (e *ExternalSessionDiscovery) GetSessions() []*Instance {
 	return sessions
 }
 
-// GetSession returns a specific external session by socket path.
+// GetSession returns a specific external session by socket path (deprecated - use GetSessionByTmux).
 func (e *ExternalSessionDiscovery) GetSession(socketPath string) *Instance {
 	e.sessionsMu.RLock()
 	defer e.sessionsMu.RUnlock()
 	return e.sessions[socketPath]
+}
+
+// GetSessionByTmux returns a specific external session by tmux session name.
+func (e *ExternalSessionDiscovery) GetSessionByTmux(tmuxSessionName string) *Instance {
+	e.sessionsMu.RLock()
+	defer e.sessionsMu.RUnlock()
+
+	for _, instance := range e.sessions {
+		if instance.ExternalMetadata != nil && instance.ExternalMetadata.TmuxSessionName == tmuxSessionName {
+			return instance
+		}
+	}
+	return nil
 }
 
 // handleNewSession creates an Instance wrapper for a newly discovered mux session.
@@ -100,27 +116,58 @@ func (e *ExternalSessionDiscovery) handleNewSession(discovered *mux.DiscoveredSe
 		return
 	}
 
+	// Skip sessions without tmux integration - we need this for unified streaming
+	if discovered.Metadata.TmuxSession == "" {
+		log.WarningLog.Printf("Discovered session without tmux session name: %s (cannot attach for unified streaming)",
+			discovered.SocketPath)
+		return
+	}
+
 	// Create a unique title for this external session
 	title := generateExternalTitle(discovered.Metadata)
 
 	// Create Instance wrapper
+	now := time.Now()
 	instance := &Instance{
-		Title:        title,
-		Path:         discovered.Metadata.Cwd,
-		Program:      discovered.Metadata.Command,
-		Status:       Running,
-		InstanceType: InstanceTypeExternal,
-		Category:     "External",
-		Tags:         []string{"external", "mux"},
+		Title:                title,
+		Path:                 discovered.Metadata.Cwd,
+		Program:              discovered.Metadata.Command,
+		Status:               Running,
+		InstanceType:         InstanceTypeExternal,
+		Category:             "External",
+		Tags:                 []string{"external", "mux"},
+		CreatedAt:            now, // Initialize timestamps to avoid stale notifications
+		UpdatedAt:            now,
+		LastTerminalUpdate:   now,
+		LastMeaningfulOutput: now, // Initialize to now - external sessions have output when discovered
 		ExternalMetadata: &ExternalInstanceMetadata{
-			MuxSocketPath:  discovered.SocketPath,
-			MuxEnabled:     true,
-			SourceTerminal: guessSourceTerminal(discovered.Metadata),
-			DiscoveredAt:   time.Now(),
-			LastSeen:       time.Now(),
-			OriginalPID:    discovered.Metadata.PID,
+			MuxSocketPath:   discovered.SocketPath,
+			MuxEnabled:      true,
+			SourceTerminal:  guessSourceTerminal(discovered.Metadata),
+			DiscoveredAt:    now,
+			LastSeen:        now,
+			OriginalPID:     discovered.Metadata.PID,
+			TmuxSessionName: discovered.Metadata.TmuxSession, // For unified tmux control
 		},
-		// Permissions are computed via GetPermissions() method
+		// Use mux permissions which enable destroy (unified architecture)
+		Permissions: GetMuxExternalPermissions(),
+	}
+
+	// UNIFIED ARCHITECTURE: Attach to the existing tmux session so external sessions
+	// use the same streaming/resize infrastructure as regular sessions.
+	// This enables GetPTYReader() to work, which is required for WebSocket streaming.
+	tmuxSession := tmux.NewTmuxSessionFromExisting(discovered.Metadata.TmuxSession)
+	if err := tmuxSession.AttachToExisting(); err != nil {
+		log.ErrorLog.Printf("Failed to attach to tmux session '%s' for external session '%s': %v",
+			discovered.Metadata.TmuxSession, title, err)
+		// Continue without PTY attachment - session will still be visible but streaming won't work
+		// The streamExternalTerminal fallback can still handle it via capture-pane polling
+	} else {
+		// Successfully attached - set the tmux session on the instance
+		// This also sets instance.started = true, enabling GetPTYReader()
+		instance.SetTmuxSession(tmuxSession)
+		log.InfoLog.Printf("Attached to tmux session '%s' for unified streaming of external session '%s'",
+			discovered.Metadata.TmuxSession, title)
 	}
 
 	// Register the session
@@ -128,12 +175,12 @@ func (e *ExternalSessionDiscovery) handleNewSession(discovered *mux.DiscoveredSe
 	e.sessions[discovered.SocketPath] = instance
 	e.sessionsMu.Unlock()
 
-	log.InfoLog.Printf("Discovered external Claude session: %s (socket: %s, cwd: %s)",
-		title, discovered.SocketPath, discovered.Metadata.Cwd)
+	log.InfoLog.Printf("Discovered external Claude session: %s (socket: %s, cwd: %s, tmux: %s)",
+		title, discovered.SocketPath, discovered.Metadata.Cwd, discovered.Metadata.TmuxSession)
 
-	// Notify callback
-	if e.onSessionAdded != nil {
-		e.onSessionAdded(instance)
+	// Notify all registered callbacks
+	for _, callback := range e.onSessionAddedCallbacks {
+		callback(instance)
 	}
 }
 
@@ -149,14 +196,15 @@ func (e *ExternalSessionDiscovery) handleRemovedSession(discovered *mux.Discover
 	if exists {
 		log.InfoLog.Printf("External session disconnected: %s", instance.Title)
 
-		// Notify callback
-		if e.onSessionRemoved != nil {
-			e.onSessionRemoved(instance)
+		// Notify all registered callbacks
+		for _, callback := range e.onSessionRemovedCallbacks {
+			callback(instance)
 		}
 	}
 }
 
 // generateExternalTitle creates a display title for an external session.
+// Includes PID to ensure uniqueness when multiple sessions run in the same directory.
 func generateExternalTitle(meta *mux.SessionMetadata) string {
 	// Use the directory name as the primary identifier
 	dirName := filepath.Base(meta.Cwd)
@@ -164,12 +212,15 @@ func generateExternalTitle(meta *mux.SessionMetadata) string {
 		dirName = "External"
 	}
 
+	// Include PID to differentiate multiple sessions in the same directory
+	pid := meta.PID
+
 	// Add command info if not claude
 	if meta.Command != "claude" && !isClaudeCommand(meta.Command) {
-		return fmt.Sprintf("%s (%s)", dirName, filepath.Base(meta.Command))
+		return fmt.Sprintf("%s (%s #%d)", dirName, filepath.Base(meta.Command), pid)
 	}
 
-	return fmt.Sprintf("%s (External)", dirName)
+	return fmt.Sprintf("%s (External #%d)", dirName, pid)
 }
 
 // guessSourceTerminal attempts to identify the source terminal from environment.

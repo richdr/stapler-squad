@@ -28,6 +28,10 @@ const (
 	MessageTypePong MessageType = 0x06
 	// MessageTypeClose signals graceful session close
 	MessageTypeClose MessageType = 0x07
+	// MessageTypeSnapshot requests a clean screen snapshot (capture-pane)
+	MessageTypeSnapshot MessageType = 0x08
+	// MessageTypeSnapshotReply contains the clean screen snapshot
+	MessageTypeSnapshotReply MessageType = 0x09
 )
 
 // Message represents a single message in the mux protocol.
@@ -45,13 +49,14 @@ type ResizeData struct {
 
 // SessionMetadata contains information about the multiplexed session.
 type SessionMetadata struct {
-	Command    string            `json:"command"`     // The command being run (e.g., "claude")
-	Args       []string          `json:"args"`        // Command arguments
-	PID        int               `json:"pid"`         // Process ID of the child
-	Cwd        string            `json:"cwd"`         // Current working directory
-	Env        map[string]string `json:"env"`         // Selected environment variables
-	SocketPath string            `json:"socket_path"` // Path to the Unix socket
-	StartTime  int64             `json:"start_time"`  // Unix timestamp when session started
+	Command     string            `json:"command"`      // The command being run (e.g., "claude")
+	Args        []string          `json:"args"`         // Command arguments
+	PID         int               `json:"pid"`          // Process ID of the child
+	Cwd         string            `json:"cwd"`          // Current working directory
+	Env         map[string]string `json:"env"`          // Selected environment variables
+	SocketPath  string            `json:"socket_path"`  // Path to the Unix socket
+	StartTime   int64             `json:"start_time"`   // Unix timestamp when session started
+	TmuxSession string            `json:"tmux_session"` // Tmux session name (for claude-squad adoption)
 }
 
 // EncodeMessage encodes a message to wire format.
@@ -196,5 +201,22 @@ func NewCloseMessage() *Message {
 	return &Message{
 		Type: MessageTypeClose,
 		Data: nil,
+	}
+}
+
+// NewSnapshotRequestMessage creates a snapshot request message.
+// This requests a clean screen capture (tmux capture-pane) from the multiplexer.
+func NewSnapshotRequestMessage() *Message {
+	return &Message{
+		Type: MessageTypeSnapshot,
+		Data: nil,
+	}
+}
+
+// NewSnapshotReplyMessage creates a snapshot reply with the captured content.
+func NewSnapshotReplyMessage(content []byte) *Message {
+	return &Message{
+		Type: MessageTypeSnapshotReply,
+		Data: content,
 	}
 }
