@@ -5,11 +5,11 @@ import (
 	"claude-squad/session/git"
 	"claude-squad/session/tmux"
 	"context"
-	"path/filepath"
-
 	"fmt"
 	"os"
+	"os/exec"
 	"os/user"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -91,6 +91,11 @@ type Instance struct {
 	GitHubSourceRef string `json:"github_source_ref,omitempty"`
 	// ClonedRepoPath is the path where we cloned the repo (if cloned)
 	ClonedRepoPath string `json:"cloned_repo_path,omitempty"`
+	// MainRepoPath is the path to the main repository when Path is a worktree
+	// Detected automatically via `git rev-parse --git-common-dir`
+	MainRepoPath string `json:"main_repo_path,omitempty"`
+	// IsWorktree indicates whether Path is a git worktree (not the main repo)
+	IsWorktree bool `json:"is_worktree,omitempty"`
 
 	// DiffStats stores the current git diff statistics
 	diffStats *git.DiffStats
@@ -135,6 +140,8 @@ type Instance struct {
 	IsManaged bool
 	// ExternalMetadata contains additional information for externally discovered instances
 	ExternalMetadata *ExternalInstanceMetadata
+	// Permissions defines what operations are allowed on this instance
+	Permissions InstancePermissions
 
 	// The below fields are initialized upon calling Start().
 
@@ -186,6 +193,9 @@ func (i *Instance) ToInstanceData() InstanceData {
 		GitHubRepo:      i.GitHubRepo,
 		GitHubSourceRef: i.GitHubSourceRef,
 		ClonedRepoPath:  i.ClonedRepoPath,
+		// Worktree detection fields
+		MainRepoPath: i.MainRepoPath,
+		IsWorktree:   i.IsWorktree,
 	}
 
 	// Only include worktree data if gitWorktree is initialized
@@ -288,6 +298,9 @@ func FromInstanceData(data InstanceData) (*Instance, error) {
 		GitHubRepo:      data.GitHubRepo,
 		GitHubSourceRef: data.GitHubSourceRef,
 		ClonedRepoPath:  data.ClonedRepoPath,
+		// Worktree detection fields
+		MainRepoPath: data.MainRepoPath,
+		IsWorktree:   data.IsWorktree,
 		gitWorktree: git.NewGitWorktreeFromStorage(
 			data.Worktree.RepoPath,
 			data.Worktree.WorktreePath,
@@ -306,6 +319,18 @@ func FromInstanceData(data InstanceData) (*Instance, error) {
 	if data.ClaudeSession.SessionID != "" || data.ClaudeSession.ConversationID != "" {
 		claudeSessionCopy := data.ClaudeSession
 		instance.claudeSession = &claudeSessionCopy
+	}
+
+	// Auto-detect worktree info for migration (existing sessions without this info)
+	// This populates IsWorktree, MainRepoPath, GitHubOwner, and GitHubRepo
+	if instance.GitHubOwner == "" || instance.GitHubRepo == "" {
+		if err := instance.DetectAndPopulateWorktreeInfo(); err != nil {
+			log.WarningLog.Printf("Failed to detect worktree info for '%s': %v", instance.Title, err)
+			// Non-fatal - session can still work without this info
+		} else if instance.GitHubOwner != "" {
+			log.InfoLog.Printf("Auto-detected GitHub info for '%s': %s/%s (worktree=%v)",
+				instance.Title, instance.GitHubOwner, instance.GitHubRepo, instance.IsWorktree)
+		}
 	}
 
 	// Initialize session-specific logging
@@ -392,6 +417,9 @@ type InstanceOptions struct {
 	GitHubRepo      string // Repository name
 	GitHubSourceRef string // Original URL/reference used to create session
 	ClonedRepoPath  string // Path where repo was cloned (if cloned)
+	// ResumeId is the Claude conversation ID to resume (from history browser).
+	// When set, the session will start with --resume <id> flag.
+	ResumeId string
 }
 
 func NewInstance(opts InstanceOptions) (*Instance, error) {
@@ -427,7 +455,7 @@ func NewInstance(opts InstanceOptions) (*Instance, error) {
 		sessionType = SessionTypeDirectory
 	}
 
-	return &Instance{
+	instance := &Instance{
 		Title:                opts.Title,
 		Status:               Ready,
 		Path:                 absPath,
@@ -457,7 +485,33 @@ func NewInstance(opts InstanceOptions) (*Instance, error) {
 		GitHubRepo:      opts.GitHubRepo,
 		GitHubSourceRef: opts.GitHubSourceRef,
 		ClonedRepoPath:  opts.ClonedRepoPath,
-	}, nil
+	}
+
+	// Auto-detect worktree info if GitHub owner/repo not explicitly set
+	// This extracts repository information from the git remote URL
+	if instance.GitHubOwner == "" || instance.GitHubRepo == "" {
+		if err := instance.DetectAndPopulateWorktreeInfo(); err != nil {
+			log.WarningLog.Printf("Failed to detect worktree info for new instance '%s': %v", opts.Title, err)
+			// Non-fatal - instance can still be created without this info
+		} else if instance.GitHubOwner != "" {
+			log.InfoLog.Printf("Auto-detected GitHub info for new instance '%s': %s/%s (worktree=%v)",
+				opts.Title, instance.GitHubOwner, instance.GitHubRepo, instance.IsWorktree)
+		}
+	}
+
+	// Handle ResumeId - set up claudeSession so the --resume flag gets added on Start()
+	if opts.ResumeId != "" {
+		instance.claudeSession = &ClaudeSessionData{
+			SessionID:    opts.ResumeId,
+			LastAttached: t,
+			Metadata: map[string]string{
+				"resumed_from_history": "true",
+			},
+		}
+		log.InfoLog.Printf("Instance '%s' configured to resume Claude conversation: %s", opts.Title, opts.ResumeId)
+	}
+
+	return instance, nil
 }
 
 // NewInstanceWithCleanup creates a new Instance and returns it along with a cleanup function.
@@ -794,6 +848,29 @@ func (i *Instance) KillSessionKeepWorktree() error {
 	return i.KillSession()
 }
 
+// KillExternalSession terminates an external mux session by killing its tmux session.
+// This only works for external sessions that were started via claude-mux with tmux integration.
+// Returns an error if this is not an external instance or lacks tmux session name.
+func (i *Instance) KillExternalSession() error {
+	if i.InstanceType != InstanceTypeExternal {
+		return fmt.Errorf("not an external instance")
+	}
+	if i.ExternalMetadata == nil || i.ExternalMetadata.TmuxSessionName == "" {
+		return fmt.Errorf("no tmux session name available (session may not support destroy)")
+	}
+
+	// Stop the controller if running
+	i.StopController()
+
+	// Kill the tmux session
+	cmd := exec.Command("tmux", "kill-session", "-t", i.ExternalMetadata.TmuxSessionName)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to kill tmux session '%s': %w", i.ExternalMetadata.TmuxSessionName, err)
+	}
+
+	return nil
+}
+
 // combineErrors combines multiple errors into a single error
 func (i *Instance) combineErrors(errs []error) error {
 	if len(errs) == 0 {
@@ -844,7 +921,19 @@ func (i *Instance) HasUpdated() (updated bool, hasPrompt bool) {
 		return false, false
 	}
 
-	return i.tmuxSession.HasUpdated()
+	updated, hasPrompt = i.tmuxSession.HasUpdated()
+
+	// Update timestamps when content has actually changed
+	// This ensures LastMeaningfulOutput is updated even when no web UI client is connected,
+	// preventing false "stale session" notifications in the review queue.
+	if updated {
+		// Capture content for timestamp update (forceUpdate=false to respect banner filtering)
+		if content, err := i.tmuxSession.CapturePaneContent(); err == nil {
+			i.UpdateTerminalTimestamps(content, false)
+		}
+	}
+
+	return updated, hasPrompt
 }
 
 // TapEnter sends an enter key press to the tmux session if AutoYes is enabled.
@@ -1084,6 +1173,149 @@ func (i *Instance) Resume() error {
 		// Continue - controller is optional functionality
 	}
 
+	return nil
+}
+
+// Rename changes the title of the instance.
+// Per ADR-001, this only updates metadata - the tmux session name remains unchanged.
+// Returns an error if the title is invalid (wrong length or contains invalid characters).
+func (i *Instance) Rename(newTitle string) error {
+	// Validate title length
+	if len(newTitle) < MinTitleLength || len(newTitle) > MaxTitleLength {
+		return ErrInvalidTitleLength
+	}
+
+	// Validate title characters
+	if !isValidTitle(newTitle) {
+		return ErrInvalidTitleChars
+	}
+
+	if newTitle == i.Title {
+		// No change needed
+		return nil
+	}
+
+	// Use mutex for thread safety
+	i.stateMutex.Lock()
+	defer i.stateMutex.Unlock()
+
+	// Update the title
+	oldTitle := i.Title
+	i.Title = newTitle
+	i.UpdatedAt = time.Now()
+
+	log.InfoLog.Printf("Renamed session from '%s' to '%s'", oldTitle, newTitle)
+	return nil
+}
+
+// Restart restarts the session by killing and recreating the tmux session.
+// The git worktree is preserved during restart.
+// If preserveOutput is true, captures terminal output before killing the session.
+// For Claude sessions, uses --resume flag with the stored session ID.
+func (i *Instance) Restart(preserveOutput bool) error {
+	if !i.started {
+		return ErrCannotRestart
+	}
+
+	if i.Status == Paused {
+		return fmt.Errorf("%w: session is paused, resume it first", ErrCannotRestart)
+	}
+
+	// Capture terminal output if requested
+	var savedOutput string
+	if preserveOutput && i.tmuxSession != nil {
+		output, err := i.tmuxSession.CapturePaneContentWithOptions("-", "-")
+		if err != nil {
+			log.WarningLog.Printf("Failed to capture terminal output before restart: %v", err)
+		} else {
+			savedOutput = output
+		}
+	}
+
+	// Capture Claude session ID if available for resuming
+	var claudeSessionID string
+	if i.claudeSession != nil && i.claudeSession.SessionID != "" {
+		claudeSessionID = i.claudeSession.SessionID
+	}
+
+	// Stop the controller
+	i.StopController()
+
+	// Kill the current tmux session
+	if err := i.KillSession(); err != nil {
+		return fmt.Errorf("failed to kill tmux session: %w", err)
+	}
+
+	// Determine the working directory
+	var worktreePath string
+	if i.gitWorktree != nil {
+		worktreePath = i.gitWorktree.GetWorktreePath()
+	} else if i.SessionType == SessionTypeExistingWorktree && i.ExistingWorktree != "" {
+		worktreePath = i.ExistingWorktree
+	} else {
+		worktreePath = i.Path
+	}
+
+	// Build the program command with Claude resume flag if applicable
+	program := i.Program
+	if claudeSessionID != "" && strings.Contains(program, "claude") {
+		// Add --resume flag for Claude sessions
+		program = fmt.Sprintf("%s --resume %s", program, claudeSessionID)
+	}
+
+	// Add AutoYes flag if needed
+	if i.AutoYes {
+		program = program + " -y"
+	}
+
+	// Add initial prompt if provided and not already restarting with resume
+	if i.Prompt != "" && claudeSessionID == "" {
+		program = fmt.Sprintf("%s %q", program, i.Prompt)
+	}
+
+	// Create a new tmux session
+	// Use configurable prefix or default
+	tmuxPrefix := i.TmuxPrefix
+	if tmuxPrefix == "" {
+		tmuxPrefix = "claudesquad_" // Default fallback
+	}
+
+	// Use server socket isolation if specified, otherwise use prefix-only isolation
+	if i.TmuxServerSocket != "" {
+		i.tmuxSession = tmux.NewTmuxSessionWithServerSocket(i.Title, program, tmuxPrefix, i.TmuxServerSocket)
+	} else {
+		i.tmuxSession = tmux.NewTmuxSessionWithPrefix(i.Title, program, tmuxPrefix)
+	}
+
+	// Start the new session
+	if err := i.tmuxSession.Start(worktreePath); err != nil {
+		return fmt.Errorf("failed to start new tmux session: %w", err)
+	}
+
+	// If output was preserved and we have saved output, write it back
+	if preserveOutput && savedOutput != "" {
+		// Add a marker to indicate this is restored output
+		marker := fmt.Sprintf("\n=== Session restarted at %s ===\n=== Previous output restored below ===\n\n",
+			time.Now().Format(time.RFC3339))
+		if _, err := i.tmuxSession.SendKeys(fmt.Sprintf("echo '%s'", marker)); err != nil {
+			log.WarningLog.Printf("Failed to write restart marker: %v", err)
+		}
+		time.Sleep(100 * time.Millisecond)
+		if err := i.tmuxSession.TapEnter(); err != nil {
+			log.WarningLog.Printf("Failed to send enter after marker: %v", err)
+		}
+	}
+
+	// Restart the controller
+	if err := i.StartController(); err != nil {
+		log.WarningLog.Printf("Failed to restart controller for instance '%s': %v", i.Title, err)
+		// Continue - controller is optional functionality
+	}
+
+	i.SetStatus(Running)
+	i.UpdatedAt = time.Now()
+
+	log.InfoLog.Printf("Successfully restarted session '%s'", i.Title)
 	return nil
 }
 
@@ -1924,4 +2156,53 @@ func (i *Instance) GetPRDisplayInfo() string {
 // IsGitHubSession returns true if this session has any GitHub metadata
 func (i *Instance) IsGitHubSession() bool {
 	return i.GitHubOwner != "" && i.GitHubRepo != ""
+}
+
+// DetectAndPopulateWorktreeInfo detects if the instance path is a worktree
+// and populates the IsWorktree, MainRepoPath, GitHubOwner, and GitHubRepo fields.
+// This is useful for sessions created from existing worktrees where we want to
+// display the actual repository information in the UI.
+//
+// IMPORTANT: For sessions with git worktrees, we check BOTH paths:
+// 1. The worktree path (gitWorktree.GetWorktreePath()) - to detect IsWorktree and MainRepoPath
+// 2. The original path (i.Path) - as fallback for GitHub owner/repo if worktree detection fails
+//
+// This is necessary because:
+// - i.Path is the main repository path (e.g., ~/Documents/personal-wiki)
+// - gitWorktree.GetWorktreePath() is the actual worktree (e.g., ~/.claude-squad/worktrees/...)
+// - The main repo has .git as a directory; the worktree has .git as a file pointing to the main repo
+func (i *Instance) DetectAndPopulateWorktreeInfo() error {
+	// Determine the path to use for detection
+	// For worktree sessions, use the worktree path; otherwise use i.Path
+	detectPath := i.Path
+	if i.gitWorktree != nil {
+		worktreePath := i.gitWorktree.GetWorktreePath()
+		if worktreePath != "" {
+			detectPath = worktreePath
+		}
+	}
+
+	if detectPath == "" {
+		return nil
+	}
+
+	info, err := DetectWorktree(detectPath)
+	if err != nil {
+		return err
+	}
+
+	i.IsWorktree = info.IsWorktree
+	if info.IsWorktree && info.MainRepoRoot != "" {
+		i.MainRepoPath = info.MainRepoRoot
+	}
+
+	// Only populate GitHub info if not already set
+	if i.GitHubOwner == "" && info.GitHubOwner != "" {
+		i.GitHubOwner = info.GitHubOwner
+	}
+	if i.GitHubRepo == "" && info.GitHubRepo != "" {
+		i.GitHubRepo = info.GitHubRepo
+	}
+
+	return nil
 }
