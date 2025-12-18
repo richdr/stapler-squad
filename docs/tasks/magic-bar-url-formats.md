@@ -57,6 +57,38 @@ Enable developers to quickly create Claude sessions from diverse URL formats (Gi
 
 ---
 
+## Current vs Target URL Support
+
+### GitHub URL Formats
+
+| Format | Example | Currently Supported | Priority |
+|--------|---------|---------------------|----------|
+| **Repository** | `https://github.com/owner/repo` | ✅ Yes | - |
+| **Pull Request** | `https://github.com/owner/repo/pull/123` | ✅ Yes | - |
+| **Branch (tree)** | `https://github.com/owner/repo/tree/main` | ✅ Yes | - |
+| **Shorthand** | `owner/repo` | ✅ Yes | - |
+| **Shorthand+Branch** | `owner/repo:branch` | ✅ Yes | - |
+| **File (blob)** | `https://github.com/owner/repo/blob/main/src/file.go` | ❌ No | Must |
+| **File with line** | `https://github.com/owner/repo/blob/main/file.go#L42` | ❌ No | Must |
+| **File with range** | `https://github.com/owner/repo/blob/main/file.go#L10-L20` | ❌ No | Should |
+| **Commit** | `https://github.com/owner/repo/commit/abc123` | ❌ No | Must |
+| **Issue** | `https://github.com/owner/repo/issues/42` | ❌ No | Should |
+| **Compare** | `https://github.com/owner/repo/compare/main...feature` | ❌ No | Could |
+| **Release** | `https://github.com/owner/repo/releases/tag/v1.0` | ❌ No | Could |
+| **Actions Run** | `https://github.com/owner/repo/actions/runs/12345` | ❌ No | Could |
+| **SSH URL** | `git@github.com:owner/repo.git` | ❌ No | Must |
+| **SSH Protocol** | `ssh://git@github.com/owner/repo` | ❌ No | Must |
+
+### Other Providers (Future)
+
+| Provider | Example | Status |
+|----------|---------|--------|
+| GitLab | `https://gitlab.com/owner/repo` | ❌ Not supported |
+| Bitbucket | `https://bitbucket.org/owner/repo` | ❌ Not supported |
+| Local Path | `/path/to/repo` | ❌ Not in magic bar |
+
+---
+
 ## Story Breakdown
 
 ### Story 1: Multi-Provider URL Parser Infrastructure

@@ -75,6 +75,47 @@ go build -race .
 # See docs/PROFILING.md for comprehensive guide
 ```
 
+### OpenTelemetry Observability
+
+Claude Squad supports OpenTelemetry instrumentation for APM integration (Datadog, etc.).
+
+```bash
+# Enable telemetry (disabled by default)
+OTEL_ENABLED=true ./claude-squad --web
+
+# Or use Datadog-specific flag
+DD_TRACE_ENABLED=true ./claude-squad --web
+
+# Configure OTLP endpoint (default: localhost:4317)
+OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317 OTEL_ENABLED=true ./claude-squad --web
+
+# Set environment and version for trace metadata
+OTEL_SERVICE_ENVIRONMENT=production OTEL_SERVICE_VERSION=1.0.0 OTEL_ENABLED=true ./claude-squad --web
+```
+
+**Datadog Agent Configuration** (for OTLP ingestion):
+```yaml
+# /etc/datadog-agent/datadog.yaml
+otlp_config:
+  receiver:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+```
+
+**Instrumented Operations:**
+- All HTTP requests (via otelhttp middleware)
+- All ConnectRPC endpoints (via otelconnect interceptor)
+- History cache operations (cache hit/miss, load duration)
+- Search engine operations (sync, search duration, result count)
+
+**Trace Attributes:**
+- `session.id`, `session.title`, `session.status` - Session context
+- `history.entry_count` - History loading metrics
+- `search.query`, `search.result_count`, `search.duration_ms` - Search metrics
+- `cache.hit`, `cache.refresh_duration_ms` - Cache performance
+- `sync.sessions_added`, `sync.sessions_updated` - Index sync metrics
+
 ### Testing
 ```bash
 # Run all tests
@@ -318,6 +359,152 @@ Claude Squad stores application data, logs, and git worktrees in the `~/.claude-
 - `which claude` - External command execution that may block
 - `git worktree` operations - Git integration issues
 - `DoesSessionExist()` polling - Session existence checking loops
+
+## External Session Monitoring (PTY Multiplexing)
+
+Claude Squad can monitor and interact with Claude sessions running in external terminals (IntelliJ, VS Code, etc.) through the `claude-mux` PTY multiplexer. This enables bidirectional terminal streaming without requiring sessions to be started from claude-squad.
+
+### How It Works
+
+The `claude-mux` wrapper creates a pseudo-terminal (PTY) that wraps your Claude command and exposes it via a Unix domain socket at `/tmp/claude-mux-<PID>.sock`. Claude Squad automatically discovers these sockets and connects to them for real-time terminal streaming.
+
+**Architecture:**
+```
+External Terminal (IntelliJ) → claude-mux → PTY → Claude Process
+                                    ↓
+                            Unix Socket (/tmp/)
+                                    ↓
+                          claude-squad (discovers & connects)
+```
+
+### Installation
+
+Run the installation script from the project root:
+
+```bash
+cd /path/to/claude-squad
+./scripts/install-mux.sh
+```
+
+This will:
+- Build `claude-mux` from source
+- Install to `~/.local/bin/claude-mux`
+- Print setup instructions for shell aliases and IDE configuration
+- Show verification and troubleshooting steps
+
+### Setup Methods
+
+**Method 1: Shell Alias (Recommended)**
+```bash
+# Add to ~/.zshrc or ~/.bashrc
+alias claude='claude-mux claude'
+
+# Reload shell config
+source ~/.zshrc
+```
+
+**Method 2: PATH Override**
+```bash
+# Create wrapper script at ~/bin/claude
+#!/bin/bash
+exec claude-mux /usr/local/bin/claude "$@"
+
+# Make executable
+chmod +x ~/bin/claude
+
+# Ensure ~/bin is in PATH before /usr/local/bin
+export PATH="$HOME/bin:$PATH"
+```
+
+**Method 3: IDE Terminal Configuration**
+
+**IntelliJ IDEA / PyCharm / WebStorm:**
+1. Open Settings → Tools → Terminal
+2. Set 'Shell path' to: `~/.local/bin/claude-mux`
+3. Set 'Shell arguments' to: `claude`
+4. Restart IDE terminal
+
+**VS Code:**
+1. Open Settings (Cmd+, or Ctrl+,)
+2. Search for 'terminal.integrated.profiles'
+3. Add profile:
+   ```json
+   "terminal.integrated.profiles.osx": {
+     "claude-mux": {
+       "path": "~/.local/bin/claude-mux",
+       "args": ["claude"]
+     }
+   }
+   ```
+4. Set as default terminal profile
+
+### Session Discovery
+
+Claude Squad uses **auto-discovery with filesystem watching** for immediate session detection:
+
+- **Filesystem Watching**: Uses `fsnotify` to watch `/tmp/` for socket creation/deletion
+- **Immediate Connection**: New sessions discovered instantly (no polling delay)
+- **Automatic Fallback**: Falls back to polling if filesystem watching fails
+- **Zero Configuration**: Works automatically when claude-squad is running
+
+**Verification:**
+```bash
+# Start a Claude session with multiplexing
+claude-mux claude
+
+# In another terminal, check socket creation
+ls /tmp/claude-mux-*.sock
+
+# Claude Squad will automatically discover and connect to the session
+```
+
+### Troubleshooting
+
+**Issue: 'claude-mux: command not found'**
+- Ensure `~/.local/bin` is in your PATH
+- Run: `export PATH="$HOME/.local/bin:$PATH"`
+- Add to shell config for persistence
+
+**Issue: 'stdin is not a terminal'**
+- `claude-mux` requires a TTY (interactive terminal)
+- Cannot be used in scripts or pipes
+- Must run from actual terminal session
+
+**Issue: Sessions not discovered**
+1. Check socket exists: `ls /tmp/claude-mux-*.sock`
+2. Verify permissions: `ls -l /tmp/claude-mux-*.sock` (should be 0600)
+3. Check claude-squad logs: `~/.claude-squad/logs/claude-squad.log`
+4. Verify discovery is running (automatic when web UI active)
+
+**Issue: Terminal output garbled**
+- Ensure terminal size is set correctly
+- `claude-mux` forwards SIGWINCH (resize signals) automatically
+- Try resizing the terminal window
+
+**Issue: Socket cleanup**
+- Stale sockets removed automatically on next discovery scan
+- Manual cleanup: `rm /tmp/claude-mux-*.sock` (when no sessions running)
+
+### Technical Details
+
+**Protocol**: Binary protocol with message framing (type + length + data)
+
+**Message Types**:
+- `Output`: Terminal output from Claude → clients
+- `Input`: User input from clients → Claude
+- `Resize`: Terminal resize events (SIGWINCH)
+- `Metadata`: Session info (command, PID, cwd, env)
+- `Ping/Pong`: Keepalive for connection health
+
+**Security**:
+- Sockets created with 0600 permissions (owner-only access)
+- Local Unix domain sockets (no network exposure)
+- Process isolation through PTY
+
+**Performance**:
+- Zero overhead when no clients connected
+- Minimal latency (direct PTY forwarding)
+- Automatic cleanup on process exit
 
 ## State File Isolation and Multi-Instance Support
 
