@@ -564,6 +564,12 @@ message ReviewQueueItemAddedEvent {
 
   // What triggered this addition
   string trigger = 2; // "poller", "manual_check", "status_change"
+
+  // Whether this item is part of an initial snapshot (sent on WebSocket reconnection).
+  // Frontend should NOT fire notifications for snapshot items to prevent duplicates.
+  // - true: Item is part of initial snapshot (existing queue items sent on reconnect)
+  // - false: Item is a real-time addition (new session needs attention)
+  bool is_snapshot = 3;
 }
 
 // ReviewQueueItemRemovedEvent is emitted when item is removed from queue

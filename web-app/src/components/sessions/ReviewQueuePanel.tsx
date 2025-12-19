@@ -89,6 +89,11 @@ export function ReviewQueuePanel({
       // Open the session when clicking "View Session" in toast
       onSessionClick?.(sessionId);
     },
+    onAcknowledge: (sessionId) => {
+      // When user clicks "Dismiss" in toast, acknowledge the session
+      // This prevents re-notification for the grace period
+      acknowledgeSession(sessionId);
+    },
   });
 
   // Format duration in seconds (e.g., averageAgeSeconds, oldestAgeSeconds)

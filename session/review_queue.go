@@ -17,9 +17,12 @@ const (
 	ReasonInputRequired      AttentionReason = "input_required"       // Waiting for user input
 	ReasonErrorState         AttentionReason = "error_state"          // Error occurred
 	ReasonTestsFailing       AttentionReason = "tests_failing"        // Tests are failing
-	ReasonIdleTimeout        AttentionReason = "idle_timeout"         // No activity for extended period
+	ReasonIdleTimeout        AttentionReason = "idle_timeout"         // DEPRECATED: No activity for extended period (use ReasonIdle or ReasonStale)
 	ReasonTaskComplete       AttentionReason = "task_complete"        // Task completed, waiting for next instruction
 	ReasonUncommittedChanges AttentionReason = "uncommitted_changes"  // Uncommitted git changes ready to commit
+	ReasonIdle               AttentionReason = "idle"                 // Session idle, ready for next task (short idle, expected)
+	ReasonStale              AttentionReason = "stale"                // No output for extended period (may be stuck)
+	ReasonWaitingForUser     AttentionReason = "waiting_for_user"     // Explicitly waiting for user input (detected prompt)
 )
 
 // Priority defines the urgency level of a review item.

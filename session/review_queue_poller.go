@@ -322,12 +322,13 @@ func (rqp *ReviewQueuePoller) checkSession(inst *Instance) {
 
 				case IdleStateTimeout:
 					// Definite timeout - been idle too long
-					reason = ReasonIdleTimeout
+					// Use semantic ReasonIdle instead of deprecated ReasonIdleTimeout
+					reason = ReasonIdle
 					priority = PriorityLow
 					shouldAdd = true
 					idleDuration := time.Since(lastActivity)
-					context = fmt.Sprintf("Timed out after %s of inactivity", formatDuration(idleDuration))
-					log.DebugLog.Printf("[ReviewQueue] Session '%s': Timeout detected - idle for %s", inst.Title, formatDuration(idleDuration))
+					context = "Session idle - ready for next task"
+					log.DebugLog.Printf("[ReviewQueue] Session '%s': Idle detected - idle for %s", inst.Title, formatDuration(idleDuration))
 				}
 			}
 
@@ -423,10 +424,11 @@ func (rqp *ReviewQueuePoller) checkSession(inst *Instance) {
 			const basicIdleThreshold = 5 * time.Second
 
 			if idleDuration > basicIdleThreshold {
-				reason = ReasonIdleTimeout
+				// Use semantic ReasonIdle instead of deprecated ReasonIdleTimeout
+				reason = ReasonIdle
 				priority = PriorityLow
 				shouldAdd = true
-				context = fmt.Sprintf("No controller activity for %s", formatDuration(idleDuration))
+				context = "Session idle - ready for next task"
 				log.DebugLog.Printf("[ReviewQueue] Session '%s': Basic idle check - %s since UpdatedAt",
 					inst.Title, formatDuration(idleDuration))
 			}
@@ -492,10 +494,11 @@ func (rqp *ReviewQueuePoller) checkSession(inst *Instance) {
 
 			// Only override if we don't already have a higher-priority reason
 			if !shouldAdd || priority < PriorityMedium {
-				reason = ReasonIdleTimeout // Reuse idle timeout reason for staleness
-				priority = PriorityLow     // Lower priority than approval/error, but should be reviewed
+				// Use semantic ReasonStale instead of deprecated ReasonIdleTimeout
+				reason = ReasonStale
+				priority = PriorityLow // Lower priority than approval/error, but should be reviewed
 				shouldAdd = true
-				context = fmt.Sprintf("No meaningful output for %s (may be stuck or waiting)",
+				context = fmt.Sprintf("No activity for %s - session may be stuck or waiting",
 					formatDuration(timeSinceOutput))
 
 				log.InfoLog.Printf("[ReviewQueue] Session '%s': SETTING shouldAdd=true - flagged as stale - %s since last meaningful output",

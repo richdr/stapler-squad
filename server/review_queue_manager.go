@@ -208,8 +208,9 @@ func (rqm *ReactiveQueueManager) OnItemAdded(item *session.ReviewItem) {
 		Timestamp: timestamppb.Now(),
 		Event: &sessionv1.ReviewQueueEvent_ItemAdded{
 			ItemAdded: &sessionv1.ReviewQueueItemAddedEvent{
-				Item:    rqm.reviewItemToProto(item),
-				Trigger: "reactive_manager",
+				Item:       rqm.reviewItemToProto(item),
+				Trigger:    "reactive_manager",
+				IsSnapshot: false, // Real-time event - frontend SHOULD fire notifications
 			},
 		},
 	}
@@ -435,8 +436,9 @@ func (rqm *ReactiveQueueManager) sendInitialSnapshot(client *reviewQueueStreamCl
 			Timestamp: timestamppb.Now(),
 			Event: &sessionv1.ReviewQueueEvent_ItemAdded{
 				ItemAdded: &sessionv1.ReviewQueueItemAddedEvent{
-					Item:    rqm.reviewItemToProto(item),
-					Trigger: "initial_snapshot",
+					Item:       rqm.reviewItemToProto(item),
+					Trigger:    "initial_snapshot",
+					IsSnapshot: true, // Mark as snapshot - frontend should NOT fire notifications
 				},
 			},
 		}
@@ -521,6 +523,16 @@ func (rqm *ReactiveQueueManager) reasonToProto(r session.AttentionReason) sessio
 		return sessionv1.AttentionReason_ATTENTION_REASON_IDLE_TIMEOUT
 	case session.ReasonTaskComplete:
 		return sessionv1.AttentionReason_ATTENTION_REASON_TASK_COMPLETE
+	case session.ReasonUncommittedChanges:
+		return sessionv1.AttentionReason_ATTENTION_REASON_UNCOMMITTED_CHANGES
+	case session.ReasonIdle:
+		return sessionv1.AttentionReason_ATTENTION_REASON_IDLE
+	case session.ReasonStale:
+		return sessionv1.AttentionReason_ATTENTION_REASON_STALE
+	case session.ReasonWaitingForUser:
+		return sessionv1.AttentionReason_ATTENTION_REASON_WAITING_FOR_USER
+	case session.ReasonTestsFailing:
+		return sessionv1.AttentionReason_ATTENTION_REASON_TESTS_FAILING
 	default:
 		return sessionv1.AttentionReason_ATTENTION_REASON_UNSPECIFIED
 	}

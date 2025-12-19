@@ -27,6 +27,11 @@ export interface NotificationData {
   onView?: () => void;
   onDismiss?: () => void;
   onFocusWindow?: () => void;
+  /**
+   * Callback when user clicks "Dismiss" to acknowledge the notification.
+   * This should trigger the backend acknowledge API to prevent re-notification.
+   */
+  onAcknowledge?: () => void;
 }
 
 interface NotificationToastProps {
@@ -54,22 +59,26 @@ export function NotificationToast({
     return () => clearTimeout(timer);
   }, []);
 
-  // Auto-close timer
+  // Auto-close timer (does NOT acknowledge - user didn't explicitly dismiss)
   useEffect(() => {
     if (autoClose > 0) {
       const timer = setTimeout(() => {
-        handleClose();
+        handleClose(false);
       }, autoClose);
       return () => clearTimeout(timer);
     }
   }, [autoClose]);
 
-  const handleClose = () => {
+  const handleClose = (shouldAcknowledge: boolean = false) => {
     setIsExiting(true);
     // Log dismissal
     auditLog.logNotificationDismissed(notification.id, notification.sessionId);
     setTimeout(() => {
       notification.onDismiss?.();
+      // If acknowledging, call the acknowledge callback to update backend/localStorage
+      if (shouldAcknowledge) {
+        notification.onAcknowledge?.();
+      }
       onClose();
     }, 300); // Match animation duration
   };
@@ -198,7 +207,7 @@ export function NotificationToast({
         </div>
         <button
           className={styles.closeButton}
-          onClick={handleClose}
+          onClick={() => handleClose(false)}
           aria-label="Close notification"
         >
           ×
@@ -223,7 +232,7 @@ export function NotificationToast({
         <button className={styles.viewButton} onClick={handleView}>
           View Session
         </button>
-        <button className={styles.dismissButton} onClick={handleClose}>
+        <button className={styles.dismissButton} onClick={() => handleClose(true)}>
           Dismiss
         </button>
       </div>

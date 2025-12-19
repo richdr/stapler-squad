@@ -16,7 +16,17 @@ interface NotificationContextValue {
   addNotification: (notification: Omit<NotificationData, "id" | "timestamp">) => void;
   removeNotification: (id: string) => void;
   clearAll: () => void;
-  showSessionNotification: (item: ReviewItem, onView?: () => void) => void;
+  /**
+   * Show a notification for a review queue item.
+   * @param item - The review item to show notification for
+   * @param onView - Optional callback when "View Session" is clicked
+   * @param onAcknowledge - Optional callback when "Dismiss" is clicked (should call backend acknowledge)
+   */
+  showSessionNotification: (
+    item: ReviewItem,
+    onView?: () => void,
+    onAcknowledge?: () => void
+  ) => void;
   togglePanel: () => void;
   markAsRead: (id: string) => void;
   markAllAsRead: () => void;
@@ -68,7 +78,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   }, []);
 
   const showSessionNotification = useCallback(
-    (item: ReviewItem, onView?: () => void) => {
+    (item: ReviewItem, onView?: () => void, onAcknowledge?: () => void) => {
       // Map priority from protobuf enum to our notification priority
       let priority: "urgent" | "high" | "medium" | "low" = "medium";
       if (item.priority === 0) priority = "urgent";
@@ -82,6 +92,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         message: item.context || "This session is waiting for your input",
         priority,
         onView,
+        onAcknowledge,
       });
     },
     [addNotification]
