@@ -59,6 +59,31 @@
   background: var(--terminal-hover-background);
 }
 
+.switchWorkspaceButton {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: var(--primary, #0070f3);
+  border: none;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  color: white;
+  padding: 0.375rem 0.75rem;
+  line-height: 1;
+  transition: background 0.2s, transform 0.1s;
+  border-radius: 6px;
+}
+
+.switchWorkspaceButton:hover {
+  background: var(--primary-dark, #0060df);
+  transform: translateY(-1px);
+}
+
+.switchWorkspaceButton:active {
+  transform: translateY(0);
+}
+
 .closeButton {
   background: transparent;
   border: none;

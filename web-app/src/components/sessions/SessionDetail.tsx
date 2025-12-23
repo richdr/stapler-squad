@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { Session, InstanceType } from "@/gen/session/v1/types_pb";
 import { DiffViewer } from "./DiffViewer";
 import { VcsPanel } from "./VcsPanel";
+import { WorkspaceSwitchModal } from "./WorkspaceSwitchModal";
 import { getApiBaseUrl } from "@/lib/config";
 import styles from "./SessionDetail.module.css";
 
@@ -34,6 +35,7 @@ interface SessionDetailProps {
 export function SessionDetail({ session, onClose, onFullscreenChange, onTabChange, initialTab = "info" }: SessionDetailProps) {
   const [activeTab, setActiveTab] = useState<SessionDetailTab>(initialTab);
   const [isFullscreen, setIsFullscreen] = useState(initialTab === "terminal" || initialTab === "diff" || initialTab === "vcs");
+  const [showWorkspaceSwitchModal, setShowWorkspaceSwitchModal] = useState(false);
 
   // Notify parent of fullscreen state changes
   useEffect(() => {
@@ -76,6 +78,16 @@ export function SessionDetail({ session, onClose, onFullscreenChange, onTabChang
       <div className={styles.header}>
         <h2 className={styles.title}>{session.title}</h2>
         <div className={styles.headerActions}>
+          {session.instanceType !== InstanceType.EXTERNAL && (
+            <button
+              className={styles.switchWorkspaceButton}
+              onClick={() => setShowWorkspaceSwitchModal(true)}
+              aria-label="Switch workspace"
+              title="Switch branch, bookmark, or worktree"
+            >
+              ⎇ Switch
+            </button>
+          )}
           {(activeTab === "terminal" || activeTab === "diff" || activeTab === "vcs") && (
             <button
               className={styles.fullscreenButton}
@@ -226,6 +238,20 @@ export function SessionDetail({ session, onClose, onFullscreenChange, onTabChang
           </div>
         )}
       </div>
+
+      {/* Workspace Switch Modal */}
+      {showWorkspaceSwitchModal && (
+        <WorkspaceSwitchModal
+          sessionId={session.id}
+          sessionName={session.title}
+          baseUrl={getApiBaseUrl()}
+          onClose={() => setShowWorkspaceSwitchModal(false)}
+          onSwitched={() => {
+            // The session will be updated via the event bus
+            setShowWorkspaceSwitchModal(false);
+          }}
+        />
+      )}
     </div>
   );
 }
