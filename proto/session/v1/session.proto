@@ -112,6 +112,18 @@ service SessionService {
   // RestartSession restarts a session by killing and recreating the tmux session.
   // Optionally preserves terminal output for debugging purposes.
   rpc RestartSession(RestartSessionRequest) returns (RestartSessionResponse) {}
+
+  // GetWorkspaceInfo retrieves VCS and workspace information for a session.
+  // Returns VCS type (Git/JJ), current branch, revision, and uncommitted changes status.
+  rpc GetWorkspaceInfo(GetWorkspaceInfoRequest) returns (GetWorkspaceInfoResponse) {}
+
+  // ListWorkspaceTargets returns available switch targets for a session.
+  // Includes bookmarks/branches, recent revisions, and worktrees.
+  rpc ListWorkspaceTargets(ListWorkspaceTargetsRequest) returns (ListWorkspaceTargetsResponse) {}
+
+  // SwitchWorkspace switches a session's workspace to a different branch, revision, or worktree.
+  // The session is restarted with Claude --resume to preserve conversation context.
+  rpc SwitchWorkspace(SwitchWorkspaceRequest) returns (SwitchWorkspaceResponse) {}
 }
 
 // ListSessionsRequest allows filtering sessions by various criteria.
@@ -712,4 +724,79 @@ message RestartSessionResponse {
 
   // Human-readable message (error details if failed).
   string message = 3;
+}
+
+// GetWorkspaceInfoRequest retrieves VCS information for a session.
+message GetWorkspaceInfoRequest {
+  // Session identifier.
+  string id = 1;
+}
+
+// GetWorkspaceInfoResponse returns VCS and workspace information.
+message GetWorkspaceInfoResponse {
+  // VCS and workspace information.
+  VCSInfo vcs_info = 1;
+
+  // Error message if VCS info couldn't be retrieved.
+  string error = 2;
+}
+
+// ListWorkspaceTargetsRequest retrieves available switch targets for a session.
+message ListWorkspaceTargetsRequest {
+  // Session identifier.
+  string id = 1;
+}
+
+// ListWorkspaceTargetsResponse returns available workspace switch targets.
+message ListWorkspaceTargetsResponse {
+  // Available switch targets.
+  AvailableWorkspaceTargets targets = 1;
+
+  // Error message if targets couldn't be retrieved.
+  string error = 2;
+}
+
+// SwitchWorkspaceRequest initiates a workspace switch for a session.
+message SwitchWorkspaceRequest {
+  // Session identifier.
+  string id = 1;
+
+  // Type of switch operation.
+  WorkspaceSwitchType switch_type = 2;
+
+  // Target destination (branch name, revision ID, worktree path, or directory path).
+  string target = 3;
+
+  // Strategy for handling uncommitted changes.
+  ChangeStrategy change_strategy = 4;
+
+  // Create the bookmark/branch/worktree if it doesn't exist.
+  bool create_if_missing = 5;
+
+  // Base revision for new bookmark creation (empty = current).
+  string base_revision = 6;
+}
+
+// SwitchWorkspaceResponse returns the result of a workspace switch operation.
+message SwitchWorkspaceResponse {
+  // Whether the switch was successful.
+  bool success = 1;
+
+  // Human-readable message (error details if failed).
+  string message = 2;
+
+  // Revision before the switch.
+  string previous_revision = 3;
+
+  // Revision after the switch.
+  string current_revision = 4;
+
+  // VCS type that was used.
+  VCSType vcs_type = 5;
+
+  // Description of how uncommitted changes were handled.
+  string changes_handled = 6;
+
+  // Updated session after the switch.
+  Session session = 7;
 }

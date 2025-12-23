@@ -9,6 +9,7 @@ import (
 	"claude-squad/server/events"
 	"claude-squad/session"
 	"claude-squad/session/vc"
+	"claude-squad/session/vcs"
 	"claude-squad/telemetry"
 	"connectrpc.com/connect"
 	"context"
@@ -2646,4 +2647,258 @@ func fileChangeToProto(f vc.FileChange) *sessionv1.FileChange {
 		IsStaged: f.IsStaged,
 		OldPath:  f.OldPath,
 	}
+}
+
+// GetWorkspaceInfo retrieves VCS and workspace information for a session.
+func (s *SessionService) GetWorkspaceInfo(
+	ctx context.Context,
+	req *connect.Request[sessionv1.GetWorkspaceInfoRequest],
+) (*connect.Response[sessionv1.GetWorkspaceInfoResponse], error) {
+	if req.Msg.Id == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("session id is required"))
+	}
+
+	instances, err := s.loadInstancesWithWiring()
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to load instances: %w", err))
+	}
+
+	// Find instance by ID (using Title as ID)
+	var instance *session.Instance
+	for _, inst := range instances {
+		if inst.Title == req.Msg.Id {
+			instance = inst
+			break
+		}
+	}
+
+	if instance == nil {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("session not found: %s", req.Msg.Id))
+	}
+
+	// Get VCS info from the session
+	vcsInfo, err := instance.GetVCSInfo()
+	if err != nil {
+		return connect.NewResponse(&sessionv1.GetWorkspaceInfoResponse{
+			Error: err.Error(),
+		}), nil
+	}
+
+	// Convert to proto
+	protoVCSInfo := &sessionv1.VCSInfo{
+		RepoPath:              vcsInfo.RepoPath,
+		HasJj:                 vcsInfo.HasJJ,
+		HasGit:                vcsInfo.HasGit,
+		IsColocated:           vcsInfo.IsColocated,
+		CurrentBookmark:       vcsInfo.CurrentBookmark,
+		CurrentRevision:       vcsInfo.CurrentRevision,
+		HasUncommittedChanges: vcsInfo.HasUncommittedChanges,
+		ModifiedFileCount:     int32(vcsInfo.ModifiedFileCount),
+	}
+
+	// Set VCS type
+	switch vcsInfo.VCSType {
+	case "jj":
+		protoVCSInfo.VcsType = sessionv1.VCSType_VCS_TYPE_JUJUTSU
+	case "git":
+		protoVCSInfo.VcsType = sessionv1.VCSType_VCS_TYPE_GIT
+	default:
+		protoVCSInfo.VcsType = sessionv1.VCSType_VCS_TYPE_UNSPECIFIED
+	}
+
+	return connect.NewResponse(&sessionv1.GetWorkspaceInfoResponse{
+		VcsInfo: protoVCSInfo,
+	}), nil
+}
+
+// ListWorkspaceTargets returns available switch targets for a session.
+func (s *SessionService) ListWorkspaceTargets(
+	ctx context.Context,
+	req *connect.Request[sessionv1.ListWorkspaceTargetsRequest],
+) (*connect.Response[sessionv1.ListWorkspaceTargetsResponse], error) {
+	if req.Msg.Id == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("session id is required"))
+	}
+
+	instances, err := s.loadInstancesWithWiring()
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to load instances: %w", err))
+	}
+
+	// Find instance by ID (using Title as ID)
+	var instance *session.Instance
+	for _, inst := range instances {
+		if inst.Title == req.Msg.Id {
+			instance = inst
+			break
+		}
+	}
+
+	if instance == nil {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("session not found: %s", req.Msg.Id))
+	}
+
+	// Get available targets from the session
+	targets, err := instance.ListAvailableTargets()
+	if err != nil {
+		return connect.NewResponse(&sessionv1.ListWorkspaceTargetsResponse{
+			Error: err.Error(),
+		}), nil
+	}
+
+	// Convert to proto
+	protoTargets := &sessionv1.AvailableWorkspaceTargets{}
+
+	// Set VCS type
+	switch targets.VCSType {
+	case "jj":
+		protoTargets.VcsType = sessionv1.VCSType_VCS_TYPE_JUJUTSU
+	case "git":
+		protoTargets.VcsType = sessionv1.VCSType_VCS_TYPE_GIT
+	default:
+		protoTargets.VcsType = sessionv1.VCSType_VCS_TYPE_UNSPECIFIED
+	}
+
+	// Convert bookmarks
+	for _, b := range targets.Bookmarks {
+		protoTargets.Bookmarks = append(protoTargets.Bookmarks, &sessionv1.BookmarkTarget{
+			Name:       b.Name,
+			RevisionId: b.RevisionID,
+			IsRemote:   b.IsRemote,
+		})
+	}
+
+	// Convert recent revisions
+	for _, r := range targets.RecentRevisions {
+		protoTargets.RecentRevisions = append(protoTargets.RecentRevisions, &sessionv1.RevisionTarget{
+			Id:          r.ID,
+			ShortId:     r.ShortID,
+			Description: r.Description,
+			Author:      r.Author,
+			Timestamp:   timestamppb.New(r.Timestamp),
+			IsCurrent:   r.IsCurrent,
+		})
+	}
+
+	// Convert worktrees
+	for _, wt := range targets.Worktrees {
+		protoTargets.Worktrees = append(protoTargets.Worktrees, &sessionv1.WorktreeTarget{
+			Name:       wt.Name,
+			Path:       wt.Path,
+			Bookmark:   wt.Bookmark,
+			RevisionId: wt.RevisionID,
+			IsCurrent:  wt.IsCurrent,
+		})
+	}
+
+	return connect.NewResponse(&sessionv1.ListWorkspaceTargetsResponse{
+		Targets: protoTargets,
+	}), nil
+}
+
+// SwitchWorkspace switches a session's workspace to a different branch, revision, or worktree.
+func (s *SessionService) SwitchWorkspace(
+	ctx context.Context,
+	req *connect.Request[sessionv1.SwitchWorkspaceRequest],
+) (*connect.Response[sessionv1.SwitchWorkspaceResponse], error) {
+	if req.Msg.Id == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("session id is required"))
+	}
+
+	if req.Msg.Target == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("target is required"))
+	}
+
+	instances, err := s.loadInstancesWithWiring()
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to load instances: %w", err))
+	}
+
+	// Find instance by ID (using Title as ID)
+	var instance *session.Instance
+	for _, inst := range instances {
+		if inst.Title == req.Msg.Id {
+			instance = inst
+			break
+		}
+	}
+
+	if instance == nil {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("session not found: %s", req.Msg.Id))
+	}
+
+	// Convert proto types to session types
+	var switchType session.WorkspaceSwitchType
+	switch req.Msg.SwitchType {
+	case sessionv1.WorkspaceSwitchType_WORKSPACE_SWITCH_TYPE_DIRECTORY:
+		switchType = session.SwitchTypeDirectory
+	case sessionv1.WorkspaceSwitchType_WORKSPACE_SWITCH_TYPE_REVISION:
+		switchType = session.SwitchTypeRevision
+	case sessionv1.WorkspaceSwitchType_WORKSPACE_SWITCH_TYPE_WORKTREE:
+		switchType = session.SwitchTypeWorktree
+	default:
+		// Default to revision switch
+		switchType = session.SwitchTypeRevision
+	}
+
+	var changeStrategy vcs.ChangeStrategy
+	switch req.Msg.ChangeStrategy {
+	case sessionv1.ChangeStrategy_CHANGE_STRATEGY_KEEP_AS_WIP:
+		changeStrategy = vcs.KeepAsWIP
+	case sessionv1.ChangeStrategy_CHANGE_STRATEGY_BRING_ALONG:
+		changeStrategy = vcs.BringAlong
+	case sessionv1.ChangeStrategy_CHANGE_STRATEGY_ABANDON:
+		changeStrategy = vcs.Abandon
+	default:
+		changeStrategy = vcs.KeepAsWIP
+	}
+
+	// Create switch request
+	switchReq := session.WorkspaceSwitchRequest{
+		Type:            switchType,
+		Target:          req.Msg.Target,
+		ChangeStrategy:  changeStrategy,
+		CreateIfMissing: req.Msg.CreateIfMissing,
+		BaseRevision:    req.Msg.BaseRevision,
+	}
+
+	// Perform the switch
+	result, err := instance.SwitchWorkspace(switchReq)
+	if err != nil {
+		return connect.NewResponse(&sessionv1.SwitchWorkspaceResponse{
+			Success: false,
+			Message: err.Error(),
+		}), nil
+	}
+
+	// Convert VCS type to proto
+	var protoVCSType sessionv1.VCSType
+	switch result.VCSType {
+	case vcs.VCSTypeJJ:
+		protoVCSType = sessionv1.VCSType_VCS_TYPE_JUJUTSU
+	case vcs.VCSTypeGit:
+		protoVCSType = sessionv1.VCSType_VCS_TYPE_GIT
+	default:
+		protoVCSType = sessionv1.VCSType_VCS_TYPE_UNSPECIFIED
+	}
+
+	// Save updated instance
+	if err := s.storage.SaveInstances(instances); err != nil {
+		log.WarningLog.Printf("Failed to save instances after workspace switch: %v", err)
+	}
+
+	// Publish session updated event
+	if s.eventBus != nil {
+		s.eventBus.Publish(events.NewSessionUpdatedEvent(instance, []string{"workspace", "branch"}))
+	}
+
+	return connect.NewResponse(&sessionv1.SwitchWorkspaceResponse{
+		Success:          result.Success,
+		Message:          "Workspace switched successfully",
+		PreviousRevision: result.PreviousRevision,
+		CurrentRevision:  result.CurrentRevision,
+		VcsType:          protoVCSType,
+		ChangesHandled:   result.ChangesHandled,
+		Session:          adapters.InstanceToProto(instance),
+	}), nil
 }

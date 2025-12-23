@@ -596,3 +596,103 @@ message VCSStatus {
   // Conflict files list
   repeated FileChange conflict_files = 16;
 }
+
+// WorkspaceSwitchType defines the type of workspace switch operation
+enum WorkspaceSwitchType {
+  WORKSPACE_SWITCH_TYPE_UNSPECIFIED = 0;
+  // Simple directory change (no VCS, no restart)
+  WORKSPACE_SWITCH_TYPE_DIRECTORY = 1;
+  // Switch to a different revision/branch
+  WORKSPACE_SWITCH_TYPE_REVISION = 2;
+  // Switch to or create a different worktree
+  WORKSPACE_SWITCH_TYPE_WORKTREE = 3;
+}
+
+// ChangeStrategy defines how to handle uncommitted changes during workspace switches
+enum ChangeStrategy {
+  CHANGE_STRATEGY_UNSPECIFIED = 0;
+  // Keep changes as a separate WIP revision (JJ) or stash (Git)
+  CHANGE_STRATEGY_KEEP_AS_WIP = 1;
+  // Keep changes as parent of new location (JJ) or stash pop (Git)
+  CHANGE_STRATEGY_BRING_ALONG = 2;
+  // Discard uncommitted changes
+  CHANGE_STRATEGY_ABANDON = 3;
+}
+
+// BookmarkTarget represents a bookmark/branch as a switch target
+message BookmarkTarget {
+  // Bookmark/branch name
+  string name = 1;
+  // Revision ID this bookmark points to
+  string revision_id = 2;
+  // Whether this is a remote tracking bookmark
+  bool is_remote = 3;
+  // Upstream branch (if any)
+  string upstream = 4;
+}
+
+// RevisionTarget represents a revision as a switch target
+message RevisionTarget {
+  // Full revision ID (commit SHA or change ID)
+  string id = 1;
+  // Short ID for display
+  string short_id = 2;
+  // Commit/change description
+  string description = 3;
+  // Author name
+  string author = 4;
+  // Timestamp
+  google.protobuf.Timestamp timestamp = 5;
+  // Whether this is the current revision
+  bool is_current = 6;
+  // Bookmarks pointing to this revision
+  repeated string bookmarks = 7;
+}
+
+// WorktreeTarget represents a worktree as a switch target
+message WorktreeTarget {
+  // Worktree name (JJ workspace name)
+  string name = 1;
+  // Filesystem path to the worktree
+  string path = 2;
+  // Associated bookmark/branch
+  string bookmark = 3;
+  // Current revision ID in this worktree
+  string revision_id = 4;
+  // Whether this is the current worktree
+  bool is_current = 5;
+}
+
+// AvailableWorkspaceTargets contains all available workspace switch targets
+message AvailableWorkspaceTargets {
+  // VCS type (git, jujutsu)
+  VCSType vcs_type = 1;
+  // Available bookmarks/branches
+  repeated BookmarkTarget bookmarks = 2;
+  // Recent revisions
+  repeated RevisionTarget recent_revisions = 3;
+  // Available worktrees
+  repeated WorktreeTarget worktrees = 4;
+}
+
+// VCSInfo contains version control information for a session
+message VCSInfo {
+  // VCS type (git, jujutsu)
+  VCSType vcs_type = 1;
+  // Whether JJ is available
+  bool has_jj = 2;
+  // Whether Git is available
+  bool has_git = 3;
+  // Whether this is a JJ+Git colocated repo
+  bool is_colocated = 4;
+  // Repository root path
+  string repo_path = 5;
+  // Current bookmark/branch name
+  string current_bookmark = 6;
+  // Current revision (short ID)
+  string current_revision = 7;
+  // Whether there are uncommitted changes
+  bool has_uncommitted_changes = 8;
+  // Count of modified/added/deleted files
+  int32 modified_file_count = 9;
+}
