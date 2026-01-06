@@ -1,5 +1,0 @@
-╭───────────────────────────────────────
-│ [!] Test confirmation message         
-│                                       
-│ Press y to confirm, n or esc to cancel
-╰───────────────────────────────────────

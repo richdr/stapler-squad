@@ -1,5 +1,0 @@
-╭───────────────────────────────────────
-│ Custom border test                    
-│                                       
-│ Press y to confirm, n or esc to cancel
-╰───────────────────────────────────────
