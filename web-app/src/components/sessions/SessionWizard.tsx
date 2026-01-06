@@ -14,7 +14,11 @@ import styles from "./SessionWizard.module.css";
 function getProgramDisplay(program?: string): string {
   if (!program) return "Claude Code (default)";
   if (program === "claude") return "Claude Code";
+  if (program === "env -u CLAUDE_CODE_USE_BEDROCK ANTHROPIC_BASE_URL=http://localhost:47000 claude") {
+    return "Claude Code (Proxy via localhost:47000)";
+  }
   if (program === "aider") return "Aider";
+  if (program === "aider --model ollama_chat/gemma3:1b") return "Aider (Ollama Gemma 1B)";
   if (program.startsWith("aider --model")) return program;
   return program;
 }
@@ -239,6 +243,9 @@ export function SessionWizard({ onComplete, onCancel, initialData }: SessionWiza
               <label htmlFor="program">Program</label>
               <select id="program" {...register("program")}>
                 <option value="claude">Claude Code</option>
+                <option value="env -u CLAUDE_CODE_USE_BEDROCK ANTHROPIC_BASE_URL=http://localhost:47000 claude">
+                  Claude Code (Proxy via localhost:47000)
+                </option>
                 <option value="aider">Aider</option>
                 <option value="aider --model ollama_chat/gemma3:1b">
                   Aider (Ollama Gemma 1B)

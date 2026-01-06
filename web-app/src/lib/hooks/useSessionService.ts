@@ -163,6 +163,7 @@ export function useSessionService(
           status: updates.status,
           category: updates.category,
           title: updates.title,
+          program: updates.program,
         });
 
         // Update local state

@@ -6,6 +6,7 @@ import { Session, InstanceType } from "@/gen/session/v1/types_pb";
 import { DiffViewer } from "./DiffViewer";
 import { VcsPanel } from "./VcsPanel";
 import { WorkspaceSwitchModal } from "./WorkspaceSwitchModal";
+import { useSessionService } from "@/lib/hooks/useSessionService";
 import { getApiBaseUrl } from "@/lib/config";
 import styles from "./SessionDetail.module.css";
 
@@ -32,10 +33,26 @@ interface SessionDetailProps {
   initialTab?: SessionDetailTab;
 }
 
+// Helper function to get program display name
+function getProgramDisplay(program?: string): string {
+  if (!program) return "Claude Code (default)";
+  if (program === "claude") return "Claude Code";
+  if (program === "env -u CLAUDE_CODE_USE_BEDROCK ANTHROPIC_BASE_URL=http://localhost:47000 claude") {
+    return "Claude Code (Proxy via localhost:47000)";
+  }
+  if (program === "aider") return "Aider";
+  if (program === "aider --model ollama_chat/gemma3:1b") return "Aider (Ollama Gemma 1B)";
+  if (program.startsWith("aider --model")) return program;
+  return program;
+}
+
 export function SessionDetail({ session, onClose, onFullscreenChange, onTabChange, initialTab = "info" }: SessionDetailProps) {
   const [activeTab, setActiveTab] = useState<SessionDetailTab>(initialTab);
   const [isFullscreen, setIsFullscreen] = useState(initialTab === "terminal" || initialTab === "diff" || initialTab === "vcs");
   const [showWorkspaceSwitchModal, setShowWorkspaceSwitchModal] = useState(false);
+  const [isEditingProgram, setIsEditingProgram] = useState(false);
+  const [programValue, setProgramValue] = useState(session.program || "");
+  const { updateSession } = useSessionService();
 
   // Notify parent of fullscreen state changes
   useEffect(() => {
@@ -72,6 +89,20 @@ export function SessionDetail({ session, onClose, onFullscreenChange, onTabChang
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isFullscreen]);
+
+  // Handler for saving program change
+  const handleSaveProgram = async () => {
+    if (programValue !== session.program) {
+      await updateSession(session.id, { program: programValue });
+    }
+    setIsEditingProgram(false);
+  };
+
+  // Handler for canceling program edit
+  const handleCancelProgramEdit = () => {
+    setProgramValue(session.program || "");
+    setIsEditingProgram(false);
+  };
 
   return (
     <div className={`${styles.container} ${isFullscreen ? styles.fullscreen : ""}`}>
@@ -199,7 +230,49 @@ export function SessionDetail({ session, onClose, onFullscreenChange, onTabChang
               {session.program && (
                 <div className={styles.infoItem}>
                   <span className={styles.infoLabel}>Program:</span>
-                  <span className={styles.infoValue}>{session.program}</span>
+                  {isEditingProgram ? (
+                    <div className={styles.editContainer}>
+                      <select
+                        value={programValue}
+                        onChange={(e) => setProgramValue(e.target.value)}
+                        autoFocus
+                        className={styles.editInput}
+                      >
+                        <option value="claude">Claude Code</option>
+                        <option value="env -u CLAUDE_CODE_USE_BEDROCK ANTHROPIC_BASE_URL=http://localhost:47000 claude">
+                          Claude Code (Proxy via localhost:47000)
+                        </option>
+                        <option value="aider">Aider</option>
+                        <option value="aider --model ollama_chat/gemma3:1b">
+                          Aider (Ollama Gemma 1B)
+                        </option>
+                        <option value={programValue}>
+                          {programValue !== "claude" &&
+                           programValue !== "env -u CLAUDE_CODE_USE_BEDROCK ANTHROPIC_BASE_URL=http://localhost:47000 claude" &&
+                           programValue !== "aider" &&
+                           programValue !== "aider --model ollama_chat/gemma3:1b" &&
+                           `Custom: ${programValue}`}
+                        </option>
+                      </select>
+                      <button onClick={handleSaveProgram} className={styles.saveButton}>
+                        ✓
+                      </button>
+                      <button onClick={handleCancelProgramEdit} className={styles.cancelButton}>
+                        ✕
+                      </button>
+                    </div>
+                  ) : (
+                    <span className={styles.infoValue}>
+                      {getProgramDisplay(session.program)}
+                      <button
+                        onClick={() => setIsEditingProgram(true)}
+                        className={styles.editButton}
+                        title="Edit program"
+                      >
+                        ✏️
+                      </button>
+                    </span>
+                  )}
                 </div>
               )}
               {session.instanceType === InstanceType.EXTERNAL && (
