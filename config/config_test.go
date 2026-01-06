@@ -261,7 +261,7 @@ func TestDefaultConfig(t *testing.T) {
 		config := DefaultConfig()
 
 		assert.NotNil(t, config)
-		assert.Equal(t, "claude", config.DefaultProgram) // Falls back to default
+		assert.Equal(t, "proxy-claude", config.DefaultProgram) // Falls back to default
 		assert.False(t, config.AutoYes)
 		assert.Equal(t, 1000, config.DaemonPollInterval)
 		assert.NotEmpty(t, config.BranchPrefix)

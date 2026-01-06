@@ -82,7 +82,7 @@ func ResetCommandExecutor() {
 
 const (
 	ConfigFileName = "config.json"
-	defaultProgram = "claude"
+	defaultProgram = "proxy-claude"
 )
 
 // isTestMode detects if the application is running in test/benchmark mode
@@ -244,7 +244,7 @@ func DefaultConfig() *Config {
 
 // GetClaudeCommand attempts to find the "claude" command in the user's shell
 // It checks in the following order:
-// 1. Shell alias resolution: using "which" command
+// 1. Shell alias resolution (proxy-claude, then claude)
 // 2. PATH lookup
 //
 // If both fail, it returns an error.
@@ -254,37 +254,58 @@ func GetClaudeCommand() (string, error) {
 		shell = "/bin/bash" // Default to bash if SHELL is not set
 	}
 
-	// Force the shell to load the user's profile and then run the command
-	// For zsh, source .zshrc; for bash, source .bashrc
-	var shellCmd string
-	if strings.Contains(shell, "zsh") {
-		shellCmd = "source ~/.zshrc &>/dev/null || true; which claude"
-	} else if strings.Contains(shell, "bash") {
-		shellCmd = "source ~/.bashrc &>/dev/null || true; which claude"
-	} else {
-		shellCmd = "which claude"
-	}
+	// Try to resolve aliases for both proxy-claude and claude
+	candidates := []string{"proxy-claude", "claude"}
 
-	cmd := globalCommandExecutor.Command(shell, "-c", shellCmd)
-	output, err := globalCommandExecutor.Output(cmd)
-	if err == nil && len(output) > 0 {
-		path := strings.TrimSpace(string(output))
-		if path != "" {
-			// Check if the output is an alias definition and extract the actual path
-			// Handle formats like "claude: aliased to /path/to/claude" or other shell-specific formats
-			aliasRegex := regexp.MustCompile(`(?:aliased to|->|=)\s*([^\s]+)`)
-			matches := aliasRegex.FindStringSubmatch(path)
-			if len(matches) > 1 {
-				path = matches[1]
+	for _, candidate := range candidates {
+		// Attempt to get the alias definition from the shell
+		var shellCmd string
+		if strings.Contains(shell, "zsh") {
+			// For zsh, use 'alias <name>' to get the full definition
+			shellCmd = fmt.Sprintf("source ~/.zshrc &>/dev/null || true; alias %s 2>/dev/null || which %s 2>/dev/null", candidate, candidate)
+		} else if strings.Contains(shell, "bash") {
+			// For bash, use 'alias <name>' to get the full definition
+			shellCmd = fmt.Sprintf("source ~/.bashrc &>/dev/null || true; alias %s 2>/dev/null || which %s 2>/dev/null", candidate, candidate)
+		} else {
+			shellCmd = fmt.Sprintf("which %s", candidate)
+		}
+
+		cmd := globalCommandExecutor.Command(shell, "-c", shellCmd)
+		output, err := globalCommandExecutor.Output(cmd)
+		if err == nil && len(output) > 0 {
+			result := strings.TrimSpace(string(output))
+			if result != "" {
+				// Check if it's an alias definition
+				// Formats: "alias proxy-claude='command'" or "proxy-claude='command'" or just a path
+				if strings.Contains(result, "alias ") {
+					// Extract the command from alias definition
+					// Pattern: alias name='command' or alias name="command"
+					aliasRegex := regexp.MustCompile(`alias\s+\S+\s*=\s*['"](.+?)['"]`)
+					matches := aliasRegex.FindStringSubmatch(result)
+					if len(matches) > 1 {
+						return matches[1], nil
+					}
+				} else if strings.Contains(result, "=") && (strings.Contains(result, "'") || strings.Contains(result, "\"")) {
+					// Format: proxy-claude='command'
+					aliasRegex := regexp.MustCompile(`\S+\s*=\s*['"](.+?)['"]`)
+					matches := aliasRegex.FindStringSubmatch(result)
+					if len(matches) > 1 {
+						return matches[1], nil
+					}
+				} else {
+					// It's just a path from 'which'
+					return result, nil
+				}
 			}
-			return path, nil
 		}
 	}
 
-	// Otherwise, try to find in PATH directly
-	claudePath, err := globalCommandExecutor.LookPath("claude")
-	if err == nil {
-		return claudePath, nil
+	// Fallback: try to find in PATH directly
+	for _, candidate := range candidates {
+		path, err := globalCommandExecutor.LookPath(candidate)
+		if err == nil {
+			return path, nil
+		}
 	}
 
 	return "", fmt.Errorf("claude command not found in aliases or PATH")

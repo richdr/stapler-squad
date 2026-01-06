@@ -203,6 +203,9 @@ message UpdateSessionRequest {
 
   // Update title.
   optional string title = 4;
+
+  // Update program command.
+  optional string program = 5;
 }
 
 message UpdateSessionResponse {

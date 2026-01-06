@@ -437,6 +437,12 @@ func (s *SessionService) UpdateSession(
 		updatedFields = append(updatedFields, "title")
 	}
 
+	// Handle program update
+	if req.Msg.Program != nil && *req.Msg.Program != "" {
+		instance.Program = *req.Msg.Program
+		updatedFields = append(updatedFields, "program")
+	}
+
 	// Update the instance in the list and save
 	instances[instanceIndex] = instance
 	if err := s.storage.SaveInstances(instances); err != nil {
