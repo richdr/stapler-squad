@@ -59,7 +59,8 @@ function HomeContent() {
   // 1. Exact ID match (session title)
   // 2. ID prefix match (for suffixed session IDs like "session (External)")
   // 3. External metadata tmux session name match
-  // 4. Path-based matching (for notifications from hooks using cwd)
+  // 4. Tmux session name with prefix stripped (e.g., "claudesquad_foo" → "foo")
+  // 5. Path-based matching (for notifications from hooks using cwd)
   const findSessionById = (sessionId: string): Session | undefined => {
     // Try exact ID match first
     let session = sessions.find((s) => s.id === sessionId);
@@ -86,6 +87,13 @@ function HomeContent() {
       }
       return false;
     });
+
+    // If still no match, try stripping tmux prefix and matching
+    // Handle cases where notification sends "claudesquad_foo" but session.id is "foo"
+    if (!session && sessionId.includes("_")) {
+      const withoutPrefix = sessionId.split("_").slice(1).join("_"); // Strip first part before underscore
+      session = sessions.find((s) => s.id === withoutPrefix || s.title === withoutPrefix);
+    }
 
     // If still no match, try matching by title or path basename
     if (!session) {
@@ -139,9 +147,12 @@ function HomeContent() {
       const session = findSessionById(sessionId);
       if (session) {
         setSelectedSession(session);
-        // Set tab from URL or default to "info"
+        // Set tab from URL or default to "terminal" for notification deep links
         if (isValidTab(tabParam)) {
           setActiveTab(tabParam);
+        } else {
+          // Default to terminal tab for deep links (notifications)
+          setActiveTab("terminal");
         }
       } else {
         console.warn(`[URL] Session not found: ${sessionId}`);

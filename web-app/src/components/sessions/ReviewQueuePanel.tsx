@@ -363,9 +363,12 @@ export function ReviewQueuePanel({
                     className={styles.skipButton}
                     onClick={(e) => {
                       e.stopPropagation();
+                      console.log('[ReviewQueue] Dismiss button clicked for session:', item.sessionId);
                       if (onSkipSession) {
+                        console.log('[ReviewQueue] Using onSkipSession callback');
                         onSkipSession(item.sessionId);
                       } else {
+                        console.log('[ReviewQueue] Using acknowledgeSession from hook');
                         acknowledgeSession(item.sessionId);
                       }
                     }}
