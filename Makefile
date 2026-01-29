@@ -38,7 +38,7 @@ build-all: build ## Build both web UI and Go application
 
 restart-web: build-all ## Rebuild and restart the web server
 	@echo "Stopping existing claude-squad processes..."
-	@-pkill -f "claude-squad" 2>/dev/null || true
+	@-pkill -f "^\./claude-squad" 2>/dev/null || true
 	@sleep 1
 	@echo "Starting server..."
 	@./claude-squad $(PROFILE_FLAGS) &
@@ -61,7 +61,7 @@ restart-web-profile: ## Rebuild and restart web server with profiling enabled
 
 web-dev: build-all ## Build web UI and server, then restart (detects file changes automatically)
 	@echo "Stopping existing claude-squad processes..."
-	@-pkill -f "claude-squad" 2>/dev/null || true
+	@-pkill -f "^\./claude-squad" 2>/dev/null || true
 	@sleep 1
 	@echo "Starting server..."
 	@./claude-squad $(PROFILE_FLAGS) &
