@@ -108,6 +108,13 @@ func (i *Instance) SwitchWorkspace(req WorkspaceSwitchRequest) (*WorkspaceSwitch
 		return nil, fmt.Errorf("cannot determine repository path for session")
 	}
 
+	// 1.5. Ensure directory exists before VCS detection
+	// Create the directory and any necessary parent directories
+	if err := os.MkdirAll(repoPath, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create repository directory: %w", err)
+	}
+	log.InfoLog.Printf("[Workspace] Ensured directory exists: %s", repoPath)
+
 	// 2. Get VCS client
 	detectOpts := vcs.DefaultDetectOptions()
 	if req.VCSPreference != "" {
@@ -116,6 +123,31 @@ func (i *Instance) SwitchWorkspace(req WorkspaceSwitchRequest) (*WorkspaceSwitch
 
 	vcsClient, err := vcs.DetectWithOptions(repoPath, detectOpts)
 	if err != nil {
+		// For directory-type sessions, VCS is optional - fall back to simple directory change
+		if i.SessionType == SessionTypeDirectory {
+			log.InfoLog.Printf("[Workspace] No VCS detected at '%s', falling back to simple directory change", repoPath)
+			// Just update the path and restart without VCS operations
+			i.Path = repoPath
+
+			// Kill and restart session in new directory
+			log.InfoLog.Printf("[Workspace] Stopping tmux session for directory change")
+			if err := i.KillSession(); err != nil {
+				return nil, fmt.Errorf("failed to stop session: %w", err)
+			}
+			i.started = false
+
+			log.InfoLog.Printf("[Workspace] Restarting session in new directory: %s", repoPath)
+			if err := i.Start(false); err != nil {
+				result.Error = fmt.Errorf("failed to restart session: %w", err)
+				return result, result.Error
+			}
+
+			result.Success = true
+			result.ChangesHandled = "directory change without VCS"
+			log.InfoLog.Printf("[Workspace] Successfully switched directory session '%s' to '%s'", i.Title, repoPath)
+			return result, nil
+		}
+		// For worktree sessions, VCS is required
 		return nil, fmt.Errorf("failed to detect VCS: %w", err)
 	}
 	result.VCSType = vcsClient.Type()
@@ -417,6 +449,11 @@ func (i *Instance) ListAvailableTargets() (*AvailableTargets, error) {
 	repoPath := i.getRepoPath()
 	if repoPath == "" {
 		return nil, fmt.Errorf("no repository path available")
+	}
+
+	// Ensure directory exists before VCS detection
+	if err := os.MkdirAll(repoPath, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create repository directory: %w", err)
 	}
 
 	vcsClient, err := vcs.Detect(repoPath)
