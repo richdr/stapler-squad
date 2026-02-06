@@ -73,7 +73,7 @@
 
 **See**:
 - [Web UI Enhancement Epic](docs/tasks/web-ui-enhancements.md)
-- [Implementation Status Report](docs/tasks/web-ui-implementation-status.md)
+- [Implementation Status Report](docs/archive/tasks/completed/web-ui-implementation-status.md) (ARCHIVED - feature complete)
 
 ---
 
@@ -332,7 +332,7 @@ Browse and search Claude session history from ~/.claude/history.jsonl:
 **Status**: Stories 1 & 2 complete. Full feature ready for production!
 
 **See Full Details**:
-- [History Viewer Integration Plan](docs/tasks/history-viewer-integration.md) - Complete atomic task breakdown
+- [History Viewer Integration Plan](docs/archive/tasks/completed/history-viewer-integration.md) - Complete atomic task breakdown (ARCHIVED - feature complete)
 
 ---
 
