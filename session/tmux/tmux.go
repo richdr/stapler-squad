@@ -47,6 +47,9 @@ type TmuxSession struct {
 	// stdout dimensions of the tmux pane. On detach, we close it and set a new one.
 	// This should never be nil.
 	ptmx *os.File
+	// attachCmd is the tmux attach-session process that owns the PTY
+	// CRITICAL: Must be killed when closing PTY to prevent orphaned processes
+	attachCmd *exec.Cmd
 	// monitor monitors the tmux pane content and sends signals to the UI when it's status changes
 	monitor *statusMonitor
 	// bannerFilter detects and filters tmux status line banners from terminal output
@@ -74,6 +77,14 @@ type TmuxSession struct {
 	existsCache      bool
 	existsCacheTime  time.Time
 	existsCacheTTL   time.Duration
+
+	// Control mode streaming infrastructure (replaces pipe-pane + FIFO)
+	controlModeCmd       *exec.Cmd               // tmux -C attach process
+	controlModeStdout    io.ReadCloser           // stdout pipe for control mode notifications
+	controlModeStdin     io.WriteCloser          // stdin pipe for control mode commands
+	controlModeDone      chan struct{}           // Signal channel for control mode termination
+	controlModeSubscribers map[string]chan []byte // WebSocket clients subscribed to control mode updates
+	controlModeSubMu     sync.RWMutex            // Protects controlModeSubscribers map
 }
 
 // windowSize represents terminal dimensions from external sources (like BubbleTea)
@@ -209,12 +220,13 @@ func (t *TmuxSession) AttachToExisting() error {
 
 	// Create PTY connection via tmux attach-session
 	if t.ptmx == nil {
-		ptmx, _, err := t.ptyFactory.Start(t.buildAttachCommand())
+		ptmx, cmd, err := t.ptyFactory.Start(t.buildAttachCommand())
 		if err != nil {
 			return fmt.Errorf("failed to attach PTY to session '%s': %w", t.sanitizedName, err)
 		}
 		t.ptmx = ptmx
-		log.InfoLog.Printf("Successfully attached PTY to existing tmux session '%s'", t.sanitizedName)
+		t.attachCmd = cmd // CRITICAL: Save command so we can kill it on cleanup
+		log.InfoLog.Printf("Successfully attached PTY to existing tmux session '%s' (pid=%d)", t.sanitizedName, cmd.Process.Pid)
 	}
 
 	// Set up status monitor
@@ -719,17 +731,8 @@ func (t *TmuxSession) DetachSafely() error {
 
 	var errs []error
 
-	// Close the attached pty session only if it's not already closed.
-	if t.ptmx != nil {
-		// Attempt to close PTY, but ignore "file already closed" errors
-		if err := t.ptmx.Close(); err != nil {
-			// Only log error if it's not "file already closed"
-			if !strings.Contains(err.Error(), "file already closed") {
-				errs = append(errs, fmt.Errorf("error closing attach pty session: %w", err))
-			}
-		}
-		t.ptmx = nil
-	}
+	// Use centralized PTY + attach process cleanup
+	errs = append(errs, t.closePTYAndAttachCmd()...)
 
 	// Clean up attach state safely
 	if t.attachCh != nil {
@@ -804,28 +807,34 @@ func (t *TmuxSession) Detach() {
 		t.detaching = false
 	}()
 
-	// Close the attached pty session.
-	err := t.ptmx.Close()
-	if err != nil {
+	// Use centralized PTY + attach process cleanup
+	cleanupErrs := t.closePTYAndAttachCmd()
+	if len(cleanupErrs) > 0 {
 		// Check if this is a "file already closed" error, which can happen due to race conditions
-		if strings.Contains(err.Error(), "file already closed") {
-			// This is expected in race conditions, just log and continue with restore
-			log.InfoLog.Printf("PTY already closed during detach (expected in concurrent scenarios)")
-		} else {
-			// This is a fatal error. We can't detach if we can't close the PTY. It's better to just panic and have the
-			// user re-invoke the program than to ruin their terminal pane.
-			msg := fmt.Sprintf("error closing attach pty session: %v", err)
+		isFatalError := false
+		for _, cleanupErr := range cleanupErrs {
+			if !strings.Contains(cleanupErr.Error(), "file already closed") {
+				isFatalError = true
+				break
+			}
+		}
+
+		if isFatalError {
+			// This is a fatal error. We can't detach if we can't close the PTY properly.
+			msg := fmt.Sprintf("error closing attach pty session: %v", cleanupErrs)
 			log.ErrorLog.Println(msg)
 			panic(msg)
+		} else {
+			// All errors are "file already closed" - expected in race conditions
+			log.InfoLog.Printf("PTY already closed during detach (expected in concurrent scenarios)")
 		}
 	}
-	t.ptmx = nil
 
 	// Attach goroutines should die on EOF due to the ptmx closing. Call
 	// t.Restore to set a new t.ptmx.
-	if err = t.Restore(); err != nil {
+	if restoreErr := t.Restore(); restoreErr != nil {
 		// This is a fatal error. Our invariant that a started TmuxSession always has a valid ptmx is violated.
-		msg := fmt.Sprintf("error restoring session after detach: %v", err)
+		msg := fmt.Sprintf("error restoring session after detach: %v", restoreErr)
 		log.ErrorLog.Println(msg)
 		panic(msg)
 	}
@@ -839,10 +848,13 @@ func (t *TmuxSession) Detach() {
 	}
 }
 
-// Close terminates the tmux session and cleans up resources
-func (t *TmuxSession) Close() error {
+// closePTYAndAttachCmd closes the PTY file descriptor and kills the attach process.
+// CRITICAL: This must be called whenever closing a PTY to prevent orphaned tmux attach processes.
+// Returns a slice of errors encountered during cleanup (for aggregation in calling functions).
+func (t *TmuxSession) closePTYAndAttachCmd() []error {
 	var errs []error
 
+	// Close PTY file descriptor
 	if t.ptmx != nil {
 		if err := t.ptmx.Close(); err != nil {
 			// Only log error if it's not "file already closed" (common in concurrent scenarios)
@@ -852,6 +864,31 @@ func (t *TmuxSession) Close() error {
 		}
 		t.ptmx = nil
 	}
+
+	// CRITICAL: Kill the tmux attach-session process to prevent PTY leak
+	// Closing the PTY FD does NOT kill the process - it keeps running and consuming PTYs
+	if t.attachCmd != nil && t.attachCmd.Process != nil {
+		log.InfoLog.Printf("Killing orphaned tmux attach process for '%s' (pid=%d)", t.sanitizedName, t.attachCmd.Process.Pid)
+		if err := t.attachCmd.Process.Kill(); err != nil {
+			// Process may already be dead, only log if it's a real error
+			if !strings.Contains(err.Error(), "process already finished") && !strings.Contains(err.Error(), "no such process") {
+				errs = append(errs, fmt.Errorf("error killing attach process: %w", err))
+			}
+		}
+		// Wait for process to be reaped to avoid zombies
+		_ = t.attachCmd.Wait()
+		t.attachCmd = nil
+	}
+
+	return errs
+}
+
+// Close terminates the tmux session and cleans up resources
+func (t *TmuxSession) Close() error {
+	var errs []error
+
+	// Use centralized PTY + attach process cleanup
+	errs = append(errs, t.closePTYAndAttachCmd()...)
 
 	// Check if session exists before trying to kill it
 	if t.DoesSessionExist() {
@@ -1124,6 +1161,24 @@ func (t *TmuxSession) CapturePaneContent() (string, error) {
 	return sanitizeUTF8String(output), nil
 }
 
+// CapturePaneContentRaw captures the pane content with ANSI codes preserved and WITHOUT joining wrapped lines.
+// This is essential for hybrid streaming where we need to preserve exact cursor positioning.
+// The -J flag (join wrapped lines) strips cursor positioning codes, breaking TUI rendering.
+func (t *TmuxSession) CapturePaneContentRaw() (string, error) {
+	// -p: Print to stdout
+	// -e: Include escape sequences (colors, cursor movements)
+	// NO -J: Preserve wrapped lines with their original ANSI positioning codes
+	cmd := t.buildTmuxCommand("capture-pane", "-p", "-e", "-t", t.sanitizedName)
+	output, err := t.cmdExec.Output(cmd)
+	if err != nil {
+		if log.ErrorLog != nil {
+			log.ErrorLog.Printf("Failed to capture raw pane content for session '%s': %v", t.sanitizedName, err)
+		}
+		return "", fmt.Errorf("error capturing raw pane content: %v", err)
+	}
+	return sanitizeUTF8String(output), nil
+}
+
 // CapturePaneContentWithOptions captures the pane content with additional options
 // start and end specify the starting and ending line numbers (use "-" for the start/end of history)
 func (t *TmuxSession) CapturePaneContentWithOptions(start, end string) (string, error) {
@@ -1308,3 +1363,4 @@ func sanitizeUTF8String(rawBytes []byte) string {
 
 	return result.String()
 }
+

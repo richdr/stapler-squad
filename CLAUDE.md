@@ -36,6 +36,13 @@ fswatch -o web-app/src | xargs -n1 -I{} make restart-web PROFILE_FLAGS="--profil
 # - Click 🛠️ button in header to access debug menu
 # - Toggle "Terminal Stream Logging" to enable/disable verbose terminal output
 # - Or use console: localStorage.setItem('debug-terminal', 'true')
+
+# Terminal Streaming Configuration
+# Control mode streaming (tmux -C) is enabled by default for better performance
+# - Provides real-time notifications via tmux native protocol
+# - Combines full history (capture-pane) + real-time updates (control mode)
+# To disable and use legacy capture-pane polling:
+CLAUDE_SQUAD_USE_CONTROL_MODE=false ./claude-squad
 ```
 
 ### Profiling and Debugging Lock-Ups

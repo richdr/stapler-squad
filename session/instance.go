@@ -1422,6 +1422,23 @@ func (i *Instance) CapturePaneContent() (string, error) {
 	return i.tmuxSession.CapturePaneContent()
 }
 
+// CapturePaneContentRaw captures pane content with ANSI codes preserved (no line joining).
+// Essential for hybrid streaming where cursor positioning codes must be preserved.
+func (i *Instance) CapturePaneContentRaw() (string, error) {
+	i.stateMutex.RLock()
+	defer i.stateMutex.RUnlock()
+
+	if !i.started || i.Status == Paused {
+		return "", fmt.Errorf("session not started or paused")
+	}
+
+	if i.tmuxSession == nil {
+		return "", fmt.Errorf("tmux session not initialized")
+	}
+
+	return i.tmuxSession.CapturePaneContentRaw()
+}
+
 // GetCurrentPaneContent captures the current visible tmux pane content.
 // This is what the user would see if they attached to tmux directly.
 // Unlike scrollback, this gives a clean snapshot of the current terminal state,
@@ -1623,6 +1640,14 @@ func (i *Instance) PreviewFullHistory() (string, error) {
 	// This prevents app startup from falsely updating all "Last Activity" timestamps.
 
 	return content, nil
+}
+
+// GetTmuxSession returns the underlying tmux session for direct access.
+// Returns nil if the session hasn't been started yet.
+func (i *Instance) GetTmuxSession() *tmux.TmuxSession {
+	i.stateMutex.RLock()
+	defer i.stateMutex.RUnlock()
+	return i.tmuxSession
 }
 
 // SetTmuxSession sets the tmux session for testing purposes
