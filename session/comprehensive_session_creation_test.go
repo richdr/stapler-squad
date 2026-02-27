@@ -219,7 +219,7 @@ func (b *TestInstanceBuilder) buildWithMockTmux() (*Instance, tmux.CleanupFunc, 
 	mockTmuxSession := tmux.NewTmuxSessionWithDeps(instance.Title, instance.Program, mockPtyFactory, mockExecutor)
 
 	// Replace the real tmux session with the mock
-	instance.tmuxSession = mockTmuxSession
+	instance.tmuxManager.session = mockTmuxSession
 
 	return instance, cleanup, nil
 }

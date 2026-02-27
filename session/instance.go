@@ -129,18 +129,13 @@ type Instance struct {
 	// The below fields are initialized upon calling Start().
 
 	started bool
-	// tmuxSession is the tmux session for the instance.
-	tmuxSession *tmux.TmuxSession
+	// tmuxManager owns the tmux session and preview-size tracking state.
+	tmuxManager TmuxProcessManager
 	// gitWorktree is the git worktree for the instance.
 	gitWorktree *git.GitWorktree
 
 	// Mutex to protect concurrent access to instance state
 	stateMutex sync.RWMutex
-
-	// Preview size tracking to avoid unnecessary resize operations
-	lastPreviewWidth   int
-	lastPreviewHeight  int
-	lastPTYWarningTime time.Time
 }
 
 // ToInstanceData converts an Instance to its serializable form
@@ -351,9 +346,9 @@ func FromInstanceData(data InstanceData) (*Instance, error) {
 
 		// Use server socket isolation if specified, otherwise use prefix-only isolation
 		if instance.TmuxServerSocket != "" {
-			instance.tmuxSession = tmux.NewTmuxSessionWithServerSocket(instance.Title, instance.Program, tmuxPrefix, instance.TmuxServerSocket)
+			instance.tmuxManager.session = tmux.NewTmuxSessionWithServerSocket(instance.Title, instance.Program, tmuxPrefix, instance.TmuxServerSocket)
 		} else {
-			instance.tmuxSession = tmux.NewTmuxSessionWithPrefix(instance.Title, instance.Program, tmuxPrefix)
+			instance.tmuxManager.session = tmux.NewTmuxSessionWithPrefix(instance.Title, instance.Program, tmuxPrefix)
 		}
 	} else {
 		if err := instance.Start(false); err != nil {
@@ -611,10 +606,10 @@ func (i *Instance) start(firstTimeSetup bool, setupCleanup bool, cleanup *tmux.C
 
 	log.InfoLog.Printf("Initializing tmux session for instance '%s'", i.Title)
 	var tmuxSession *tmux.TmuxSession
-	if i.tmuxSession != nil {
+	if i.tmuxManager.session != nil {
 		// Use existing tmux session (useful for testing)
 		log.InfoLog.Printf("Reusing existing tmux session for instance '%s'", i.Title)
-		tmuxSession = i.tmuxSession
+		tmuxSession = i.tmuxManager.session
 	} else {
 		// Build the command with session resumption support if applicable
 		// This enables conversation continuity when restarting Claude sessions
@@ -636,7 +631,7 @@ func (i *Instance) start(firstTimeSetup bool, setupCleanup bool, cleanup *tmux.C
 			tmuxSession = tmux.NewTmuxSessionWithPrefix(i.Title, enrichedProgram, tmuxPrefix)
 		}
 	}
-	i.tmuxSession = tmuxSession
+	i.tmuxManager.session = tmuxSession
 
 	if firstTimeSetup {
 		// Handle different session types
@@ -711,7 +706,7 @@ func (i *Instance) start(firstTimeSetup bool, setupCleanup bool, cleanup *tmux.C
 			workDir = i.Path // For directory sessions
 		}
 		log.InfoLog.Printf("Restoring existing tmux session for instance '%s' with workDir '%s'", i.Title, workDir)
-		if err := tmuxSession.RestoreWithWorkDir(workDir); err != nil {
+		if err := i.tmuxManager.RestoreWithWorkDir(workDir); err != nil {
 			log.ErrorLog.Printf("Failed to restore tmux session for instance '%s': %v", i.Title, err)
 			setupErr = fmt.Errorf("failed to restore existing session: %w", err)
 			return setupErr
@@ -772,7 +767,7 @@ func (i *Instance) start(firstTimeSetup bool, setupCleanup bool, cleanup *tmux.C
 		}
 
 		// Start the session in the specified directory
-		if err := i.tmuxSession.Start(startPath); err != nil {
+		if err := i.tmuxManager.Start(startPath); err != nil {
 			// Cleanup git worktree if tmux session creation fails (only if worktree exists)
 			if i.gitWorktree != nil {
 				if cleanupErr := i.gitWorktree.Cleanup(); cleanupErr != nil {
@@ -841,8 +836,8 @@ func (i *Instance) Destroy() error {
 
 // KillSession terminates only the tmux session, keeping worktree intact
 func (i *Instance) KillSession() error {
-	if i.tmuxSession != nil {
-		if err := i.tmuxSession.Close(); err != nil {
+	if i.tmuxManager.session != nil {
+		if err := i.tmuxManager.Close(); err != nil {
 			return fmt.Errorf("failed to close tmux session: %w", err)
 		}
 	}
@@ -913,7 +908,7 @@ func (i *Instance) Preview() (string, error) {
 		return "", nil
 	}
 
-	content, err := i.tmuxSession.CapturePaneContent()
+	content, err := i.tmuxManager.CapturePaneContent()
 	if err != nil {
 		return "", err
 	}
@@ -937,14 +932,14 @@ func (i *Instance) HasUpdated() (updated bool, hasPrompt bool) {
 		return false, false
 	}
 
-	updated, hasPrompt = i.tmuxSession.HasUpdated()
+	updated, hasPrompt = i.tmuxManager.HasUpdated()
 
 	// Update timestamps when content has actually changed
 	// This ensures LastMeaningfulOutput is updated even when no web UI client is connected,
 	// preventing false "stale session" notifications in the review queue.
 	if updated {
 		// Capture content for timestamp update (forceUpdate=false to respect banner filtering)
-		if content, err := i.tmuxSession.CapturePaneContent(); err == nil {
+		if content, err := i.tmuxManager.CapturePaneContent(); err == nil {
 			i.UpdateTerminalTimestamps(content, false)
 		}
 	}
@@ -957,7 +952,7 @@ func (i *Instance) TapEnter() {
 	if !i.started || !i.AutoYes {
 		return
 	}
-	if err := i.tmuxSession.TapEnter(); err != nil {
+	if err := i.tmuxManager.TapEnter(); err != nil {
 		log.ErrorLog.Printf("error tapping enter: %v", err)
 	}
 }
@@ -966,7 +961,7 @@ func (i *Instance) Attach() (chan struct{}, error) {
 	if !i.started {
 		return nil, fmt.Errorf("cannot attach instance that has not been started")
 	}
-	return i.tmuxSession.Attach()
+	return i.tmuxManager.Attach()
 }
 
 func (i *Instance) SetPreviewSize(width, height int) error {
@@ -974,37 +969,7 @@ func (i *Instance) SetPreviewSize(width, height int) error {
 		return fmt.Errorf("cannot set preview size for instance that has not been started or " +
 			"is paused")
 	}
-
-	// Skip resize if dimensions haven't changed
-	if width == i.lastPreviewWidth && height == i.lastPreviewHeight {
-		return nil
-	}
-
-	// Defensive check: ensure tmux session is properly initialized before trying to resize PTY
-	if i.tmuxSession == nil {
-		return fmt.Errorf("tmux session not initialized")
-	}
-
-	// Attempt to set size, but handle PTY initialization errors gracefully
-	if err := i.tmuxSession.SetDetachedSize(width, height); err != nil {
-		// If it's a PTY initialization error, log it but don't propagate to avoid UI disruption
-		if strings.Contains(err.Error(), "PTY is not initialized") {
-			// Rate-limit warnings to avoid log spam (max once per 30 seconds per instance)
-			now := time.Now()
-			if now.Sub(i.lastPTYWarningTime) > 30*time.Second {
-				log.WarningLog.Printf("PTY not ready for instance '%s', skipping resize: %v", i.Title, err)
-				i.lastPTYWarningTime = now
-			}
-			return nil // Return nil to prevent UI disruption
-		}
-		// For other errors, propagate them
-		return err
-	}
-
-	// Update tracked dimensions after successful resize
-	i.lastPreviewWidth = width
-	i.lastPreviewHeight = height
-	return nil
+	return i.tmuxManager.SetDetachedSize(width, height, i.Title)
 }
 
 // GetGitWorktree returns the git worktree for the instance
@@ -1040,10 +1005,10 @@ func (i *Instance) Paused() bool {
 
 // TmuxAlive returns true if the tmux session is alive. This is a sanity check before attaching.
 func (i *Instance) TmuxAlive() bool {
-	if i.Status == Paused || !i.started || i.tmuxSession == nil {
+	if i.Status == Paused || !i.started || !i.tmuxManager.HasSession() {
 		return false
 	}
-	return i.tmuxSession.DoesSessionExist()
+	return i.tmuxManager.IsAlive()
 }
 
 // Pause stops the tmux session and removes the worktree, preserving the branch
@@ -1076,7 +1041,7 @@ func (i *Instance) Pause() error {
 	}
 
 	// Detach from tmux session instead of closing to preserve session output
-	if err := i.tmuxSession.DetachSafely(); err != nil {
+	if err := i.tmuxManager.DetachSafely(); err != nil {
 		errs = append(errs, fmt.Errorf("failed to detach tmux session: %w", err))
 		log.ErrorLog.Print(err)
 		// Continue with pause process even if detach fails
@@ -1148,12 +1113,12 @@ func (i *Instance) Resume() error {
 	}
 
 	// Check if tmux session still exists from pause, otherwise create new one
-	if i.tmuxSession.DoesSessionExist() {
+	if i.tmuxManager.DoesSessionExist() {
 		// Session exists, just restore PTY connection to it (retains stdout from before pause)
-		if err := i.tmuxSession.RestoreWithWorkDir(worktreePath); err != nil {
+		if err := i.tmuxManager.RestoreWithWorkDir(worktreePath); err != nil {
 			log.ErrorLog.Print(err)
 			// If restore fails, fall back to creating new session
-			if err := i.tmuxSession.Start(worktreePath); err != nil {
+			if err := i.tmuxManager.Start(worktreePath); err != nil {
 				log.ErrorLog.Print(err)
 				// Cleanup git worktree if tmux session creation fails
 				if i.gitWorktree != nil {
@@ -1167,7 +1132,7 @@ func (i *Instance) Resume() error {
 		}
 	} else {
 		// Create new tmux session
-		if err := i.tmuxSession.Start(worktreePath); err != nil {
+		if err := i.tmuxManager.Start(worktreePath); err != nil {
 			log.ErrorLog.Print(err)
 			// Cleanup git worktree if tmux session creation fails
 			if i.gitWorktree != nil {
@@ -1239,8 +1204,8 @@ func (i *Instance) Restart(preserveOutput bool) error {
 
 	// Capture terminal output if requested
 	var savedOutput string
-	if preserveOutput && i.tmuxSession != nil {
-		output, err := i.tmuxSession.CapturePaneContentWithOptions("-", "-")
+	if preserveOutput && i.tmuxManager.session != nil {
+		output, err := i.tmuxManager.CapturePaneContentWithOptions("-", "-")
 		if err != nil {
 			log.WarningLog.Printf("Failed to capture terminal output before restart: %v", err)
 		} else {
@@ -1298,13 +1263,13 @@ func (i *Instance) Restart(preserveOutput bool) error {
 
 	// Use server socket isolation if specified, otherwise use prefix-only isolation
 	if i.TmuxServerSocket != "" {
-		i.tmuxSession = tmux.NewTmuxSessionWithServerSocket(i.Title, program, tmuxPrefix, i.TmuxServerSocket)
+		i.tmuxManager.session = tmux.NewTmuxSessionWithServerSocket(i.Title, program, tmuxPrefix, i.TmuxServerSocket)
 	} else {
-		i.tmuxSession = tmux.NewTmuxSessionWithPrefix(i.Title, program, tmuxPrefix)
+		i.tmuxManager.session = tmux.NewTmuxSessionWithPrefix(i.Title, program, tmuxPrefix)
 	}
 
 	// Start the new session
-	if err := i.tmuxSession.Start(worktreePath); err != nil {
+	if err := i.tmuxManager.Start(worktreePath); err != nil {
 		return fmt.Errorf("failed to start new tmux session: %w", err)
 	}
 
@@ -1313,11 +1278,11 @@ func (i *Instance) Restart(preserveOutput bool) error {
 		// Add a marker to indicate this is restored output
 		marker := fmt.Sprintf("\n=== Session restarted at %s ===\n=== Previous output restored below ===\n\n",
 			time.Now().Format(time.RFC3339))
-		if _, err := i.tmuxSession.SendKeys(fmt.Sprintf("echo '%s'", marker)); err != nil {
+		if _, err := i.tmuxManager.SendKeys(fmt.Sprintf("echo '%s'", marker)); err != nil {
 			log.WarningLog.Printf("Failed to write restart marker: %v", err)
 		}
 		time.Sleep(100 * time.Millisecond)
-		if err := i.tmuxSession.TapEnter(); err != nil {
+		if err := i.tmuxManager.TapEnter(); err != nil {
 			log.WarningLog.Printf("Failed to send enter after marker: %v", err)
 		}
 	}
@@ -1345,14 +1310,7 @@ func (i *Instance) GetPTYReader() (*os.File, error) {
 	if !i.started {
 		return nil, fmt.Errorf("session not started")
 	}
-
-	if i.tmuxSession == nil {
-		return nil, fmt.Errorf("tmux session not initialized")
-	}
-
-	// The tmux session's ptmx field is the PTY master that we can read from
-	// We need to expose this via a method on TmuxSession
-	return i.tmuxSession.GetPTY()
+	return i.tmuxManager.GetPTY()
 }
 
 // WriteToPTY writes data to the PTY, sending input to the terminal session.
@@ -1364,13 +1322,7 @@ func (i *Instance) WriteToPTY(data []byte) (int, error) {
 	if !i.started {
 		return 0, fmt.Errorf("session not started")
 	}
-
-	if i.tmuxSession == nil {
-		return 0, fmt.Errorf("tmux session not initialized")
-	}
-
-	// Forward the input to the tmux PTY
-	return i.tmuxSession.SendKeys(string(data))
+	return i.tmuxManager.SendKeys(string(data))
 }
 
 // ResizePTY resizes the terminal dimensions.
@@ -1382,13 +1334,7 @@ func (i *Instance) ResizePTY(cols, rows int) error {
 	if !i.started {
 		return fmt.Errorf("session not started")
 	}
-
-	if i.tmuxSession == nil {
-		return fmt.Errorf("tmux session not initialized")
-	}
-
-	// Use the existing SetWindowSize method - now returns error
-	if err := i.tmuxSession.SetWindowSize(cols, rows); err != nil {
+	if err := i.tmuxManager.SetWindowSize(cols, rows); err != nil {
 		return fmt.Errorf("failed to resize terminal: %w", err)
 	}
 	return nil
@@ -1404,12 +1350,7 @@ func (i *Instance) CapturePaneContent() (string, error) {
 	if !i.started || i.Status == Paused {
 		return "", fmt.Errorf("session not started or paused")
 	}
-
-	if i.tmuxSession == nil {
-		return "", fmt.Errorf("tmux session not initialized")
-	}
-
-	return i.tmuxSession.CapturePaneContent()
+	return i.tmuxManager.CapturePaneContent()
 }
 
 // CapturePaneContentRaw captures pane content with ANSI codes preserved (no line joining).
@@ -1422,11 +1363,7 @@ func (i *Instance) CapturePaneContentRaw() (string, error) {
 		return "", fmt.Errorf("session not started or paused")
 	}
 
-	if i.tmuxSession == nil {
-		return "", fmt.Errorf("tmux session not initialized")
-	}
-
-	return i.tmuxSession.CapturePaneContentRaw()
+	return i.tmuxManager.CapturePaneContentRaw()
 }
 
 // GetCurrentPaneContent captures the current visible tmux pane content.
@@ -1437,43 +1374,22 @@ func (i *Instance) GetCurrentPaneContent(lines int) (string, error) {
 	i.stateMutex.RLock()
 	defer i.stateMutex.RUnlock()
 
-	if i.tmuxSession == nil {
-		return "", fmt.Errorf("tmux session not initialized")
-	}
-
 	// OPTIMIZED: Only capture visible viewport (not all scrollback)
-	// This dramatically improves session switching performance by avoiding
-	// transfer of potentially thousands of lines of scrollback history
-	//
-	// -p: print to stdout
-	// -e: include escape sequences (colors, formatting)
-	// -J: join wrapped lines
-	// -S {lines}: start N lines from the bottom (viewport only)
-	// -E -: end at current line (bottom of visible pane)
-
 	// If lines is 0 or negative, capture current viewport height only
 	if lines <= 0 {
-		// Get actual pane dimensions to capture exactly what's visible
-		_, height, err := i.tmuxSession.GetPaneDimensions()
+		_, height, err := i.tmuxManager.GetPaneDimensions()
 		if err != nil {
-			// Fallback to reasonable default if we can't get dimensions
-			lines = 40
+			lines = 40 // Fallback
 		} else {
 			lines = height
 		}
 	}
 
-	// Capture only the last N lines (viewport) instead of entire scrollback
-	// Format: -S -{lines} means "start {lines} lines from the bottom"
 	startLine := fmt.Sprintf("-%d", lines)
-	content, err := i.tmuxSession.CapturePaneContentWithOptions(
-		startLine,  // Start N lines from bottom (viewport only)
-		"-",        // End at current line (bottom)
-	)
+	content, err := i.tmuxManager.CapturePaneContentWithOptions(startLine, "-")
 	if err != nil {
 		return "", fmt.Errorf("failed to capture current pane content: %w", err)
 	}
-
 	return content, nil
 }
 
@@ -1482,12 +1398,7 @@ func (i *Instance) GetCurrentPaneContent(lines int) (string, error) {
 func (i *Instance) GetPaneCursorPosition() (x, y int, err error) {
 	i.stateMutex.RLock()
 	defer i.stateMutex.RUnlock()
-
-	if i.tmuxSession == nil {
-		return 0, 0, fmt.Errorf("tmux session not initialized")
-	}
-
-	return i.tmuxSession.GetCursorPosition()
+	return i.tmuxManager.GetCursorPosition()
 }
 
 // GetPaneDimensions gets the current dimensions of the tmux pane.
@@ -1495,12 +1406,7 @@ func (i *Instance) GetPaneCursorPosition() (x, y int, err error) {
 func (i *Instance) GetPaneDimensions() (width, height int, err error) {
 	i.stateMutex.RLock()
 	defer i.stateMutex.RUnlock()
-
-	if i.tmuxSession == nil {
-		return 0, 0, fmt.Errorf("tmux session not initialized")
-	}
-
-	return i.tmuxSession.GetPaneDimensions()
+	return i.tmuxManager.GetPaneDimensions()
 }
 
 // GetScrollbackHistory captures scrollback history from tmux using line ranges.
@@ -1510,12 +1416,7 @@ func (i *Instance) GetPaneDimensions() (width, height int, err error) {
 func (i *Instance) GetScrollbackHistory(startLine, endLine string) (string, error) {
 	i.stateMutex.RLock()
 	defer i.stateMutex.RUnlock()
-
-	if i.tmuxSession == nil {
-		return "", fmt.Errorf("tmux session not initialized")
-	}
-
-	return i.tmuxSession.CapturePaneContentWithOptions(startLine, endLine)
+	return i.tmuxManager.CapturePaneContentWithOptions(startLine, endLine)
 }
 
 // UpdateDiffStats updates the git diff statistics for this instance
@@ -1592,16 +1493,16 @@ func (i *Instance) SendPrompt(prompt string) error {
 	if !i.started {
 		return fmt.Errorf("instance not started")
 	}
-	if i.tmuxSession == nil {
+	if i.tmuxManager.session == nil {
 		return fmt.Errorf("tmux session not initialized")
 	}
-	if _, err := i.tmuxSession.SendKeys(prompt); err != nil {
+	if _, err := i.tmuxManager.SendKeys(prompt); err != nil {
 		return fmt.Errorf("error sending keys to tmux session: %w", err)
 	}
 
 	// Brief pause to prevent carriage return from being interpreted as newline
 	time.Sleep(100 * time.Millisecond)
-	if err := i.tmuxSession.TapEnter(); err != nil {
+	if err := i.tmuxManager.TapEnter(); err != nil {
 		return fmt.Errorf("error tapping enter: %w", err)
 	}
 
@@ -1619,7 +1520,7 @@ func (i *Instance) PreviewFullHistory() (string, error) {
 		return "", nil
 	}
 
-	content, err := i.tmuxSession.CapturePaneContentWithOptions("-", "-")
+	content, err := i.tmuxManager.CapturePaneContentWithOptions("-", "-")
 	if err != nil {
 		return "", err
 	}
@@ -1637,20 +1538,20 @@ func (i *Instance) PreviewFullHistory() (string, error) {
 func (i *Instance) GetTmuxSession() *tmux.TmuxSession {
 	i.stateMutex.RLock()
 	defer i.stateMutex.RUnlock()
-	return i.tmuxSession
+	return i.tmuxManager.session
 }
 
 // SetTmuxSession sets the tmux session for testing purposes
 func (i *Instance) SetTmuxSession(session *tmux.TmuxSession) {
-	i.tmuxSession = session
+	i.tmuxManager.SetSession(session)
 	i.started = session != nil
 }
 
 // SetWindowSize propagates window size changes to the tmux session
 // This enables proper terminal resizing in environments like IntelliJ where SIGWINCH doesn't work
 func (i *Instance) SetWindowSize(cols, rows int) error {
-	if i.tmuxSession != nil {
-		return i.tmuxSession.SetWindowSize(cols, rows)
+	if i.tmuxManager.HasSession() {
+		return i.tmuxManager.SetWindowSize(cols, rows)
 	}
 	return nil
 }
@@ -1659,10 +1560,7 @@ func (i *Instance) SetWindowSize(cols, rows int) error {
 // of the process running inside. This is critical after resizing to ensure
 // cursor positions and line wrapping are recalculated for the new dimensions.
 func (i *Instance) RefreshTmuxClient() error {
-	if i.tmuxSession != nil {
-		return i.tmuxSession.RefreshClient()
-	}
-	return nil
+	return i.tmuxManager.RefreshClient()
 }
 
 // SetGitWorktree sets the git worktree for testing purposes
@@ -1676,7 +1574,7 @@ func (i *Instance) SendKeys(keys string) error {
 	if !i.started || i.Status == Paused {
 		return fmt.Errorf("cannot send keys to instance that has not been started or is paused")
 	}
-	_, err := i.tmuxSession.SendKeys(keys)
+	_, err := i.tmuxManager.SendKeys(keys)
 	return err
 }
 
@@ -2048,8 +1946,8 @@ func (i *Instance) UpdateTerminalTimestamps(content string, forceUpdate bool) {
 		// Filter out tmux status bar before computing signature to prevent false positives
 		// from timestamp updates in the status line
 		filteredContent := content
-		if i.tmuxSession != nil {
-			filteredContent, _ = i.tmuxSession.FilterBanners(content)
+		if i.tmuxManager.session != nil {
+			filteredContent, _ = i.tmuxManager.FilterBanners(content)
 		}
 
 		// Compute content signature to detect real changes vs restarts
@@ -2068,13 +1966,13 @@ func (i *Instance) UpdateTerminalTimestamps(content string, forceUpdate bool) {
 
 	// Check if the output contains meaningful content (not just tmux banners)
 	// This path is for automated checks where banner filtering makes sense
-	if i.tmuxSession != nil {
-		hasMeaningful := i.tmuxSession.HasMeaningfulContent(content)
+	if i.tmuxManager.session != nil {
+		hasMeaningful := i.tmuxManager.HasMeaningfulContent(content)
 		log.LogForSession(i.Title, "debug", "HasMeaningfulContent=%v for %d bytes: %q", hasMeaningful, len(content), content)
 		if hasMeaningful {
 			// Filter out tmux status bar before computing signature to prevent false positives
 			// from timestamp updates in the status line
-			filteredContent, _ := i.tmuxSession.FilterBanners(content)
+			filteredContent, _ := i.tmuxManager.FilterBanners(content)
 
 			// Compute content signature to detect real changes vs restarts
 			signature := computeContentSignature(filteredContent)
