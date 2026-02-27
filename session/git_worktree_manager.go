@@ -146,6 +146,15 @@ func (gm *GitWorktreeManager) OpenBranchURL() error {
 	return gm.worktree.OpenBranchURL()
 }
 
+// ComputeDiff runs git diff and returns the result without storing it.
+// Returns nil if no worktree is set.
+func (gm *GitWorktreeManager) ComputeDiff() *git.DiffStats {
+	if gm.worktree == nil {
+		return nil
+	}
+	return gm.worktree.Diff()
+}
+
 // UpdateDiffStats computes a new diff and stores it.
 // Returns nil and clears stats if worktree is not ready.
 func (gm *GitWorktreeManager) UpdateDiffStats() {
@@ -153,8 +162,7 @@ func (gm *GitWorktreeManager) UpdateDiffStats() {
 		gm.diffStats = nil
 		return
 	}
-	stats := gm.worktree.Diff()
-	gm.diffStats = stats
+	gm.diffStats = gm.worktree.Diff()
 }
 
 // GetDiffStats returns the most recently computed diff stats (may be nil).

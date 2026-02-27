@@ -177,13 +177,13 @@ func (i *Instance) ToInstanceData() InstanceData {
 	}
 
 	// Only include worktree data if gitWorktree is initialized
-	if i.gitManager.worktree != nil {
+	if i.gitManager.HasWorktree() {
 		data.Worktree = GitWorktreeData{
-			RepoPath:      i.gitManager.worktree.GetRepoPath(),
-			WorktreePath:  i.gitManager.worktree.GetWorktreePath(),
+			RepoPath:      i.gitManager.GetRepoPath(),
+			WorktreePath:  i.gitManager.GetWorktreePath(),
 			SessionName:   i.Title,
-			BranchName:    i.gitManager.worktree.GetBranchName(),
-			BaseCommitSHA: i.gitManager.worktree.GetBaseCommitSHA(),
+			BranchName:    i.gitManager.GetBranchName(),
+			BaseCommitSHA: i.gitManager.GetBaseCommitSHA(),
 		}
 	}
 
@@ -547,10 +547,10 @@ func (i *Instance) RepoName() (string, error) {
 	if i.Status == Paused {
 		return "", fmt.Errorf("cannot get repo name for paused instance")
 	}
-	if i.gitManager.worktree == nil {
+	if !i.gitManager.HasWorktree() {
 		return "", fmt.Errorf("gitWorktree is nil")
 	}
-	return i.gitManager.worktree.GetRepoName(), nil
+	return i.gitManager.GetRepoName(), nil
 }
 
 func (i *Instance) SetStatus(status Status) {
@@ -603,7 +603,7 @@ func (i *Instance) start(firstTimeSetup bool, setupCleanup bool, cleanup *tmux.C
 
 	log.InfoLog.Printf("Initializing tmux session for instance '%s'", i.Title)
 	var tmuxSession *tmux.TmuxSession
-	if i.tmuxManager.session != nil {
+	if i.tmuxManager.HasSession() {
 		// Use existing tmux session (useful for testing)
 		log.InfoLog.Printf("Reusing existing tmux session for instance '%s'", i.Title)
 		tmuxSession = i.tmuxManager.session
@@ -628,7 +628,7 @@ func (i *Instance) start(firstTimeSetup bool, setupCleanup bool, cleanup *tmux.C
 			tmuxSession = tmux.NewTmuxSessionWithPrefix(i.Title, enrichedProgram, tmuxPrefix)
 		}
 	}
-	i.tmuxManager.session = tmuxSession
+	i.tmuxManager.SetSession(tmuxSession)
 
 	if firstTimeSetup {
 		// Handle different session types
@@ -643,7 +643,7 @@ func (i *Instance) start(firstTimeSetup bool, setupCleanup bool, cleanup *tmux.C
 				return fmt.Errorf("failed to create git worktree: %w", err)
 			}
 			log.InfoLog.Printf("Git worktree created successfully for instance '%s', branch: '%s'", i.Title, branchName)
-			i.gitManager.worktree = gitWorktree
+			i.gitManager.SetWorktree(gitWorktree)
 
 			// Only set the branch if it wasn't already set manually
 			if i.Branch == "" {
@@ -661,7 +661,7 @@ func (i *Instance) start(firstTimeSetup bool, setupCleanup bool, cleanup *tmux.C
 				}
 
 				log.InfoLog.Printf("Successfully connected to existing worktree for instance '%s', branch: '%s'", i.Title, gitWorktree.GetBranchName())
-				i.gitManager.worktree = gitWorktree
+				i.gitManager.SetWorktree(gitWorktree)
 				i.Branch = gitWorktree.GetBranchName()
 			} else {
 				log.WarningLog.Printf("SessionTypeExistingWorktree specified but no ExistingWorktree path provided for instance '%s'", i.Title)
@@ -670,12 +670,12 @@ func (i *Instance) start(firstTimeSetup bool, setupCleanup bool, cleanup *tmux.C
 		case SessionTypeDirectory:
 			log.InfoLog.Printf("Creating directory session for instance '%s' at path '%s' (no git worktree)", i.Title, i.Path)
 			// No git worktree creation - just a simple directory session
-			i.gitManager.worktree = nil
+			i.gitManager.SetWorktree(nil)
 			i.Branch = ""
 		default:
 			// Fallback to directory session for backward compatibility
 			log.InfoLog.Printf("Unknown session type '%s' for instance '%s', defaulting to directory session", i.SessionType, i.Title)
-			i.gitManager.worktree = nil
+			i.gitManager.SetWorktree(nil)
 			i.Branch = ""
 		}
 	}
@@ -697,8 +697,8 @@ func (i *Instance) start(firstTimeSetup bool, setupCleanup bool, cleanup *tmux.C
 	if !firstTimeSetup {
 		// Reuse existing session - use worktree path if available, otherwise use original path
 		var workDir string
-		if i.gitManager.worktree != nil {
-			workDir = i.gitManager.worktree.GetWorktreePath()
+		if i.gitManager.HasWorktree() {
+			workDir = i.gitManager.GetWorktreePath()
 		} else {
 			workDir = i.Path // For directory sessions
 		}
@@ -712,10 +712,10 @@ func (i *Instance) start(firstTimeSetup bool, setupCleanup bool, cleanup *tmux.C
 	} else {
 		var startPath string
 
-		if i.gitManager.worktree != nil {
+		if i.gitManager.HasWorktree() {
 			// Setup git worktree first
 			log.InfoLog.Printf("Setting up git worktree for instance '%s'", i.Title)
-			if err := i.gitManager.worktree.Setup(); err != nil {
+			if err := i.gitManager.Setup(); err != nil {
 				log.ErrorLog.Printf("Failed to setup git worktree for instance '%s': %v", i.Title, err)
 				setupErr = fmt.Errorf("failed to setup git worktree: %w", err)
 				return setupErr
@@ -723,7 +723,7 @@ func (i *Instance) start(firstTimeSetup bool, setupCleanup bool, cleanup *tmux.C
 			log.InfoLog.Printf("Git worktree setup completed for instance '%s'", i.Title)
 
 			// Create new session with worktree path
-			worktreePath := i.gitManager.worktree.GetWorktreePath()
+			worktreePath := i.gitManager.GetWorktreePath()
 			startPath = worktreePath
 
 			// Use the working directory if specified
@@ -766,8 +766,8 @@ func (i *Instance) start(firstTimeSetup bool, setupCleanup bool, cleanup *tmux.C
 		// Start the session in the specified directory
 		if err := i.tmuxManager.Start(startPath); err != nil {
 			// Cleanup git worktree if tmux session creation fails (only if worktree exists)
-			if i.gitManager.worktree != nil {
-				if cleanupErr := i.gitManager.worktree.Cleanup(); cleanupErr != nil {
+			if i.gitManager.HasWorktree() {
+				if cleanupErr := i.gitManager.Cleanup(); cleanupErr != nil {
 					err = fmt.Errorf("%v (cleanup error: %v)", err, cleanupErr)
 				}
 			}
@@ -833,7 +833,7 @@ func (i *Instance) Destroy() error {
 
 // KillSession terminates only the tmux session, keeping worktree intact
 func (i *Instance) KillSession() error {
-	if i.tmuxManager.session != nil {
+	if i.tmuxManager.HasSession() {
 		if err := i.tmuxManager.Close(); err != nil {
 			return fmt.Errorf("failed to close tmux session: %w", err)
 		}
@@ -843,8 +843,8 @@ func (i *Instance) KillSession() error {
 
 // CleanupWorktree removes the git worktree, keeping session intact
 func (i *Instance) CleanupWorktree() error {
-	if i.gitManager.worktree != nil {
-		if err := i.gitManager.worktree.Cleanup(); err != nil {
+	if i.gitManager.HasWorktree() {
+		if err := i.gitManager.Cleanup(); err != nil {
 			return fmt.Errorf("failed to cleanup git worktree: %w", err)
 		}
 	}
@@ -1023,13 +1023,13 @@ func (i *Instance) Pause() error {
 	var errs []error
 
 	// Check if there are any changes to commit
-	if dirty, err := i.gitManager.worktree.IsDirty(); err != nil {
+	if dirty, err := i.gitManager.IsDirty(); err != nil {
 		errs = append(errs, fmt.Errorf("failed to check if worktree is dirty: %w", err))
 		log.ErrorLog.Print(err)
 	} else if dirty {
 		// Commit changes locally (without pushing to GitHub)
 		commitMsg := fmt.Sprintf("[claudesquad] update from '%s' on %s (paused)", i.Title, time.Now().Format(time.RFC822))
-		if err := i.gitManager.worktree.CommitChanges(commitMsg); err != nil {
+		if err := i.gitManager.CommitChanges(commitMsg); err != nil {
 			errs = append(errs, fmt.Errorf("failed to commit changes: %w", err))
 			log.ErrorLog.Print(err)
 			// Return early if we can't commit changes to avoid corrupted state
@@ -1045,16 +1045,16 @@ func (i *Instance) Pause() error {
 	}
 
 	// Check if worktree exists before trying to remove it
-	if _, err := os.Stat(i.gitManager.worktree.GetWorktreePath()); err == nil {
+	if _, err := os.Stat(i.gitManager.GetWorktreePath()); err == nil {
 		// Remove worktree but keep branch
-		if err := i.gitManager.worktree.Remove(); err != nil {
+		if err := i.gitManager.Remove(); err != nil {
 			errs = append(errs, fmt.Errorf("failed to remove git worktree: %w", err))
 			log.ErrorLog.Print(err)
 			return i.combineErrors(errs)
 		}
 
 		// Only prune if remove was successful
-		if err := i.gitManager.worktree.Prune(); err != nil {
+		if err := i.gitManager.Prune(); err != nil {
 			errs = append(errs, fmt.Errorf("failed to prune git worktrees: %w", err))
 			log.ErrorLog.Print(err)
 			return i.combineErrors(errs)
@@ -1067,7 +1067,7 @@ func (i *Instance) Pause() error {
 	}
 
 	i.SetStatus(Paused)
-	_ = clipboard.WriteAll(i.gitManager.worktree.GetBranchName())
+	_ = clipboard.WriteAll(i.gitManager.GetBranchName())
 	return nil
 }
 
@@ -1082,9 +1082,9 @@ func (i *Instance) Resume() error {
 
 	// Setup git worktree if this session has one
 	var worktreePath string
-	if i.gitManager.worktree != nil {
+	if i.gitManager.HasWorktree() {
 		// Check if branch is checked out
-		if checked, err := i.gitManager.worktree.IsBranchCheckedOut(); err != nil {
+		if checked, err := i.gitManager.IsBranchCheckedOut(); err != nil {
 			log.ErrorLog.Print(err)
 			return fmt.Errorf("failed to check if branch is checked out: %w", err)
 		} else if checked {
@@ -1092,12 +1092,12 @@ func (i *Instance) Resume() error {
 		}
 
 		// Setup git worktree
-		if err := i.gitManager.worktree.Setup(); err != nil {
+		if err := i.gitManager.Setup(); err != nil {
 			log.ErrorLog.Print(err)
 			return fmt.Errorf("failed to setup git worktree: %w", err)
 		}
 
-		worktreePath = i.gitManager.worktree.GetWorktreePath()
+		worktreePath = i.gitManager.GetWorktreePath()
 	} else {
 		// No git worktree, use the original path
 		worktreePath = i.Path
@@ -1118,8 +1118,8 @@ func (i *Instance) Resume() error {
 			if err := i.tmuxManager.Start(worktreePath); err != nil {
 				log.ErrorLog.Print(err)
 				// Cleanup git worktree if tmux session creation fails
-				if i.gitManager.worktree != nil {
-					if cleanupErr := i.gitManager.worktree.Cleanup(); cleanupErr != nil {
+				if i.gitManager.HasWorktree() {
+					if cleanupErr := i.gitManager.Cleanup(); cleanupErr != nil {
 						err = fmt.Errorf("%v (cleanup error: %v)", err, cleanupErr)
 						log.ErrorLog.Print(err)
 					}
@@ -1132,8 +1132,8 @@ func (i *Instance) Resume() error {
 		if err := i.tmuxManager.Start(worktreePath); err != nil {
 			log.ErrorLog.Print(err)
 			// Cleanup git worktree if tmux session creation fails
-			if i.gitManager.worktree != nil {
-				if cleanupErr := i.gitManager.worktree.Cleanup(); cleanupErr != nil {
+			if i.gitManager.HasWorktree() {
+				if cleanupErr := i.gitManager.Cleanup(); cleanupErr != nil {
 					err = fmt.Errorf("%v (cleanup error: %v)", err, cleanupErr)
 					log.ErrorLog.Print(err)
 				}
@@ -1201,7 +1201,7 @@ func (i *Instance) Restart(preserveOutput bool) error {
 
 	// Capture terminal output if requested
 	var savedOutput string
-	if preserveOutput && i.tmuxManager.session != nil {
+	if preserveOutput && i.tmuxManager.HasSession() {
 		output, err := i.tmuxManager.CapturePaneContentWithOptions("-", "-")
 		if err != nil {
 			log.WarningLog.Printf("Failed to capture terminal output before restart: %v", err)
@@ -1226,8 +1226,8 @@ func (i *Instance) Restart(preserveOutput bool) error {
 
 	// Determine the working directory
 	var worktreePath string
-	if i.gitManager.worktree != nil {
-		worktreePath = i.gitManager.worktree.GetWorktreePath()
+	if i.gitManager.HasWorktree() {
+		worktreePath = i.gitManager.GetWorktreePath()
 	} else if i.SessionType == SessionTypeExistingWorktree && i.ExistingWorktree != "" {
 		worktreePath = i.ExistingWorktree
 	} else {
@@ -1260,9 +1260,9 @@ func (i *Instance) Restart(preserveOutput bool) error {
 
 	// Use server socket isolation if specified, otherwise use prefix-only isolation
 	if i.TmuxServerSocket != "" {
-		i.tmuxManager.session = tmux.NewTmuxSessionWithServerSocket(i.Title, program, tmuxPrefix, i.TmuxServerSocket)
+		i.tmuxManager.SetSession(tmux.NewTmuxSessionWithServerSocket(i.Title, program, tmuxPrefix, i.TmuxServerSocket))
 	} else {
-		i.tmuxManager.session = tmux.NewTmuxSessionWithPrefix(i.Title, program, tmuxPrefix)
+		i.tmuxManager.SetSession(tmux.NewTmuxSessionWithPrefix(i.Title, program, tmuxPrefix))
 	}
 
 	// Start the new session
@@ -1421,7 +1421,7 @@ func (i *Instance) UpdateDiffStats() error {
 	// Use read lock for initial state checks, then upgrade to write lock if needed
 	i.stateMutex.RLock()
 	if !i.started {
-		i.gitManager.diffStats = nil
+		i.gitManager.ClearDiffStats()
 		i.stateMutex.RUnlock()
 		return nil
 	}
@@ -1433,13 +1433,13 @@ func (i *Instance) UpdateDiffStats() error {
 	}
 
 	// Check if the worktree directory exists before attempting git operations
-	if i.gitManager.worktree == nil {
-		i.gitManager.diffStats = nil
+	if !i.gitManager.HasWorktree() {
+		i.gitManager.ClearDiffStats()
 		i.stateMutex.RUnlock()
 		return nil
 	}
 
-	worktreePath := i.gitManager.worktree.GetWorktreePath()
+	worktreePath := i.gitManager.GetWorktreePath()
 	i.stateMutex.RUnlock()
 
 	// Check if worktree path exists (this is an I/O operation, do it outside the lock)
@@ -1454,17 +1454,17 @@ func (i *Instance) UpdateDiffStats() error {
 			log.WarningLog.Printf("Worktree directory for '%s' doesn't exist at '%s', marking as paused", i.Title, worktreePath)
 			i.Status = Paused
 		}
-		i.gitManager.diffStats = nil
+		i.gitManager.ClearDiffStats()
 		return nil
 	}
 
 	// Perform git diff operation (I/O operation, outside lock)
-	stats := i.gitManager.worktree.Diff()
+	stats := i.gitManager.ComputeDiff()
 	if stats.Error != nil {
 		if strings.Contains(stats.Error.Error(), "base commit SHA not set") {
 			// Worktree is not fully set up yet, not an error
 			i.stateMutex.Lock()
-			i.gitManager.diffStats = nil
+			i.gitManager.ClearDiffStats()
 			i.stateMutex.Unlock()
 			return nil
 		}
@@ -1473,7 +1473,7 @@ func (i *Instance) UpdateDiffStats() error {
 
 	// Update diff stats with write lock
 	i.stateMutex.Lock()
-	i.gitManager.diffStats = stats
+	i.gitManager.SetDiffStats(stats)
 	i.stateMutex.Unlock()
 	return nil
 }
@@ -1629,7 +1629,7 @@ func (i *Instance) handleClaudeSessionReattachment() error {
 		log.InfoLog.Printf("Successfully re-attached to Claude Code session '%s'", session.ID)
 	} else {
 		// No specific session ID stored, try to find matching sessions by project
-		if i.gitManager.worktree != nil {
+		if i.gitManager.HasWorktree() {
 			return i.findAndAttachToProjectSession(sessionManager)
 		}
 	}
@@ -1736,8 +1736,8 @@ func (i *Instance) findAndAttachToProjectSession(sessionManager *ClaudeSessionMa
 
 // GetWorkingDirectory returns the working directory for this instance
 func (i *Instance) GetWorkingDirectory() string {
-	if i.gitManager.worktree != nil {
-		return i.gitManager.worktree.GetWorktreePath()
+	if i.gitManager.HasWorktree() {
+		return i.gitManager.GetWorktreePath()
 	}
 	return i.Path
 }
@@ -1847,8 +1847,7 @@ func (i *Instance) StartController() error {
 	}
 
 	// Register with status manager and store controller
-	i.controllerManager.statusManager.RegisterController(i.Title, controller)
-	i.controllerManager.controller = controller
+	i.controllerManager.RegisterController(i.Title, controller)
 
 	log.InfoLog.Printf("Started ClaudeController for instance %s", i.Title)
 	return nil
@@ -1859,18 +1858,11 @@ func (i *Instance) StopController() {
 	i.stateMutex.Lock()
 	defer i.stateMutex.Unlock()
 
-	if i.controllerManager.controller == nil {
+	if !i.controllerManager.HasController() {
 		return
 	}
 
-	// Unregister from status manager
-	if i.controllerManager.statusManager != nil {
-		i.controllerManager.statusManager.UnregisterController(i.Title)
-	}
-
-	// Stop the controller
-	i.controllerManager.controller.Stop()
-	i.controllerManager.controller = nil
+	i.controllerManager.UnregisterController(i.Title)
 
 	log.InfoLog.Printf("Stopped ClaudeController for instance %s", i.Title)
 }
@@ -1943,7 +1935,7 @@ func (i *Instance) UpdateTerminalTimestamps(content string, forceUpdate bool) {
 		// Filter out tmux status bar before computing signature to prevent false positives
 		// from timestamp updates in the status line
 		filteredContent := content
-		if i.tmuxManager.session != nil {
+		if i.tmuxManager.HasSession() {
 			filteredContent, _ = i.tmuxManager.FilterBanners(content)
 		}
 
@@ -1963,7 +1955,7 @@ func (i *Instance) UpdateTerminalTimestamps(content string, forceUpdate bool) {
 
 	// Check if the output contains meaningful content (not just tmux banners)
 	// This path is for automated checks where banner filtering makes sense
-	if i.tmuxManager.session != nil {
+	if i.tmuxManager.HasSession() {
 		hasMeaningful := i.tmuxManager.HasMeaningfulContent(content)
 		log.LogForSession(i.Title, "debug", "HasMeaningfulContent=%v for %d bytes: %q", hasMeaningful, len(content), content)
 		if hasMeaningful {
@@ -2124,8 +2116,8 @@ func (i *Instance) DetectAndPopulateWorktreeInfo() error {
 	// Determine the path to use for detection
 	// For worktree sessions, use the worktree path; otherwise use i.Path
 	detectPath := i.Path
-	if i.gitManager.worktree != nil {
-		worktreePath := i.gitManager.worktree.GetWorktreePath()
+	if i.gitManager.HasWorktree() {
+		worktreePath := i.gitManager.GetWorktreePath()
 		if worktreePath != "" {
 			detectPath = worktreePath
 		}
