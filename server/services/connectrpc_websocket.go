@@ -221,14 +221,15 @@ func (h *ConnectRPCWebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *h
 		requestMsg: envelope.Data,
 	}
 
-	// Call StreamTerminal - it will handle sending EndStream messages internally
-	// This ensures EndStream is sent while the WebSocket is still open, avoiding race conditions
+	// Call StreamTerminal, then send EndStream while the WebSocket is still open.
+	// HandleWebSocket is the single place responsible for sending EndStream, ensuring
+	// it is always sent regardless of which code path streamTerminal takes.
 	if err := h.streamTerminal(stream); err != nil {
 		log.ErrorLog.Printf("StreamTerminal error: %v", err)
-		// EndStream already sent by streamTerminal
+		sendEndStreamError(stream, err)
 		return
 	}
-	// EndStream success already sent by streamTerminal
+	sendEndStreamSuccess(stream)
 }
 
 // connectWebSocketStream wraps a WebSocket connection for ConnectRPC streaming
@@ -544,19 +545,14 @@ func (h *ConnectRPCWebSocketHandler) streamViaControlMode(stream *connectWebSock
 		}
 	}()
 
-	// Wait for either goroutine to error or complete
+	// Wait for either goroutine to error or complete.
+	// EndStream is sent by the caller (HandleWebSocket) after this function returns.
 	select {
 	case err := <-errChan:
 		log.InfoLog.Printf("[streamViaControlMode] Streaming ended for session '%s': %v", sessionID, err)
-		if err != nil {
-			sendEndStreamError(stream, err)
-		} else {
-			sendEndStreamSuccess(stream)
-		}
 		return err
 	case <-doneChan:
 		log.InfoLog.Printf("[streamViaControlMode] Streaming completed for session '%s'", sessionID)
-		sendEndStreamSuccess(stream)
 		return nil
 	}
 }
@@ -1000,15 +996,9 @@ func (h *ConnectRPCWebSocketHandler) streamViaTmuxCapturePane(stream *connectWeb
 		}
 	}()
 
-	// Wait for either goroutine to complete or error
+	// Wait for either goroutine to complete or error.
+	// EndStream is sent by the caller (HandleWebSocket) after this function returns.
 	err = <-errChan
-
-	// Send EndStream message while WebSocket is still open
-	if err != nil {
-		sendEndStreamError(stream, err)
-	} else {
-		sendEndStreamSuccess(stream)
-	}
 
 	log.InfoLog.Printf("[streamViaTmuxCapture] Connection closed for session '%s'", sessionID)
 	return err

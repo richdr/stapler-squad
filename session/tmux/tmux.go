@@ -314,8 +314,16 @@ func (t *TmuxSession) start(workDir string, setupCleanup bool, cleanup *CleanupF
 		return fmt.Errorf("error starting tmux session: %w", err)
 	}
 
-	// Poll for session existence with exponential backoff
-	timeout := time.After(2 * time.Second)
+	// Invalidate cache so the poll loop gets a fresh check immediately.
+	// The pre-creation DoesSessionExist() call above caches a "false" result,
+	// and the 500ms cache TTL would otherwise cause the first 500ms of the
+	// timeout window to be wasted on stale data.
+	t.invalidateExistsCache()
+
+	// Poll for session existence with exponential backoff.
+	// 10 seconds gives enough headroom when the tmux server is under load from
+	// multiple active sessions (ReviewQueuePoller, control-mode streaming, etc.).
+	timeout := time.After(10 * time.Second)
 	sleepDuration := 5 * time.Millisecond
 	for !t.DoesSessionExist() {
 		select {
