@@ -8,9 +8,6 @@ import (
 	"claude-squad/server/adapters"
 	"claude-squad/server/events"
 	"claude-squad/session"
-	"claude-squad/session/vc"
-	"claude-squad/session/vcs"
-	"claude-squad/telemetry"
 	"connectrpc.com/connect"
 	"context"
 	"fmt"
@@ -25,8 +22,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 )
 
 // ReactiveQueueManager is an interface to avoid circular dependencies.
@@ -38,25 +33,19 @@ type ReactiveQueueManager interface {
 
 // SessionService implements the SessionServiceHandler interface for ConnectRPC.
 type SessionService struct {
-	storage            *session.Storage
-	eventBus           *events.EventBus
-	statusManager      *session.InstanceStatusManager
-	reviewQueuePoller  *session.ReviewQueuePoller
+	storage           *session.Storage
+	eventBus          *events.EventBus
+	statusManager     *session.InstanceStatusManager
+	reviewQueuePoller *session.ReviewQueuePoller
 
-	// reviewQueueSvc owns review-queue state and handles the review-queue RPC methods.
+	// Extracted domain services.
 	reviewQueueSvc *ReviewQueueService
+	searchSvc      *SearchService
+	githubSvc      *GitHubService
+	workspaceSvc   *WorkspaceService
 
 	// External session discovery (for mux-enabled sessions from external terminals)
 	externalDiscovery *session.ExternalSessionDiscovery
-
-	// History cache
-	historyCache      *session.ClaudeSessionHistory
-	historyCacheTime  time.Time
-	historyCacheTTL   time.Duration
-
-	// Full-text search engine
-	searchEngine     *session.SearchEngine
-	snippetGenerator *session.SnippetGenerator
 
 	// Notification rate limiter (10 notifications/sec per session, burst of 20)
 	notificationRateLimiter *NotificationRateLimiter
@@ -68,16 +57,14 @@ type SessionService struct {
 func NewSessionService(storage *session.Storage, eventBus *events.EventBus) *SessionService {
 	reviewQueue := session.NewReviewQueue()
 
-	// Initialize search engine with disk persistence for incremental index updates
+	// Initialize search engine with disk persistence for incremental index updates.
 	var searchEngine *session.SearchEngine
 	indexStore, err := session.NewIndexStore()
 	if err != nil {
-		// Log error but fall back to in-memory search (no persistence)
 		log.WarningLog.Printf("Failed to create index store, using in-memory search: %v", err)
 		searchEngine = session.NewSearchEngine()
 	} else {
 		searchEngine = session.NewSearchEngineWithPersistence(indexStore)
-		// Try to load persisted index from disk
 		if loadErr := searchEngine.LoadIndex(); loadErr != nil {
 			log.WarningLog.Printf("Failed to load persisted search index: %v", loadErr)
 		} else if searchEngine.GetSyncMetadata() != nil {
@@ -87,16 +74,14 @@ func NewSessionService(storage *session.Storage, eventBus *events.EventBus) *Ses
 		}
 	}
 
-	reviewQueueSvc := NewReviewQueueService(reviewQueue, storage, eventBus)
-
 	return &SessionService{
 		storage:                 storage,
 		eventBus:                eventBus,
-		reviewQueueSvc:          reviewQueueSvc,
-		historyCacheTTL:         5 * time.Minute, // Cache history for 5 minutes
-		searchEngine:            searchEngine,
-		snippetGenerator:        session.NewSnippetGenerator(),
-		notificationRateLimiter: NewNotificationRateLimiter(10, 20), // 10/sec, burst of 20
+		reviewQueueSvc:          NewReviewQueueService(reviewQueue, storage, eventBus),
+		searchSvc:               NewSearchService(searchEngine, session.NewSnippetGenerator(), 5*time.Minute),
+		githubSvc:               NewGitHubService(storage),
+		workspaceSvc:            NewWorkspaceService(storage, eventBus),
+		notificationRateLimiter: NewNotificationRateLimiter(10, 20),
 	}
 }
 
@@ -1386,339 +1371,36 @@ func (s *SessionService) UpdateClaudeConfig(
 	}), nil
 }
 
-// getOrRefreshHistoryCache returns the cached history or refreshes it if stale
-func (s *SessionService) getOrRefreshHistoryCache(ctx context.Context) (*session.ClaudeSessionHistory, error) {
-	ctx, span := telemetry.StartSpan(ctx, "SessionService.getOrRefreshHistoryCache")
-	defer span.End()
-
-	now := time.Now()
-
-	// Check if cache is valid
-	if s.historyCache != nil && now.Sub(s.historyCacheTime) < s.historyCacheTTL {
-		span.SetAttributes(
-			attribute.Bool("cache.hit", true),
-			attribute.Int("history.entry_count", s.historyCache.Count()),
-		)
-		return s.historyCache, nil
-	}
-
-	// Cache is stale or doesn't exist - refresh it
-	span.SetAttributes(attribute.Bool("cache.hit", false))
-
-	// Create child span for disk loading
-	_, loadSpan := telemetry.StartSpan(ctx, "SessionService.loadHistoryFromDisk")
-	loadStart := time.Now()
-
-	hist, err := session.NewClaudeSessionHistoryFromClaudeDir()
-
-	loadDuration := time.Since(loadStart)
-	loadSpan.SetAttributes(
-		attribute.Int64("load.duration_ms", loadDuration.Milliseconds()),
-	)
-	if err != nil {
-		loadSpan.RecordError(err)
-		loadSpan.End()
-		return nil, fmt.Errorf("failed to create history manager: %w", err)
-	}
-	loadSpan.SetAttributes(attribute.Int("history.entry_count", hist.Count()))
-	loadSpan.End()
-
-	// Update cache
-	s.historyCache = hist
-	s.historyCacheTime = now
-
-	span.SetAttributes(
-		attribute.Int("history.entry_count", hist.Count()),
-		attribute.Int64("cache.refresh_duration_ms", time.Since(now).Milliseconds()),
-	)
-
-	log.InfoLog.Printf("History cache refreshed: %d entries in %v", hist.Count(), time.Since(now))
-	return hist, nil
-}
-
-// ListClaudeHistory returns Claude session history entries with optional filtering
+// ListClaudeHistory returns Claude session history entries with optional filtering.
 func (s *SessionService) ListClaudeHistory(
 	ctx context.Context,
 	req *connect.Request[sessionv1.ListClaudeHistoryRequest],
 ) (*connect.Response[sessionv1.ListClaudeHistoryResponse], error) {
-	// Use cached history
-	hist, err := s.getOrRefreshHistoryCache(ctx)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to load history: %w", err))
-	}
-
-	var entries []session.ClaudeHistoryEntry
-
-	// Apply filters
-	if req.Msg.Project != nil && *req.Msg.Project != "" {
-		entries = hist.GetByProject(*req.Msg.Project)
-	} else if req.Msg.SearchQuery != nil && *req.Msg.SearchQuery != "" {
-		entries = hist.Search(*req.Msg.SearchQuery)
-	} else {
-		entries = hist.GetAll()
-	}
-
-	// Apply limit
-	totalCount := len(entries)
-	if req.Msg.Limit > 0 && int(req.Msg.Limit) < len(entries) {
-		entries = entries[:req.Msg.Limit]
-	}
-
-	// Convert to proto
-	protoEntries := make([]*sessionv1.ClaudeHistoryEntry, 0, len(entries))
-	for _, entry := range entries {
-		protoEntries = append(protoEntries, &sessionv1.ClaudeHistoryEntry{
-			Id:           entry.ID,
-			Name:         entry.Name,
-			Project:      entry.Project,
-			CreatedAt:    timestamppb.New(entry.CreatedAt),
-			UpdatedAt:    timestamppb.New(entry.UpdatedAt),
-			Model:        entry.Model,
-			MessageCount: int32(entry.MessageCount),
-		})
-	}
-
-	return connect.NewResponse(&sessionv1.ListClaudeHistoryResponse{
-		Entries:    protoEntries,
-		TotalCount: int32(totalCount),
-	}), nil
+	return s.searchSvc.ListClaudeHistory(ctx, req)
 }
 
-// GetClaudeHistoryDetail retrieves detailed information for a specific history entry
+// GetClaudeHistoryDetail retrieves detailed information for a specific history entry.
 func (s *SessionService) GetClaudeHistoryDetail(
 	ctx context.Context,
 	req *connect.Request[sessionv1.GetClaudeHistoryDetailRequest],
 ) (*connect.Response[sessionv1.GetClaudeHistoryDetailResponse], error) {
-	// Use cached history
-	hist, err := s.getOrRefreshHistoryCache(ctx)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to load history: %w", err))
-	}
-
-	entry, err := hist.GetByID(req.Msg.Id)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeNotFound, err)
-	}
-
-	return connect.NewResponse(&sessionv1.GetClaudeHistoryDetailResponse{
-		Entry: &sessionv1.ClaudeHistoryEntry{
-			Id:           entry.ID,
-			Name:         entry.Name,
-			Project:      entry.Project,
-			CreatedAt:    timestamppb.New(entry.CreatedAt),
-			UpdatedAt:    timestamppb.New(entry.UpdatedAt),
-			Model:        entry.Model,
-			MessageCount: int32(entry.MessageCount),
-		},
-	}), nil
+	return s.searchSvc.GetClaudeHistoryDetail(ctx, req)
 }
 
-// GetClaudeHistoryMessages retrieves messages from a specific conversation
+// GetClaudeHistoryMessages retrieves messages from a specific conversation.
 func (s *SessionService) GetClaudeHistoryMessages(
 	ctx context.Context,
 	req *connect.Request[sessionv1.GetClaudeHistoryMessagesRequest],
 ) (*connect.Response[sessionv1.GetClaudeHistoryMessagesResponse], error) {
-	// Use cached history to validate session exists
-	hist, err := s.getOrRefreshHistoryCache(ctx)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to load history: %w", err))
-	}
-
-	// Validate session exists
-	_, err = hist.GetByID(req.Msg.Id)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("session not found: %w", err))
-	}
-
-	// Get messages from conversation file
-	messages, err := hist.GetMessagesFromConversationFile(req.Msg.Id)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to load messages: %w", err))
-	}
-
-	// Apply pagination
-	totalCount := len(messages)
-	offset := int(req.Msg.Offset)
-	limit := int(req.Msg.Limit)
-
-	if offset > 0 && offset < len(messages) {
-		messages = messages[offset:]
-	}
-	if limit > 0 && limit < len(messages) {
-		messages = messages[:limit]
-	}
-
-	// Convert to proto messages
-	protoMessages := make([]*sessionv1.ClaudeMessage, 0, len(messages))
-	for _, msg := range messages {
-		protoMessages = append(protoMessages, &sessionv1.ClaudeMessage{
-			Role:      msg.Role,
-			Content:   msg.Content,
-			Timestamp: timestamppb.New(msg.Timestamp),
-			Model:     msg.Model,
-		})
-	}
-
-	return connect.NewResponse(&sessionv1.GetClaudeHistoryMessagesResponse{
-		Messages:   protoMessages,
-		TotalCount: int32(totalCount),
-	}), nil
+	return s.searchSvc.GetClaudeHistoryMessages(ctx, req)
 }
 
-// SearchClaudeHistory performs full-text search across Claude conversation history
+// SearchClaudeHistory performs full-text search across Claude conversation history.
 func (s *SessionService) SearchClaudeHistory(
 	ctx context.Context,
 	req *connect.Request[sessionv1.SearchClaudeHistoryRequest],
 ) (*connect.Response[sessionv1.SearchClaudeHistoryResponse], error) {
-	// Add search-specific attributes to the parent span (created by otelconnect)
-	span := trace.SpanFromContext(ctx)
-	span.SetAttributes(
-		attribute.String(telemetry.AttrSearchQuery, req.Msg.Query),
-		attribute.Int("search.limit", int(req.Msg.Limit)),
-		attribute.Int("search.offset", int(req.Msg.Offset)),
-	)
-
-	// Validate query
-	if req.Msg.Query == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("query is required"))
-	}
-
-	// Get history cache to build/update search index
-	hist, err := s.getOrRefreshHistoryCache(ctx)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to load history: %w", err))
-	}
-
-	// Use incremental sync to update index (only indexes new/modified sessions)
-	_, syncSpan := telemetry.StartSpan(ctx, "SearchEngine.IncrementalSync")
-	syncStart := time.Now()
-	syncResult, err := s.searchEngine.IncrementalSync(hist)
-	syncDuration := time.Since(syncStart)
-	syncSpan.SetAttributes(
-		attribute.Int64("sync.duration_ms", syncDuration.Milliseconds()),
-		attribute.Bool("sync.was_full_rebuild", syncResult.WasFullRebuild),
-		attribute.Int("sync.sessions_added", syncResult.SessionsAdded),
-		attribute.Int("sync.sessions_updated", syncResult.SessionsUpdated),
-		attribute.Int("sync.sessions_removed", syncResult.SessionsRemoved),
-	)
-	if err != nil {
-		syncSpan.RecordError(err)
-		syncSpan.End()
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to sync search index: %w", err))
-	}
-	syncSpan.End()
-
-	// Log sync results for debugging
-	if syncResult.HasChanges() || syncResult.WasFullRebuild {
-		log.InfoLog.Printf("Search index sync: %s", syncResult.String())
-	}
-
-	// Apply defaults for limit
-	limit := int(req.Msg.Limit)
-	if limit <= 0 {
-		limit = 20
-	}
-	if limit > 100 {
-		limit = 100
-	}
-
-	offset := int(req.Msg.Offset)
-	if offset < 0 {
-		offset = 0
-	}
-
-	// Build search options
-	searchOpts := session.SearchOptions{
-		Limit:  limit,
-		Offset: offset,
-	}
-
-	// Perform search with instrumentation
-	_, searchSpan := telemetry.StartSpan(ctx, "SearchEngine.Search")
-	searchStart := time.Now()
-	searchResults, err := s.searchEngine.Search(req.Msg.Query, searchOpts)
-	searchDuration := time.Since(searchStart)
-	searchSpan.SetAttributes(
-		attribute.Int64("search.duration_ms", searchDuration.Milliseconds()),
-		attribute.String("search.query", req.Msg.Query),
-	)
-	if err != nil {
-		searchSpan.RecordError(err)
-		searchSpan.End()
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("search failed: %w", err))
-	}
-	searchSpan.SetAttributes(
-		attribute.Int("search.result_count", len(searchResults.Results)),
-		attribute.Int("search.total_matches", searchResults.TotalMatches),
-	)
-	searchSpan.End()
-
-	// Get query tokens for snippet generation
-	tokenizer := s.searchEngine.GetTokenizer()
-	queryTokens := tokenizer.Tokenize(req.Msg.Query)
-
-	// Convert results to proto format
-	protoResults := make([]*sessionv1.SearchResult, 0, len(searchResults.Results))
-	for _, result := range searchResults.Results {
-		// Get session info from history
-		entry, _ := hist.GetByID(result.SessionID)
-
-		// Generate snippets for this result
-		doc := s.searchEngine.GetDocument(result.DocID)
-		snippets := s.snippetGenerator.GenerateFromSearchResult(doc, queryTokens)
-
-		// Convert snippets to proto
-		protoSnippets := make([]*sessionv1.SearchSnippet, 0, len(snippets))
-		for _, snippet := range snippets {
-			highlightRanges := make([]*sessionv1.HighlightRange, 0, len(snippet.HighlightRanges))
-			for _, hr := range snippet.HighlightRanges {
-				highlightRanges = append(highlightRanges, &sessionv1.HighlightRange{
-					Start: int32(hr.Start),
-					End:   int32(hr.End),
-				})
-			}
-			protoSnippets = append(protoSnippets, &sessionv1.SearchSnippet{
-				Text:            snippet.Text,
-				HighlightRanges: highlightRanges,
-				MessageRole:     snippet.MessageRole,
-				MessageTime:     timestamppb.New(snippet.MessageTime),
-			})
-		}
-
-		// Build metadata
-		sessionName := result.SessionID
-		project := ""
-		model := ""
-		var createdAt time.Time
-		if entry != nil {
-			sessionName = entry.Name
-			project = entry.Project
-			model = entry.Model
-			createdAt = entry.CreatedAt
-		}
-
-		protoResults = append(protoResults, &sessionv1.SearchResult{
-			SessionId:    result.SessionID,
-			SessionName:  sessionName,
-			Project:      project,
-			MessageIndex: int32(result.MessageIndex),
-			Score:        float32(result.Score),
-			Snippets:     protoSnippets,
-			Metadata: &sessionv1.SearchResultMetadata{
-				IsMetadataMatch: false, // TODO: Support metadata matching
-				MatchSource:     "message_content",
-				Model:           model,
-				CreatedAt:       timestamppb.New(createdAt),
-			},
-		})
-	}
-
-	return connect.NewResponse(&sessionv1.SearchClaudeHistoryResponse{
-		Results:      protoResults,
-		TotalMatches: int32(searchResults.TotalMatches),
-		QueryTimeMs:  searchResults.QueryTime.Milliseconds(),
-		HasMore:      searchResults.TotalMatches > offset+len(protoResults),
-	}), nil
+	return s.searchSvc.SearchClaudeHistory(ctx, req)
 }
 
 // GetPRInfo retrieves the latest PR information for a session.
@@ -1726,62 +1408,7 @@ func (s *SessionService) GetPRInfo(
 	ctx context.Context,
 	req *connect.Request[sessionv1.GetPRInfoRequest],
 ) (*connect.Response[sessionv1.GetPRInfoResponse], error) {
-	if req.Msg.Id == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("session id is required"))
-	}
-
-	instances, err := s.loadInstancesWithWiring()
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to load instances: %w", err))
-	}
-
-	// Find instance by ID (using Title as ID)
-	var instance *session.Instance
-	for _, inst := range instances {
-		if inst.Title == req.Msg.Id {
-			instance = inst
-			break
-		}
-	}
-
-	if instance == nil {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("session not found: %s", req.Msg.Id))
-	}
-
-	// Check if this is a PR session
-	if !instance.IsPRSession() {
-		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("session '%s' is not a PR session", req.Msg.Id))
-	}
-
-	// Refresh PR info from GitHub
-	prInfo, err := instance.RefreshPRInfo()
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to refresh PR info: %w", err))
-	}
-
-	// Convert to proto message
-	protoPRInfo := &sessionv1.PRInfo{
-		Number:       int32(prInfo.Number),
-		Title:        prInfo.Title,
-		Body:         prInfo.Body,
-		HeadRef:      prInfo.HeadRef,
-		BaseRef:      prInfo.BaseRef,
-		State:        prInfo.State,
-		Author:       prInfo.Author,
-		Labels:       prInfo.Labels,
-		HtmlUrl:      prInfo.HTMLURL,
-		CreatedAt:    timestamppb.New(prInfo.CreatedAt),
-		UpdatedAt:    timestamppb.New(prInfo.UpdatedAt),
-		IsDraft:      prInfo.IsDraft,
-		Mergeable:    prInfo.Mergeable,
-		Additions:    int32(prInfo.Additions),
-		Deletions:    int32(prInfo.Deletions),
-		ChangedFiles: int32(prInfo.ChangedFiles),
-	}
-
-	return connect.NewResponse(&sessionv1.GetPRInfoResponse{
-		PrInfo: protoPRInfo,
-	}), nil
+	return s.githubSvc.GetPRInfo(ctx, req)
 }
 
 // GetPRComments retrieves all comments on the PR for a session.
@@ -1789,62 +1416,7 @@ func (s *SessionService) GetPRComments(
 	ctx context.Context,
 	req *connect.Request[sessionv1.GetPRCommentsRequest],
 ) (*connect.Response[sessionv1.GetPRCommentsResponse], error) {
-	if req.Msg.Id == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("session id is required"))
-	}
-
-	instances, err := s.loadInstancesWithWiring()
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to load instances: %w", err))
-	}
-
-	// Find instance by ID (using Title as ID)
-	var instance *session.Instance
-	for _, inst := range instances {
-		if inst.Title == req.Msg.Id {
-			instance = inst
-			break
-		}
-	}
-
-	if instance == nil {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("session not found: %s", req.Msg.Id))
-	}
-
-	// Check if this is a PR session
-	if !instance.IsPRSession() {
-		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("session '%s' is not a PR session", req.Msg.Id))
-	}
-
-	// Get PR comments from GitHub
-	comments, err := instance.GetPRComments()
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to get PR comments: %w", err))
-	}
-
-	// Convert to proto messages
-	protoComments := make([]*sessionv1.PRComment, 0, len(comments))
-	for _, comment := range comments {
-		protoComment := &sessionv1.PRComment{
-			Id:        int32(comment.ID),
-			Author:    comment.Author,
-			Body:      comment.Body,
-			CreatedAt: timestamppb.New(comment.CreatedAt),
-			IsReview:  comment.IsReview,
-		}
-		if comment.Path != "" {
-			protoComment.Path = &comment.Path
-		}
-		if comment.Line != 0 {
-			line := int32(comment.Line)
-			protoComment.Line = &line
-		}
-		protoComments = append(protoComments, protoComment)
-	}
-
-	return connect.NewResponse(&sessionv1.GetPRCommentsResponse{
-		Comments: protoComments,
-	}), nil
+	return s.githubSvc.GetPRComments(ctx, req)
 }
 
 // PostPRComment posts a new comment to the PR for a session.
@@ -1852,46 +1424,7 @@ func (s *SessionService) PostPRComment(
 	ctx context.Context,
 	req *connect.Request[sessionv1.PostPRCommentRequest],
 ) (*connect.Response[sessionv1.PostPRCommentResponse], error) {
-	if req.Msg.Id == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("session id is required"))
-	}
-
-	if req.Msg.Body == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("comment body is required"))
-	}
-
-	instances, err := s.loadInstancesWithWiring()
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to load instances: %w", err))
-	}
-
-	// Find instance by ID (using Title as ID)
-	var instance *session.Instance
-	for _, inst := range instances {
-		if inst.Title == req.Msg.Id {
-			instance = inst
-			break
-		}
-	}
-
-	if instance == nil {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("session not found: %s", req.Msg.Id))
-	}
-
-	// Check if this is a PR session
-	if !instance.IsPRSession() {
-		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("session '%s' is not a PR session", req.Msg.Id))
-	}
-
-	// Post comment to GitHub
-	if err := instance.PostComment(req.Msg.Body); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to post comment: %w", err))
-	}
-
-	return connect.NewResponse(&sessionv1.PostPRCommentResponse{
-		Success: true,
-		Message: fmt.Sprintf("Comment posted successfully to PR for session '%s'", req.Msg.Id),
-	}), nil
+	return s.githubSvc.PostPRComment(ctx, req)
 }
 
 // MergePR merges the PR for a session using the specified merge method.
@@ -1899,48 +1432,7 @@ func (s *SessionService) MergePR(
 	ctx context.Context,
 	req *connect.Request[sessionv1.MergePRRequest],
 ) (*connect.Response[sessionv1.MergePRResponse], error) {
-	if req.Msg.Id == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("session id is required"))
-	}
-
-	instances, err := s.loadInstancesWithWiring()
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to load instances: %w", err))
-	}
-
-	// Find instance by ID (using Title as ID)
-	var instance *session.Instance
-	for _, inst := range instances {
-		if inst.Title == req.Msg.Id {
-			instance = inst
-			break
-		}
-	}
-
-	if instance == nil {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("session not found: %s", req.Msg.Id))
-	}
-
-	// Check if this is a PR session
-	if !instance.IsPRSession() {
-		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("session '%s' is not a PR session", req.Msg.Id))
-	}
-
-	// Get merge method (default to "merge" if not specified)
-	method := "merge"
-	if req.Msg.Method != nil && *req.Msg.Method != "" {
-		method = *req.Msg.Method
-	}
-
-	// Merge PR using GitHub
-	if err := instance.MergePR(method); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to merge PR: %w", err))
-	}
-
-	return connect.NewResponse(&sessionv1.MergePRResponse{
-		Success: true,
-		Message: fmt.Sprintf("PR merged successfully for session '%s' using method '%s'", req.Msg.Id, method),
-	}), nil
+	return s.githubSvc.MergePR(ctx, req)
 }
 
 // ClosePR closes the PR without merging for a session.
@@ -1948,42 +1440,7 @@ func (s *SessionService) ClosePR(
 	ctx context.Context,
 	req *connect.Request[sessionv1.ClosePRRequest],
 ) (*connect.Response[sessionv1.ClosePRResponse], error) {
-	if req.Msg.Id == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("session id is required"))
-	}
-
-	instances, err := s.loadInstancesWithWiring()
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to load instances: %w", err))
-	}
-
-	// Find instance by ID (using Title as ID)
-	var instance *session.Instance
-	for _, inst := range instances {
-		if inst.Title == req.Msg.Id {
-			instance = inst
-			break
-		}
-	}
-
-	if instance == nil {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("session not found: %s", req.Msg.Id))
-	}
-
-	// Check if this is a PR session
-	if !instance.IsPRSession() {
-		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("session '%s' is not a PR session", req.Msg.Id))
-	}
-
-	// Close PR using GitHub
-	if err := instance.ClosePR(); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to close PR: %w", err))
-	}
-
-	return connect.NewResponse(&sessionv1.ClosePRResponse{
-		Success: true,
-		Message: fmt.Sprintf("PR closed successfully for session '%s'", req.Msg.Id),
-	}), nil
+	return s.githubSvc.ClosePR(ctx, req)
 }
 
 // SendNotification allows tmux sessions and external Claude processes to send notifications.
@@ -2371,150 +1828,7 @@ func (s *SessionService) GetVCSStatus(
 	ctx context.Context,
 	req *connect.Request[sessionv1.GetVCSStatusRequest],
 ) (*connect.Response[sessionv1.GetVCSStatusResponse], error) {
-	if req.Msg.Id == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("session id is required"))
-	}
-
-	instances, err := s.loadInstancesWithWiring()
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to load instances: %w", err))
-	}
-
-	// Find instance by ID (using Title as ID)
-	var instance *session.Instance
-	for _, inst := range instances {
-		if inst.Title == req.Msg.Id {
-			instance = inst
-			break
-		}
-	}
-
-	if instance == nil {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("session not found: %s", req.Msg.Id))
-	}
-
-	// Get the working directory path
-	workDir := instance.Path
-	if workDir == "" {
-		return connect.NewResponse(&sessionv1.GetVCSStatusResponse{
-			Error: "session has no working directory",
-		}), nil
-	}
-
-	// Try to create a VCS provider for the path
-	var provider vc.VCSProvider
-	gitProvider, err := vc.NewGitProvider(workDir)
-	if err != nil {
-		// Try Jujutsu if Git fails
-		jjProvider, jjErr := vc.NewJujutsuProvider(workDir)
-		if jjErr != nil {
-			return connect.NewResponse(&sessionv1.GetVCSStatusResponse{
-				Error: fmt.Sprintf("not a version-controlled directory: %s", workDir),
-			}), nil
-		}
-		provider = jjProvider
-	} else {
-		provider = gitProvider
-	}
-
-	// Get status from the provider
-	status, err := provider.GetStatus()
-	if err != nil {
-		return connect.NewResponse(&sessionv1.GetVCSStatusResponse{
-			Error: fmt.Sprintf("failed to get VCS status: %v", err),
-		}), nil
-	}
-
-	// Convert to proto
-	protoStatus := vcsStatusToProto(status)
-
-	return connect.NewResponse(&sessionv1.GetVCSStatusResponse{
-		VcsStatus: protoStatus,
-	}), nil
-}
-
-// vcsStatusToProto converts a vc.VCSStatus to sessionv1.VCSStatus
-func vcsStatusToProto(status *vc.VCSStatus) *sessionv1.VCSStatus {
-	if status == nil {
-		return nil
-	}
-
-	protoStatus := &sessionv1.VCSStatus{
-		Type:         vcsTypeToProto(status.Type),
-		Branch:       status.Branch,
-		HeadCommit:   status.HeadCommit,
-		Description:  status.Description,
-		AheadBy:      int32(status.AheadBy),
-		BehindBy:     int32(status.BehindBy),
-		Upstream:     status.Upstream,
-		HasStaged:    status.HasStaged,
-		HasUnstaged:  status.HasUnstaged,
-		HasUntracked: status.HasUntracked,
-		HasConflicts: status.HasConflicts,
-		IsClean:      status.IsClean,
-	}
-
-	// Convert file lists
-	for _, f := range status.StagedFiles {
-		protoStatus.StagedFiles = append(protoStatus.StagedFiles, fileChangeToProto(f))
-	}
-	for _, f := range status.UnstagedFiles {
-		protoStatus.UnstagedFiles = append(protoStatus.UnstagedFiles, fileChangeToProto(f))
-	}
-	for _, f := range status.UntrackedFiles {
-		protoStatus.UntrackedFiles = append(protoStatus.UntrackedFiles, fileChangeToProto(f))
-	}
-	for _, f := range status.ConflictFiles {
-		protoStatus.ConflictFiles = append(protoStatus.ConflictFiles, fileChangeToProto(f))
-	}
-
-	return protoStatus
-}
-
-// vcsTypeToProto converts vc.VCSType to sessionv1.VCSType
-func vcsTypeToProto(t vc.VCSType) sessionv1.VCSType {
-	switch t {
-	case vc.VCSGit:
-		return sessionv1.VCSType_VCS_TYPE_GIT
-	case vc.VCSJujutsu:
-		return sessionv1.VCSType_VCS_TYPE_JUJUTSU
-	default:
-		return sessionv1.VCSType_VCS_TYPE_UNSPECIFIED
-	}
-}
-
-// fileStatusToProto converts vc.FileStatus to sessionv1.FileStatus
-func fileStatusToProto(s vc.FileStatus) sessionv1.FileStatus {
-	switch s {
-	case vc.FileModified:
-		return sessionv1.FileStatus_FILE_STATUS_MODIFIED
-	case vc.FileAdded:
-		return sessionv1.FileStatus_FILE_STATUS_ADDED
-	case vc.FileDeleted:
-		return sessionv1.FileStatus_FILE_STATUS_DELETED
-	case vc.FileRenamed:
-		return sessionv1.FileStatus_FILE_STATUS_RENAMED
-	case vc.FileCopied:
-		return sessionv1.FileStatus_FILE_STATUS_COPIED
-	case vc.FileUntracked:
-		return sessionv1.FileStatus_FILE_STATUS_UNTRACKED
-	case vc.FileIgnored:
-		return sessionv1.FileStatus_FILE_STATUS_IGNORED
-	case vc.FileConflict:
-		return sessionv1.FileStatus_FILE_STATUS_CONFLICT
-	default:
-		return sessionv1.FileStatus_FILE_STATUS_UNSPECIFIED
-	}
-}
-
-// fileChangeToProto converts vc.FileChange to sessionv1.FileChange
-func fileChangeToProto(f vc.FileChange) *sessionv1.FileChange {
-	return &sessionv1.FileChange{
-		Path:     f.Path,
-		Status:   fileStatusToProto(f.Status),
-		IsStaged: f.IsStaged,
-		OldPath:  f.OldPath,
-	}
+	return s.workspaceSvc.GetVCSStatus(ctx, req)
 }
 
 // GetWorkspaceInfo retrieves VCS and workspace information for a session.
@@ -2522,61 +1836,7 @@ func (s *SessionService) GetWorkspaceInfo(
 	ctx context.Context,
 	req *connect.Request[sessionv1.GetWorkspaceInfoRequest],
 ) (*connect.Response[sessionv1.GetWorkspaceInfoResponse], error) {
-	if req.Msg.Id == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("session id is required"))
-	}
-
-	instances, err := s.loadInstancesWithWiring()
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to load instances: %w", err))
-	}
-
-	// Find instance by ID (using Title as ID)
-	var instance *session.Instance
-	for _, inst := range instances {
-		if inst.Title == req.Msg.Id {
-			instance = inst
-			break
-		}
-	}
-
-	if instance == nil {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("session not found: %s", req.Msg.Id))
-	}
-
-	// Get VCS info from the session
-	vcsInfo, err := instance.GetVCSInfo()
-	if err != nil {
-		return connect.NewResponse(&sessionv1.GetWorkspaceInfoResponse{
-			Error: err.Error(),
-		}), nil
-	}
-
-	// Convert to proto
-	protoVCSInfo := &sessionv1.VCSInfo{
-		RepoPath:              vcsInfo.RepoPath,
-		HasJj:                 vcsInfo.HasJJ,
-		HasGit:                vcsInfo.HasGit,
-		IsColocated:           vcsInfo.IsColocated,
-		CurrentBookmark:       vcsInfo.CurrentBookmark,
-		CurrentRevision:       vcsInfo.CurrentRevision,
-		HasUncommittedChanges: vcsInfo.HasUncommittedChanges,
-		ModifiedFileCount:     int32(vcsInfo.ModifiedFileCount),
-	}
-
-	// Set VCS type
-	switch vcsInfo.VCSType {
-	case "jj":
-		protoVCSInfo.VcsType = sessionv1.VCSType_VCS_TYPE_JUJUTSU
-	case "git":
-		protoVCSInfo.VcsType = sessionv1.VCSType_VCS_TYPE_GIT
-	default:
-		protoVCSInfo.VcsType = sessionv1.VCSType_VCS_TYPE_UNSPECIFIED
-	}
-
-	return connect.NewResponse(&sessionv1.GetWorkspaceInfoResponse{
-		VcsInfo: protoVCSInfo,
-	}), nil
+	return s.workspaceSvc.GetWorkspaceInfo(ctx, req)
 }
 
 // ListWorkspaceTargets returns available switch targets for a session.
@@ -2584,84 +1844,7 @@ func (s *SessionService) ListWorkspaceTargets(
 	ctx context.Context,
 	req *connect.Request[sessionv1.ListWorkspaceTargetsRequest],
 ) (*connect.Response[sessionv1.ListWorkspaceTargetsResponse], error) {
-	if req.Msg.Id == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("session id is required"))
-	}
-
-	instances, err := s.loadInstancesWithWiring()
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to load instances: %w", err))
-	}
-
-	// Find instance by ID (using Title as ID)
-	var instance *session.Instance
-	for _, inst := range instances {
-		if inst.Title == req.Msg.Id {
-			instance = inst
-			break
-		}
-	}
-
-	if instance == nil {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("session not found: %s", req.Msg.Id))
-	}
-
-	// Get available targets from the session
-	targets, err := instance.ListAvailableTargets()
-	if err != nil {
-		return connect.NewResponse(&sessionv1.ListWorkspaceTargetsResponse{
-			Error: err.Error(),
-		}), nil
-	}
-
-	// Convert to proto
-	protoTargets := &sessionv1.AvailableWorkspaceTargets{}
-
-	// Set VCS type
-	switch targets.VCSType {
-	case "jj":
-		protoTargets.VcsType = sessionv1.VCSType_VCS_TYPE_JUJUTSU
-	case "git":
-		protoTargets.VcsType = sessionv1.VCSType_VCS_TYPE_GIT
-	default:
-		protoTargets.VcsType = sessionv1.VCSType_VCS_TYPE_UNSPECIFIED
-	}
-
-	// Convert bookmarks
-	for _, b := range targets.Bookmarks {
-		protoTargets.Bookmarks = append(protoTargets.Bookmarks, &sessionv1.BookmarkTarget{
-			Name:       b.Name,
-			RevisionId: b.RevisionID,
-			IsRemote:   b.IsRemote,
-		})
-	}
-
-	// Convert recent revisions
-	for _, r := range targets.RecentRevisions {
-		protoTargets.RecentRevisions = append(protoTargets.RecentRevisions, &sessionv1.RevisionTarget{
-			Id:          r.ID,
-			ShortId:     r.ShortID,
-			Description: r.Description,
-			Author:      r.Author,
-			Timestamp:   timestamppb.New(r.Timestamp),
-			IsCurrent:   r.IsCurrent,
-		})
-	}
-
-	// Convert worktrees
-	for _, wt := range targets.Worktrees {
-		protoTargets.Worktrees = append(protoTargets.Worktrees, &sessionv1.WorktreeTarget{
-			Name:       wt.Name,
-			Path:       wt.Path,
-			Bookmark:   wt.Bookmark,
-			RevisionId: wt.RevisionID,
-			IsCurrent:  wt.IsCurrent,
-		})
-	}
-
-	return connect.NewResponse(&sessionv1.ListWorkspaceTargetsResponse{
-		Targets: protoTargets,
-	}), nil
+	return s.workspaceSvc.ListWorkspaceTargets(ctx, req)
 }
 
 // SwitchWorkspace switches a session's workspace to a different branch, revision, or worktree.
@@ -2669,104 +1852,5 @@ func (s *SessionService) SwitchWorkspace(
 	ctx context.Context,
 	req *connect.Request[sessionv1.SwitchWorkspaceRequest],
 ) (*connect.Response[sessionv1.SwitchWorkspaceResponse], error) {
-	if req.Msg.Id == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("session id is required"))
-	}
-
-	if req.Msg.Target == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("target is required"))
-	}
-
-	instances, err := s.loadInstancesWithWiring()
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to load instances: %w", err))
-	}
-
-	// Find instance by ID (using Title as ID)
-	var instance *session.Instance
-	for _, inst := range instances {
-		if inst.Title == req.Msg.Id {
-			instance = inst
-			break
-		}
-	}
-
-	if instance == nil {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("session not found: %s", req.Msg.Id))
-	}
-
-	// Convert proto types to session types
-	var switchType session.WorkspaceSwitchType
-	switch req.Msg.SwitchType {
-	case sessionv1.WorkspaceSwitchType_WORKSPACE_SWITCH_TYPE_DIRECTORY:
-		switchType = session.SwitchTypeDirectory
-	case sessionv1.WorkspaceSwitchType_WORKSPACE_SWITCH_TYPE_REVISION:
-		switchType = session.SwitchTypeRevision
-	case sessionv1.WorkspaceSwitchType_WORKSPACE_SWITCH_TYPE_WORKTREE:
-		switchType = session.SwitchTypeWorktree
-	default:
-		// Default to revision switch
-		switchType = session.SwitchTypeRevision
-	}
-
-	var changeStrategy vcs.ChangeStrategy
-	switch req.Msg.ChangeStrategy {
-	case sessionv1.ChangeStrategy_CHANGE_STRATEGY_KEEP_AS_WIP:
-		changeStrategy = vcs.KeepAsWIP
-	case sessionv1.ChangeStrategy_CHANGE_STRATEGY_BRING_ALONG:
-		changeStrategy = vcs.BringAlong
-	case sessionv1.ChangeStrategy_CHANGE_STRATEGY_ABANDON:
-		changeStrategy = vcs.Abandon
-	default:
-		changeStrategy = vcs.KeepAsWIP
-	}
-
-	// Create switch request
-	switchReq := session.WorkspaceSwitchRequest{
-		Type:            switchType,
-		Target:          req.Msg.Target,
-		ChangeStrategy:  changeStrategy,
-		CreateIfMissing: req.Msg.CreateIfMissing,
-		BaseRevision:    req.Msg.BaseRevision,
-	}
-
-	// Perform the switch
-	result, err := instance.SwitchWorkspace(switchReq)
-	if err != nil {
-		return connect.NewResponse(&sessionv1.SwitchWorkspaceResponse{
-			Success: false,
-			Message: err.Error(),
-		}), nil
-	}
-
-	// Convert VCS type to proto
-	var protoVCSType sessionv1.VCSType
-	switch result.VCSType {
-	case vcs.VCSTypeJJ:
-		protoVCSType = sessionv1.VCSType_VCS_TYPE_JUJUTSU
-	case vcs.VCSTypeGit:
-		protoVCSType = sessionv1.VCSType_VCS_TYPE_GIT
-	default:
-		protoVCSType = sessionv1.VCSType_VCS_TYPE_UNSPECIFIED
-	}
-
-	// Save updated instance
-	if err := s.storage.SaveInstances(instances); err != nil {
-		log.WarningLog.Printf("Failed to save instances after workspace switch: %v", err)
-	}
-
-	// Publish session updated event
-	if s.eventBus != nil {
-		s.eventBus.Publish(events.NewSessionUpdatedEvent(instance, []string{"workspace", "branch"}))
-	}
-
-	return connect.NewResponse(&sessionv1.SwitchWorkspaceResponse{
-		Success:          result.Success,
-		Message:          "Workspace switched successfully",
-		PreviousRevision: result.PreviousRevision,
-		CurrentRevision:  result.CurrentRevision,
-		VcsType:          protoVCSType,
-		ChangesHandled:   result.ChangesHandled,
-		Session:          adapters.InstanceToProto(instance),
-	}), nil
+	return s.workspaceSvc.SwitchWorkspace(ctx, req)
 }
