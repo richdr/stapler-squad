@@ -102,8 +102,8 @@ func (h *SessionHealthChecker) checkSingleSession(instance *Instance) HealthChec
 	}
 
 	// Check worktree existence for non-paused instances
-	if !instance.Paused() && instance.gitWorktree != nil {
-		worktreePath := instance.gitWorktree.GetWorktreePath()
+	if !instance.Paused() && instance.gitManager.worktree != nil {
+		worktreePath := instance.gitManager.worktree.GetWorktreePath()
 		if worktreePath != "" {
 			if _, err := os.Stat(worktreePath); os.IsNotExist(err) {
 				result.IsHealthy = false

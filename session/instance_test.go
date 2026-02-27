@@ -35,13 +35,15 @@ func TestFromInstanceDataWithMissingWorktree(t *testing.T) {
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 		Program:   "claude",
-		gitWorktree: git.NewGitWorktreeFromStorage(
-			"/path/to/repo",
-			worktreePath,
-			"Test Instance",
-			"test-branch",
-			"abcdef1234567890",
-		),
+		gitManager: GitWorktreeManager{
+			worktree: git.NewGitWorktreeFromStorage(
+				"/path/to/repo",
+				worktreePath,
+				"Test Instance",
+				"test-branch",
+				"abcdef1234567890",
+			),
+		},
 		started: true,
 	}
 
@@ -67,19 +69,21 @@ func TestFromInstanceDataWithMissingWorktree(t *testing.T) {
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 		Program:   "claude",
-		gitWorktree: git.NewGitWorktreeFromStorage(
-			"/path/to/repo",
-			worktreePath,
-			"Test Instance",
-			"test-branch",
-			"abcdef1234567890",
-		),
+		gitManager: GitWorktreeManager{
+			worktree: git.NewGitWorktreeFromStorage(
+				"/path/to/repo",
+				worktreePath,
+				"Test Instance",
+				"test-branch",
+				"abcdef1234567890",
+			),
+		},
 		started: true,
 	}
 
 	// Test 2: Apply our fix - check if worktree exists and update status
-	if !instance.Paused() && instance.gitWorktree != nil {
-		worktreePath := instance.gitWorktree.GetWorktreePath()
+	if !instance.Paused() && instance.gitManager.worktree != nil {
+		worktreePath := instance.gitManager.worktree.GetWorktreePath()
 		if _, err := os.Stat(worktreePath); os.IsNotExist(err) {
 			// Worktree has been deleted, mark instance as paused
 			instance.Status = Paused
