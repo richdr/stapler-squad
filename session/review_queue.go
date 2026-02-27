@@ -201,10 +201,10 @@ func (rq *ReviewQueue) getSortedItemsUnsafe() []*ReviewItem {
 		items = append(items, item)
 	}
 
-	// Sort by priority (lower number = higher priority), then by last activity time (most recent first)
+	// Sort by priority (higher priority first), then by last activity time (most recent first)
 	sort.Slice(items, func(i, j int) bool {
 		if items[i].Priority != items[j].Priority {
-			return items[i].Priority < items[j].Priority
+			return items[i].Priority.IsHigherThan(items[j].Priority)
 		}
 		// Sort by last activity - most recent activity first (After means j is older than i)
 		return items[i].LastActivity.After(items[j].LastActivity)
@@ -424,8 +424,8 @@ func DeterminePriority(reason AttentionReason, detectedStatus DetectedStatus, ag
 
 	// Age-based urgency increase (items waiting longer get higher priority)
 	if age > 30*time.Minute {
-		if basePriority > PriorityUrgent {
-			basePriority--
+		if basePriority.IsLowerThan(PriorityUrgent) {
+			basePriority-- // Decrement numeric value to increase urgency
 		}
 	}
 
@@ -468,6 +468,23 @@ func (r AttentionReason) String() string {
 	default:
 		return string(r)
 	}
+}
+
+// IsHigherThan returns true if p is higher priority than other.
+// Note: LOWER numeric value = HIGHER priority (Urgent=1, Low=4).
+func (p Priority) IsHigherThan(other Priority) bool {
+	return p < other
+}
+
+// IsLowerThan returns true if p is lower priority than other.
+// Note: HIGHER numeric value = LOWER priority (Urgent=1, Low=4).
+func (p Priority) IsLowerThan(other Priority) bool {
+	return p > other
+}
+
+// IsValid returns true if p is a defined priority level.
+func (p Priority) IsValid() bool {
+	return p >= PriorityUrgent && p <= PriorityLow
 }
 
 // String returns a human-readable description of the priority level.
