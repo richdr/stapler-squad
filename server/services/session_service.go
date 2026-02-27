@@ -40,10 +40,11 @@ type ReactiveQueueManager interface {
 type SessionService struct {
 	storage            *session.Storage
 	eventBus           *events.EventBus
-	reviewQueue        *session.ReviewQueue
 	statusManager      *session.InstanceStatusManager
 	reviewQueuePoller  *session.ReviewQueuePoller
-	reactiveQueueMgr   ReactiveQueueManager
+
+	// reviewQueueSvc owns review-queue state and handles the review-queue RPC methods.
+	reviewQueueSvc *ReviewQueueService
 
 	// External session discovery (for mux-enabled sessions from external terminals)
 	externalDiscovery *session.ExternalSessionDiscovery
@@ -86,10 +87,12 @@ func NewSessionService(storage *session.Storage, eventBus *events.EventBus) *Ses
 		}
 	}
 
+	reviewQueueSvc := NewReviewQueueService(reviewQueue, storage, eventBus)
+
 	return &SessionService{
 		storage:                 storage,
 		eventBus:                eventBus,
-		reviewQueue:             reviewQueue,
+		reviewQueueSvc:          reviewQueueSvc,
 		historyCacheTTL:         5 * time.Minute, // Cache history for 5 minutes
 		searchEngine:            searchEngine,
 		snippetGenerator:        session.NewSnippetGenerator(),
@@ -107,7 +110,7 @@ func (s *SessionService) loadInstancesWithWiring() ([]*session.Instance, error) 
 
 	// Wire up dependencies on loaded instances
 	for _, inst := range instances {
-		inst.SetReviewQueue(s.reviewQueue)
+		inst.SetReviewQueue(s.reviewQueueSvc.GetQueue())
 		if s.statusManager != nil {
 			inst.SetStatusManager(s.statusManager)
 		}
@@ -164,13 +167,13 @@ func (s *SessionService) GetEventBus() *events.EventBus {
 
 // GetReviewQueueInstance returns the review queue instance for wiring up reactive components.
 func (s *SessionService) GetReviewQueueInstance() *session.ReviewQueue {
-	return s.reviewQueue
+	return s.reviewQueueSvc.GetQueue()
 }
 
 // SetReactiveQueueManager sets the ReactiveQueueManager (dependency injection).
 // This must be called before WatchReviewQueue is used.
 func (s *SessionService) SetReactiveQueueManager(mgr ReactiveQueueManager) {
-	s.reactiveQueueMgr = mgr
+	s.reviewQueueSvc.SetReactiveQueueManager(mgr)
 }
 
 // SetExternalDiscovery sets the external session discovery for accessing mux-enabled sessions.
@@ -982,49 +985,11 @@ func (s *SessionService) GetSessionDiff(
 }
 
 // GetReviewQueue returns sessions needing user attention with priority ordering.
-// Uses the global stateful queue managed by ReviewQueuePoller, with optional filtering.
 func (s *SessionService) GetReviewQueue(
 	ctx context.Context,
 	req *connect.Request[sessionv1.GetReviewQueueRequest],
 ) (*connect.Response[sessionv1.GetReviewQueueResponse], error) {
-	// Use global stateful queue managed by ReviewQueuePoller
-	// This ensures dismissals persist and DetectedAt timestamps are preserved
-	allItems := s.reviewQueue.List()
-
-	// Apply filters from request if specified
-	filteredItems := make([]*session.ReviewItem, 0, len(allItems))
-	for _, item := range allItems {
-		// Apply priority filter if specified
-		if req.Msg.PriorityFilter != nil {
-			targetPriority := adapters.ProtoToPriority(*req.Msg.PriorityFilter)
-			if item.Priority != targetPriority {
-				continue
-			}
-		}
-
-		// Apply reason filter if specified
-		if req.Msg.ReasonFilter != nil {
-			targetReason := adapters.ProtoToAttentionReason(*req.Msg.ReasonFilter)
-			if item.Reason != targetReason {
-				continue
-			}
-		}
-
-		filteredItems = append(filteredItems, item)
-	}
-
-	// Create temporary queue for proto conversion
-	queue := session.NewReviewQueue()
-	for _, item := range filteredItems {
-		queue.Add(item)
-	}
-
-	// Convert to proto using adapters
-	protoQueue := adapters.ReviewQueueToProto(queue)
-
-	return connect.NewResponse(&sessionv1.GetReviewQueueResponse{
-		ReviewQueue: protoQueue,
-	}), nil
+	return s.reviewQueueSvc.GetReviewQueue(ctx, req)
 }
 
 // AcknowledgeSession marks a session as acknowledged in the review queue.
@@ -1033,60 +998,7 @@ func (s *SessionService) AcknowledgeSession(
 	ctx context.Context,
 	req *connect.Request[sessionv1.AcknowledgeSessionRequest],
 ) (*connect.Response[sessionv1.AcknowledgeSessionResponse], error) {
-	if req.Msg.Id == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("session id is required"))
-	}
-
-	instances, err := s.storage.LoadInstances()
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to load instances: %w", err))
-	}
-
-	// Find the instance to acknowledge
-	var instance *session.Instance
-	var instanceIndex int
-	for i, inst := range instances {
-		if inst.Title == req.Msg.Id {
-			instance = inst
-			instanceIndex = i
-			break
-		}
-	}
-
-	if instance == nil {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("session not found: %s", req.Msg.Id))
-	}
-
-	// Set the acknowledgment timestamp to now
-	instance.LastAcknowledged = time.Now()
-
-	// Update the instance in the list and save
-	instances[instanceIndex] = instance
-	if err := s.storage.SaveInstances(instances); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to save instance: %w", err))
-	}
-
-	// CRITICAL: Update the ReviewQueuePoller's instance references
-	// When we LoadInstances() above, we create brand new instance objects.
-	// The poller still has references to the OLD objects from initialization.
-	// If we don't update the poller's references, it will continue checking
-	// stale objects with outdated LastAddedToQueue timestamps, causing
-	// notification spam even after the user acknowledges sessions.
-	if s.reviewQueuePoller != nil {
-		s.reviewQueuePoller.SetInstances(instances)
-		log.InfoLog.Printf("[ReviewQueue] Updated poller instance references after AcknowledgeSession for '%s'", instance.Title)
-	}
-
-	// Publish event for immediate reactivity
-	s.eventBus.Publish(events.NewSessionAcknowledgedEvent(
-		instance.Title,
-		"user_acknowledged",
-	))
-
-	return connect.NewResponse(&sessionv1.AcknowledgeSessionResponse{
-		Success: true,
-		Message: fmt.Sprintf("Session '%s' acknowledged and removed from review queue", req.Msg.Id),
-	}), nil
+	return s.reviewQueueSvc.AcknowledgeSession(ctx, req)
 }
 
 // GetLogs retrieves application logs with optional filtering and search.
@@ -1303,37 +1215,7 @@ func (s *SessionService) WatchReviewQueue(
 	req *connect.Request[sessionv1.WatchReviewQueueRequest],
 	stream *connect.ServerStream[sessionv1.ReviewQueueEvent],
 ) error {
-	if s.reactiveQueueMgr == nil {
-		return connect.NewError(connect.CodeInternal, fmt.Errorf("reactive queue manager not initialized"))
-	}
-
-	// Convert proto filters to internal type
-	filters := &WatchReviewQueueFilters{
-		PriorityFilter:    convertProtoPriorities(req.Msg.PriorityFilter),
-		ReasonFilter:      convertProtoReasons(req.Msg.ReasonFilter),
-		SessionIDs:        req.Msg.SessionIds,
-		IncludeStatistics: req.Msg.IncludeStatistics,
-		InitialSnapshot:   req.Msg.InitialSnapshot,
-	}
-
-	// Subscribe to queue events
-	eventCh, clientID := s.reactiveQueueMgr.AddStreamClient(ctx, filters)
-	defer s.reactiveQueueMgr.RemoveStreamClient(clientID)
-
-	// Stream events
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case event, ok := <-eventCh:
-			if !ok {
-				return nil // Channel closed
-			}
-			if err := stream.Send(event); err != nil {
-				return err
-			}
-		}
-	}
+	return s.reviewQueueSvc.WatchReviewQueue(ctx, req, stream)
 }
 
 // convertProtoPriorities converts proto Priority values to internal session.Priority
@@ -1399,63 +1281,11 @@ func formatDuration(d time.Duration) string {
 }
 
 // LogUserInteraction logs a user interaction event for audit trail and analytics.
-// This method records user actions for compliance, debugging, and product insights.
 func (s *SessionService) LogUserInteraction(
 	ctx context.Context,
 	req *connect.Request[sessionv1.LogUserInteractionRequest],
 ) (*connect.Response[sessionv1.LogUserInteractionResponse], error) {
-	// Extract request data
-	sessionID := ""
-	if req.Msg.SessionId != nil {
-		sessionID = *req.Msg.SessionId
-	}
-	interactionType := req.Msg.InteractionType
-	context := ""
-	if req.Msg.Context != nil {
-		context = *req.Msg.Context
-	}
-	notificationID := ""
-	if req.Msg.NotificationId != nil {
-		notificationID = *req.Msg.NotificationId
-	}
-
-	// Build structured log entry
-	fields := map[string]interface{}{
-		"interaction_type": interactionType.String(),
-		"timestamp":        time.Now().Format(time.RFC3339),
-	}
-
-	if sessionID != "" {
-		fields["session_id"] = sessionID
-	}
-	if context != "" {
-		fields["context"] = context
-	}
-	if notificationID != "" {
-		fields["notification_id"] = notificationID
-	}
-
-	// Add metadata if provided
-	if req.Msg.Metadata != nil && len(req.Msg.Metadata) > 0 {
-		for key, value := range req.Msg.Metadata {
-			fields["meta_"+key] = value
-		}
-	}
-
-	// Log the interaction using structured logging
-	log.InfoS("User Interaction", fields)
-
-	// Optionally emit event to event bus for real-time processing
-	if s.eventBus != nil {
-		// Use internal event type for event bus
-		event := events.NewUserInteractionEvent(sessionID, interactionType.String(), context)
-		s.eventBus.Publish(event)
-	}
-
-	// Return success response
-	return connect.NewResponse(&sessionv1.LogUserInteractionResponse{
-		Success: true,
-	}), nil
+	return s.reviewQueueSvc.LogUserInteraction(ctx, req)
 }
 
 // GetClaudeConfig retrieves a Claude configuration file by name
