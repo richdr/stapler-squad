@@ -1134,7 +1134,12 @@ func sendEndStreamSuccess(stream *connectWebSocketStream) {
 
 	envelope := protocol.CreateEnvelope(protocol.EndStreamFlag, dataBytes)
 	if err := stream.WriteMessage(websocket.BinaryMessage, envelope); err != nil {
-		log.ErrorLog.Printf("Failed to send EndStreamSuccess: %v", err)
+		// "close sent" means the WebSocket was already closing — benign race on disconnect.
+		if strings.Contains(err.Error(), "close sent") {
+			log.InfoLog.Printf("EndStreamSuccess skipped — websocket already closing")
+		} else {
+			log.ErrorLog.Printf("Failed to send EndStreamSuccess: %v", err)
+		}
 	}
 }
 

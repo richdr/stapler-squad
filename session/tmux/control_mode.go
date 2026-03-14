@@ -144,11 +144,12 @@ func (t *TmuxSession) StopControlMode() error {
 //   %session-changed $13 session-name
 //   %exit
 func (t *TmuxSession) readControlModeOutput() {
+	doneCh := t.controlModeDone // capture before StopControlMode can nil it
 	scanner := bufio.NewScanner(t.controlModeStdout)
 
 	for scanner.Scan() {
 		select {
-		case <-t.controlModeDone:
+		case <-doneCh:
 			return
 		default:
 			line := scanner.Text()
@@ -157,7 +158,14 @@ func (t *TmuxSession) readControlModeOutput() {
 	}
 
 	if err := scanner.Err(); err != nil && err != io.EOF {
-		log.ErrorLog.Printf("Control mode output scanner error for session '%s': %v", t.sanitizedName, err)
+		// StopControlMode closes the stdout pipe during shutdown, which produces
+		// "file already closed" instead of a clean EOF. Suppress it when expected.
+		select {
+		case <-doneCh:
+			// Shutdown was initiated — pipe closure is expected, not an error.
+		default:
+			log.ErrorLog.Printf("Control mode output scanner error for session '%s': %v", t.sanitizedName, err)
+		}
 	}
 
 	log.InfoLog.Printf("Control mode output reader finished for session '%s'", t.sanitizedName)
