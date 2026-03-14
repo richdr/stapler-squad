@@ -15,6 +15,7 @@ package services
 import (
 	"claude-squad/server/events"
 	"claude-squad/session"
+	"claude-squad/session/detection"
 	"fmt"
 	"net/http"
 )
@@ -49,13 +50,13 @@ func NewExternalWebSocketHandler(
 func (h *ExternalWebSocketHandler) HandleApprovals(w http.ResponseWriter, r *http.Request) {
 	socketPath := r.URL.Query().Get("socket_path")
 
-	var pending map[string][]*session.ApprovalRequest
+	var pending map[string][]*detection.ApprovalRequest
 
 	if socketPath != "" {
 		// Get approvals for specific session
 		approvals := h.approvalMonitor.GetPendingApprovals(socketPath)
 		if approvals != nil {
-			pending = map[string][]*session.ApprovalRequest{socketPath: approvals}
+			pending = map[string][]*detection.ApprovalRequest{socketPath: approvals}
 		}
 	} else {
 		// Get all pending approvals

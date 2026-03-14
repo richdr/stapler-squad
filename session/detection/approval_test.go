@@ -1,4 +1,4 @@
-package session
+package detection
 
 import (
 	"fmt"
@@ -187,12 +187,7 @@ Just normal text`
 func TestApprovalDetector_DetectInChunk(t *testing.T) {
 	detector := NewApprovalDetector()
 
-	chunk := ResponseChunk{
-		Data:      []byte(`Should I run the command: "test"?`),
-		Timestamp: time.Now(),
-	}
-
-	request := detector.DetectInChunk(chunk)
+	request := detector.DetectInChunk([]byte(`Should I run the command: "test"?`), nil)
 
 	if request == nil {
 		t.Fatal("DetectInChunk() should detect approval request")
@@ -202,13 +197,7 @@ func TestApprovalDetector_DetectInChunk(t *testing.T) {
 func TestApprovalDetector_DetectInChunkWithError(t *testing.T) {
 	detector := NewApprovalDetector()
 
-	chunk := ResponseChunk{
-		Data:      []byte(`Should I run the command: "test"?`),
-		Timestamp: time.Now(),
-		Error:     fmt.Errorf("error occurred"),
-	}
-
-	request := detector.DetectInChunk(chunk)
+	request := detector.DetectInChunk([]byte(`Should I run the command: "test"?`), fmt.Errorf("error occurred"))
 
 	if request != nil {
 		t.Error("DetectInChunk() should not detect when there's an error")

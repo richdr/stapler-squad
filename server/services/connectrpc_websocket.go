@@ -350,10 +350,14 @@ func (h *ConnectRPCWebSocketHandler) streamViaControlMode(stream *connectWebSock
 		log.WarningLog.Printf("[streamViaControlMode] Handshake missing dimensions, layout may be incorrect")
 	}
 
-	// Now capture content at correct dimensions
+	// Now capture content at correct dimensions.
+	// If capture fails (session died), proceed with empty content rather than trying
+	// to restart — automatic restarts can create reconnection loops when the session
+	// exits immediately (e.g. no API proxy running).
 	initialContent, err := instance.CapturePaneContentRaw()
 	if err != nil {
-		return fmt.Errorf("failed to capture initial pane content: %w", err)
+		log.InfoLog.Printf("[streamViaControlMode] capture-pane failed for '%s', proceeding with empty content: %v", sessionID, err)
+		initialContent = ""
 	}
 
 	if initialContent != "" {

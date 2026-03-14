@@ -1,5 +1,7 @@
 package session
 
+import "claude-squad/session/detection"
+
 // status_mapping.go documents the relationship between the three status types:
 //
 //   - Status:         lifecycle state of an Instance (Running, Ready, Paused, NeedsApproval, Loading)
@@ -12,22 +14,22 @@ package session
 // AttentionReasonFromDetected maps a DetectedStatus to the AttentionReason that should be
 // used when adding the session to the review queue.  Returns the zero AttentionReason
 // (empty string) when no attention is needed for that status.
-func AttentionReasonFromDetected(detected DetectedStatus) AttentionReason {
+func AttentionReasonFromDetected(detected detection.DetectedStatus) AttentionReason {
 	switch detected {
-	case StatusNeedsApproval:
+	case detection.StatusNeedsApproval:
 		return ReasonApprovalPending
-	case StatusInputRequired:
+	case detection.StatusInputRequired:
 		return ReasonInputRequired
-	case StatusError:
+	case detection.StatusError:
 		return ReasonErrorState
-	case StatusTestsFailing:
+	case detection.StatusTestsFailing:
 		return ReasonTestsFailing
-	case StatusSuccess:
+	case detection.StatusSuccess:
 		return ReasonTaskComplete
-	case StatusIdle:
+	case detection.StatusIdle:
 		return ReasonIdle
 	// Active/processing states do not require attention.
-	case StatusActive, StatusProcessing, StatusReady, StatusUnknown:
+	case detection.StatusActive, detection.StatusProcessing, detection.StatusReady, detection.StatusUnknown:
 		return ""
 	default:
 		return ""
@@ -43,15 +45,15 @@ func AttentionReasonFromDetected(detected DetectedStatus) AttentionReason {
 //     is still executing; only the output signals a problem.
 //   - NeedsApproval and InputRequired both map to NeedsApproval because both mean
 //     "the instance is blocked, waiting for the user".
-func StatusFromDetected(detected DetectedStatus) Status {
+func StatusFromDetected(detected detection.DetectedStatus) Status {
 	switch detected {
-	case StatusReady, StatusIdle, StatusSuccess:
+	case detection.StatusReady, detection.StatusIdle, detection.StatusSuccess:
 		return Ready
-	case StatusProcessing, StatusActive:
+	case detection.StatusProcessing, detection.StatusActive:
 		return Running
-	case StatusNeedsApproval, StatusInputRequired:
+	case detection.StatusNeedsApproval, detection.StatusInputRequired:
 		return NeedsApproval
-	case StatusError, StatusTestsFailing:
+	case detection.StatusError, detection.StatusTestsFailing:
 		// Error/test-failure at the lifecycle level is still Running —
 		// the instance process has not exited.
 		return Running

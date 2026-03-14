@@ -1,6 +1,7 @@
 package session
 
 import (
+	"claude-squad/session/detection"
 	"claude-squad/session/tmux"
 	"testing"
 	"time"
@@ -200,7 +201,7 @@ func TestClaudeController_SetExecutionOptions(t *testing.T) {
 		Timeout:             30 * time.Second,
 		MaxOutputSize:       4096,
 		StatusCheckInterval: 500 * time.Millisecond,
-		TerminalStatuses:    []DetectedStatus{StatusReady},
+		TerminalStatuses:    []detection.DetectedStatus{detection.StatusReady},
 	}
 
 	controller.SetExecutionOptions(newOpts)
@@ -268,7 +269,7 @@ func TestClaudeController_GetCurrentStatusWithoutInit(t *testing.T) {
 	}
 
 	status, context := controller.GetCurrentStatus()
-	if status != StatusUnknown {
+	if status != detection.StatusUnknown {
 		t.Errorf("Status = %v, expected StatusUnknown", status)
 	}
 

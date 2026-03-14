@@ -5,6 +5,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"claude-squad/session/detection"
 )
 
 func TestNewCommandExecutor(t *testing.T) {
@@ -18,7 +20,7 @@ func TestNewCommandExecutor(t *testing.T) {
 	buffer := NewCircularBuffer(1024)
 	ptyAccess := NewPTYAccess("test-session", reader, buffer)
 	responseStream := NewResponseStream("test-session", ptyAccess)
-	statusDetector := NewStatusDetector()
+	statusDetector := detection.NewStatusDetector()
 	queue := NewCommandQueue("test-session")
 
 	executor := NewCommandExecutor("test-session", ptyAccess, responseStream, statusDetector, queue)
@@ -47,14 +49,14 @@ func TestNewCommandExecutorWithOptions(t *testing.T) {
 	buffer := NewCircularBuffer(1024)
 	ptyAccess := NewPTYAccess("test-session", reader, buffer)
 	responseStream := NewResponseStream("test-session", ptyAccess)
-	statusDetector := NewStatusDetector()
+	statusDetector := detection.NewStatusDetector()
 	queue := NewCommandQueue("test-session")
 
 	customOptions := ExecutionOptions{
 		Timeout:             10 * time.Second,
 		MaxOutputSize:       2048,
 		StatusCheckInterval: 200 * time.Millisecond,
-		TerminalStatuses:    []DetectedStatus{StatusReady},
+		TerminalStatuses:    []detection.DetectedStatus{detection.StatusReady},
 	}
 
 	executor := NewCommandExecutorWithOptions("test-session", ptyAccess, responseStream, statusDetector, queue, customOptions)
@@ -79,7 +81,7 @@ func TestCommandExecutor_StartAndStop(t *testing.T) {
 	buffer := NewCircularBuffer(1024)
 	ptyAccess := NewPTYAccess("test-session", reader, buffer)
 	responseStream := NewResponseStream("test-session", ptyAccess)
-	statusDetector := NewStatusDetector()
+	statusDetector := detection.NewStatusDetector()
 	queue := NewCommandQueue("test-session")
 
 	executor := NewCommandExecutor("test-session", ptyAccess, responseStream, statusDetector, queue)
@@ -124,7 +126,7 @@ func TestCommandExecutor_DoubleStart(t *testing.T) {
 	buffer := NewCircularBuffer(1024)
 	ptyAccess := NewPTYAccess("test-session", reader, buffer)
 	responseStream := NewResponseStream("test-session", ptyAccess)
-	statusDetector := NewStatusDetector()
+	statusDetector := detection.NewStatusDetector()
 	queue := NewCommandQueue("test-session")
 
 	executor := NewCommandExecutor("test-session", ptyAccess, responseStream, statusDetector, queue)
@@ -156,7 +158,7 @@ func TestCommandExecutor_ExecuteSimpleCommand(t *testing.T) {
 	buffer := NewCircularBuffer(1024)
 	ptyAccess := NewPTYAccess("test-session", reader, buffer)
 	responseStream := NewResponseStream("test-session", ptyAccess)
-	statusDetector := NewStatusDetector()
+	statusDetector := detection.NewStatusDetector()
 	queue := NewCommandQueue("test-session")
 
 	// Use shorter timeout for testing
@@ -223,7 +225,7 @@ func TestCommandExecutor_GetCurrentCommand(t *testing.T) {
 	buffer := NewCircularBuffer(1024)
 	ptyAccess := NewPTYAccess("test-session", reader, buffer)
 	responseStream := NewResponseStream("test-session", ptyAccess)
-	statusDetector := NewStatusDetector()
+	statusDetector := detection.NewStatusDetector()
 	queue := NewCommandQueue("test-session")
 
 	executor := NewCommandExecutor("test-session", ptyAccess, responseStream, statusDetector, queue)
@@ -245,7 +247,7 @@ func TestCommandExecutor_SetResultCallback(t *testing.T) {
 	buffer := NewCircularBuffer(1024)
 	ptyAccess := NewPTYAccess("test-session", reader, buffer)
 	responseStream := NewResponseStream("test-session", ptyAccess)
-	statusDetector := NewStatusDetector()
+	statusDetector := detection.NewStatusDetector()
 	queue := NewCommandQueue("test-session")
 
 	executor := NewCommandExecutor("test-session", ptyAccess, responseStream, statusDetector, queue)
@@ -272,7 +274,7 @@ func TestCommandExecutor_SetOptions(t *testing.T) {
 	buffer := NewCircularBuffer(1024)
 	ptyAccess := NewPTYAccess("test-session", reader, buffer)
 	responseStream := NewResponseStream("test-session", ptyAccess)
-	statusDetector := NewStatusDetector()
+	statusDetector := detection.NewStatusDetector()
 	queue := NewCommandQueue("test-session")
 
 	executor := NewCommandExecutor("test-session", ptyAccess, responseStream, statusDetector, queue)
@@ -281,7 +283,7 @@ func TestCommandExecutor_SetOptions(t *testing.T) {
 		Timeout:             30 * time.Second,
 		MaxOutputSize:       4096,
 		StatusCheckInterval: 500 * time.Millisecond,
-		TerminalStatuses:    []DetectedStatus{StatusReady, StatusError},
+		TerminalStatuses:    []detection.DetectedStatus{detection.StatusReady, detection.StatusError},
 	}
 
 	executor.SetOptions(newOptions)
@@ -303,7 +305,7 @@ func TestCommandExecutor_ExecuteImmediate(t *testing.T) {
 	buffer := NewCircularBuffer(1024)
 	ptyAccess := NewPTYAccess("test-session", reader, buffer)
 	responseStream := NewResponseStream("test-session", ptyAccess)
-	statusDetector := NewStatusDetector()
+	statusDetector := detection.NewStatusDetector()
 	queue := NewCommandQueue("test-session")
 
 	options := DefaultExecutionOptions()
@@ -356,7 +358,7 @@ func TestCommandExecutor_ExecuteImmediateNotStarted(t *testing.T) {
 	buffer := NewCircularBuffer(1024)
 	ptyAccess := NewPTYAccess("test-session", reader, buffer)
 	responseStream := NewResponseStream("test-session", ptyAccess)
-	statusDetector := NewStatusDetector()
+	statusDetector := detection.NewStatusDetector()
 	queue := NewCommandQueue("test-session")
 
 	executor := NewCommandExecutor("test-session", ptyAccess, responseStream, statusDetector, queue)
@@ -380,7 +382,7 @@ func TestCommandExecutor_Timeout(t *testing.T) {
 	buffer := NewCircularBuffer(1024)
 	ptyAccess := NewPTYAccess("test-session", reader, buffer)
 	responseStream := NewResponseStream("test-session", ptyAccess)
-	statusDetector := NewStatusDetector()
+	statusDetector := detection.NewStatusDetector()
 	queue := NewCommandQueue("test-session")
 
 	// Very short timeout
@@ -443,7 +445,7 @@ func TestCommandExecutor_GetSessionName(t *testing.T) {
 	buffer := NewCircularBuffer(1024)
 	ptyAccess := NewPTYAccess("test-session", reader, buffer)
 	responseStream := NewResponseStream("test-session", ptyAccess)
-	statusDetector := NewStatusDetector()
+	statusDetector := detection.NewStatusDetector()
 	queue := NewCommandQueue("test-session")
 
 	executor := NewCommandExecutor("test-session", ptyAccess, responseStream, statusDetector, queue)
@@ -484,7 +486,7 @@ func TestCommandExecutor_StopWithoutStart(t *testing.T) {
 	buffer := NewCircularBuffer(1024)
 	ptyAccess := NewPTYAccess("test-session", reader, buffer)
 	responseStream := NewResponseStream("test-session", ptyAccess)
-	statusDetector := NewStatusDetector()
+	statusDetector := detection.NewStatusDetector()
 	queue := NewCommandQueue("test-session")
 
 	executor := NewCommandExecutor("test-session", ptyAccess, responseStream, statusDetector, queue)
@@ -506,7 +508,7 @@ func TestCommandExecutor_StatusDetection(t *testing.T) {
 	buffer := NewCircularBuffer(1024)
 	ptyAccess := NewPTYAccess("test-session", reader, buffer)
 	responseStream := NewResponseStream("test-session", ptyAccess)
-	statusDetector := NewStatusDetector()
+	statusDetector := detection.NewStatusDetector()
 	queue := NewCommandQueue("test-session")
 
 	options := DefaultExecutionOptions()
@@ -570,7 +572,7 @@ func TestCommandExecutor_NilResponseStream(t *testing.T) {
 
 	buffer := NewCircularBuffer(1024)
 	ptyAccess := NewPTYAccess("test-session", reader, buffer)
-	statusDetector := NewStatusDetector()
+	statusDetector := detection.NewStatusDetector()
 	queue := NewCommandQueue("test-session")
 
 	executor := NewCommandExecutor("test-session", ptyAccess, nil, statusDetector, queue)
@@ -593,7 +595,7 @@ func TestCommandExecutor_ContextCancellation(t *testing.T) {
 	buffer := NewCircularBuffer(1024)
 	ptyAccess := NewPTYAccess("test-session", reader, buffer)
 	responseStream := NewResponseStream("test-session", ptyAccess)
-	statusDetector := NewStatusDetector()
+	statusDetector := detection.NewStatusDetector()
 	queue := NewCommandQueue("test-session")
 
 	executor := NewCommandExecutor("test-session", ptyAccess, responseStream, statusDetector, queue)
@@ -626,7 +628,7 @@ func Benchmark_CommandExecutor_Execution(b *testing.B) {
 	buffer := NewCircularBuffer(1024)
 	ptyAccess := NewPTYAccess("test-session", reader, buffer)
 	responseStream := NewResponseStream("test-session", ptyAccess)
-	statusDetector := NewStatusDetector()
+	statusDetector := detection.NewStatusDetector()
 	queue := NewCommandQueue("test-session")
 
 	options := DefaultExecutionOptions()

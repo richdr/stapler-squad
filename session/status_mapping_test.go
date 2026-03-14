@@ -1,24 +1,28 @@
 package session
 
-import "testing"
+import (
+	"testing"
+
+	"claude-squad/session/detection"
+)
 
 // TestAttentionReasonFromDetected verifies every DetectedStatus maps to the expected reason.
 func TestAttentionReasonFromDetected(t *testing.T) {
 	tests := []struct {
-		detected DetectedStatus
+		detected detection.DetectedStatus
 		want     AttentionReason
 	}{
-		{StatusNeedsApproval, ReasonApprovalPending},
-		{StatusInputRequired, ReasonInputRequired},
-		{StatusError, ReasonErrorState},
-		{StatusTestsFailing, ReasonTestsFailing},
-		{StatusSuccess, ReasonTaskComplete},
-		{StatusIdle, ReasonIdle},
+		{detection.StatusNeedsApproval, ReasonApprovalPending},
+		{detection.StatusInputRequired, ReasonInputRequired},
+		{detection.StatusError, ReasonErrorState},
+		{detection.StatusTestsFailing, ReasonTestsFailing},
+		{detection.StatusSuccess, ReasonTaskComplete},
+		{detection.StatusIdle, ReasonIdle},
 		// States that do not require attention
-		{StatusActive, ""},
-		{StatusProcessing, ""},
-		{StatusReady, ""},
-		{StatusUnknown, ""},
+		{detection.StatusActive, ""},
+		{detection.StatusProcessing, ""},
+		{detection.StatusReady, ""},
+		{detection.StatusUnknown, ""},
 	}
 
 	for _, tt := range tests {
@@ -35,20 +39,20 @@ func TestAttentionReasonFromDetected(t *testing.T) {
 // TestStatusFromDetected verifies every DetectedStatus maps to the expected lifecycle Status.
 func TestStatusFromDetected(t *testing.T) {
 	tests := []struct {
-		detected DetectedStatus
+		detected detection.DetectedStatus
 		want     Status
 	}{
-		{StatusReady, Ready},
-		{StatusIdle, Ready},
-		{StatusSuccess, Ready},
-		{StatusProcessing, Running},
-		{StatusActive, Running},
-		{StatusNeedsApproval, NeedsApproval},
-		{StatusInputRequired, NeedsApproval},
+		{detection.StatusReady, Ready},
+		{detection.StatusIdle, Ready},
+		{detection.StatusSuccess, Ready},
+		{detection.StatusProcessing, Running},
+		{detection.StatusActive, Running},
+		{detection.StatusNeedsApproval, NeedsApproval},
+		{detection.StatusInputRequired, NeedsApproval},
 		// Error states keep Running at lifecycle level
-		{StatusError, Running},
-		{StatusTestsFailing, Running},
-		{StatusUnknown, Running},
+		{detection.StatusError, Running},
+		{detection.StatusTestsFailing, Running},
+		{detection.StatusUnknown, Running},
 	}
 
 	for _, tt := range tests {

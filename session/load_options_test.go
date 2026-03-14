@@ -9,34 +9,36 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestSelectiveLoading verifies that LoadOptions correctly control what data is loaded
+// TestGetWithOptions verifies that GetWithOptions loads session data correctly.
+// EntRepository always loads all data regardless of LoadOptions.
 func TestSelectiveLoading(t *testing.T) {
-	// Create temporary database
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
 
-	repo, err := NewSQLiteRepository(WithDatabasePath(dbPath))
+	repo, err := NewEntRepository(WithDatabasePath(dbPath))
 	require.NoError(t, err)
 	defer repo.Close()
 
 	ctx := context.Background()
 
-	// Create a test session with all data
 	testData := InstanceData{
 		Title:      "test-session",
 		Path:       "/tmp/test",
 		WorkingDir: "/tmp/test",
 		Branch:     "main",
 		Status:     Ready,
+		Program:    "claude",
 		Worktree: GitWorktreeData{
-			RepoPath:     "/tmp/repo",
-			WorktreePath: "/tmp/worktree",
-			BranchName:   "feature",
+			RepoPath:      "/tmp/repo",
+			WorktreePath:  "/tmp/worktree",
+			SessionName:   "test-session",
+			BranchName:    "feature",
+			BaseCommitSHA: "abc123",
 		},
 		DiffStats: DiffStatsData{
 			Added:   100,
 			Removed: 50,
-			Content: "This is a very large diff content that should not be loaded with LoadMinimal or LoadSummary",
+			Content: "diff content for test",
 		},
 		Tags: []string{"Frontend", "Urgent"},
 		ClaudeSession: ClaudeSessionData{
@@ -49,103 +51,44 @@ func TestSelectiveLoading(t *testing.T) {
 	err = repo.Create(ctx, testData)
 	require.NoError(t, err)
 
-	// Test LoadMinimal - should load only core fields
-	t.Run("LoadMinimal", func(t *testing.T) {
-		session, err := repo.GetWithOptions(ctx, "test-session", LoadMinimal)
-		require.NoError(t, err)
+	// EntRepository always loads full data regardless of LoadOptions
+	for _, tc := range []struct {
+		name string
+		opts LoadOptions
+	}{
+		{"LoadMinimal", LoadMinimal},
+		{"LoadSummary", LoadSummary},
+		{"LoadFull", LoadFull},
+		{"LoadDiffOnly", LoadDiffOnly},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			session, err := repo.GetWithOptions(ctx, "test-session", tc.opts)
+			require.NoError(t, err)
 
+			assert.Equal(t, "test-session", session.Title)
+			assert.Equal(t, "/tmp/test", session.Path)
+			assert.Equal(t, Ready, session.Status)
+			assert.Equal(t, "/tmp/repo", session.Worktree.RepoPath)
+			assert.Equal(t, 100, session.DiffStats.Added)
+			assert.ElementsMatch(t, []string{"Frontend", "Urgent"}, session.Tags)
+			assert.Equal(t, "claude-123", session.ClaudeSession.SessionID)
+		})
+	}
+
+	// Verify Get and List also return correct data
+	t.Run("Get returns full data", func(t *testing.T) {
+		session, err := repo.Get(ctx, "test-session")
+		require.NoError(t, err)
 		assert.Equal(t, "test-session", session.Title)
-		assert.Equal(t, "/tmp/test", session.Path)
-		assert.Equal(t, Ready, session.Status)
-
-		// Should NOT load child data
-		assert.Empty(t, session.Worktree.RepoPath, "LoadMinimal should not load worktree")
-		assert.Zero(t, session.DiffStats.Added, "LoadMinimal should not load diff stats")
-		assert.Empty(t, session.DiffStats.Content, "LoadMinimal should not load diff content")
-		assert.Empty(t, session.Tags, "LoadMinimal should not load tags")
-		assert.Empty(t, session.ClaudeSession.SessionID, "LoadMinimal should not load Claude session")
-	})
-
-	// Test LoadSummary - should load everything except diff content
-	t.Run("LoadSummary", func(t *testing.T) {
-		session, err := repo.GetWithOptions(ctx, "test-session", LoadSummary)
-		require.NoError(t, err)
-
-		assert.Equal(t, "test-session", session.Title)
-
-		// Should load worktree
-		assert.Equal(t, "/tmp/repo", session.Worktree.RepoPath)
-		assert.Equal(t, "feature", session.Worktree.BranchName)
-
-		// Should load diff stats (counts only)
 		assert.Equal(t, 100, session.DiffStats.Added)
-		assert.Equal(t, 50, session.DiffStats.Removed)
-
-		// Should NOT load heavy diff content
-		assert.Empty(t, session.DiffStats.Content, "LoadSummary should not load diff content")
-
-		// Should load tags
-		assert.Equal(t, []string{"Frontend", "Urgent"}, session.Tags)
-
-		// Should load Claude session
-		assert.Equal(t, "claude-123", session.ClaudeSession.SessionID)
+		assert.Contains(t, session.DiffStats.Content, "diff content for test")
 	})
 
-	// Test LoadFull - should load everything including diff content
-	t.Run("LoadFull", func(t *testing.T) {
-		session, err := repo.GetWithOptions(ctx, "test-session", LoadFull)
-		require.NoError(t, err)
-
-		assert.Equal(t, "test-session", session.Title)
-
-		// Should load all child data including diff content
-		assert.Equal(t, "/tmp/repo", session.Worktree.RepoPath)
-		assert.Equal(t, 100, session.DiffStats.Added)
-		assert.Contains(t, session.DiffStats.Content, "very large diff content")
-		assert.Equal(t, []string{"Frontend", "Urgent"}, session.Tags)
-		assert.Equal(t, "claude-123", session.ClaudeSession.SessionID)
-	})
-
-	// Test LoadDiffOnly - should load only diff-related data
-	t.Run("LoadDiffOnly", func(t *testing.T) {
-		session, err := repo.GetWithOptions(ctx, "test-session", LoadDiffOnly)
-		require.NoError(t, err)
-
-		// Should load worktree (needed for diff context)
-		assert.Equal(t, "/tmp/repo", session.Worktree.RepoPath)
-
-		// Should load diff stats and content
-		assert.Equal(t, 100, session.DiffStats.Added)
-		assert.Contains(t, session.DiffStats.Content, "very large diff content")
-
-		// Should NOT load tags or Claude session
-		assert.Empty(t, session.Tags, "LoadDiffOnly should not load tags")
-		assert.Empty(t, session.ClaudeSession.SessionID, "LoadDiffOnly should not load Claude session")
-	})
-
-	// Test default List() uses LoadSummary
-	t.Run("List uses LoadSummary by default", func(t *testing.T) {
+	t.Run("List returns all sessions", func(t *testing.T) {
 		sessions, err := repo.List(ctx)
 		require.NoError(t, err)
 		require.Len(t, sessions, 1)
-
-		session := sessions[0]
-
-		// Should have summary data
-		assert.Equal(t, 100, session.DiffStats.Added)
-		assert.Equal(t, []string{"Frontend", "Urgent"}, session.Tags)
-
-		// Should NOT have diff content
-		assert.Empty(t, session.DiffStats.Content, "List() should use LoadSummary which excludes diff content")
-	})
-
-	// Test default Get() uses LoadFull
-	t.Run("Get uses LoadFull by default", func(t *testing.T) {
-		session, err := repo.Get(ctx, "test-session")
-		require.NoError(t, err)
-
-		// Should have all data including diff content
-		assert.Contains(t, session.DiffStats.Content, "very large diff content", "Get() should use LoadFull which includes diff content")
+		assert.Equal(t, "test-session", sessions[0].Title)
 	})
 }
 
@@ -174,7 +117,7 @@ func BenchmarkSelectiveLoading(b *testing.B) {
 	tmpDir := b.TempDir()
 	dbPath := filepath.Join(tmpDir, "bench.db")
 
-	repo, err := NewSQLiteRepository(WithDatabasePath(dbPath))
+	repo, err := NewEntRepository(WithDatabasePath(dbPath))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -192,7 +135,9 @@ func BenchmarkSelectiveLoading(b *testing.B) {
 		Title:      "bench-session",
 		Path:       "/tmp/test",
 		WorkingDir: "/tmp/test",
+		Branch:     "main",
 		Status:     Ready,
+		Program:    "claude",
 		DiffStats: DiffStatsData{
 			Added:   5000,
 			Removed: 3000,

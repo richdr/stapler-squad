@@ -3,6 +3,8 @@ package session
 import (
 	"testing"
 	"time"
+
+	"claude-squad/session/detection"
 )
 
 func TestNewPolicyEngine(t *testing.T) {
@@ -23,7 +25,7 @@ func TestPolicyEngine_AddPolicy(t *testing.T) {
 
 	policy := &ApprovalPolicy{
 		Name:          "test_policy",
-		ApprovalTypes: []ApprovalType{ApprovalCommand},
+		ApprovalTypes: []detection.ApprovalType{detection.ApprovalCommand},
 		Enabled:       true,
 		Priority:      100,
 		Action:        ActionAutoApprove,
@@ -154,7 +156,7 @@ func TestPolicyEngine_EvaluateSimpleMatch(t *testing.T) {
 
 	policy := &ApprovalPolicy{
 		Name:          "test_eval",
-		ApprovalTypes: []ApprovalType{ApprovalCommand},
+		ApprovalTypes: []detection.ApprovalType{detection.ApprovalCommand},
 		Enabled:       true,
 		Priority:      100,
 		Action:        ActionAutoApprove,
@@ -169,9 +171,9 @@ func TestPolicyEngine_EvaluateSimpleMatch(t *testing.T) {
 
 	engine.AddPolicy(policy)
 
-	request := &ApprovalRequest{
+	request := &detection.ApprovalRequest{
 		ID:   "test-request",
-		Type: ApprovalCommand,
+		Type: detection.ApprovalCommand,
 		ExtractedData: map[string]string{
 			"command": "ls -la",
 		},
@@ -196,7 +198,7 @@ func TestPolicyEngine_EvaluateNoMatch(t *testing.T) {
 
 	policy := &ApprovalPolicy{
 		Name:          "test_no_match",
-		ApprovalTypes: []ApprovalType{ApprovalCommand},
+		ApprovalTypes: []detection.ApprovalType{detection.ApprovalCommand},
 		Enabled:       true,
 		Priority:      100,
 		Action:        ActionAutoApprove,
@@ -211,9 +213,9 @@ func TestPolicyEngine_EvaluateNoMatch(t *testing.T) {
 
 	engine.AddPolicy(policy)
 
-	request := &ApprovalRequest{
+	request := &detection.ApprovalRequest{
 		ID:   "test-request",
-		Type: ApprovalCommand,
+		Type: detection.ApprovalCommand,
 		ExtractedData: map[string]string{
 			"command": "different_command",
 		},
@@ -238,7 +240,7 @@ func TestPolicyEngine_EvaluateDisabledPolicy(t *testing.T) {
 
 	policy := &ApprovalPolicy{
 		Name:          "disabled_policy",
-		ApprovalTypes: []ApprovalType{ApprovalCommand},
+		ApprovalTypes: []detection.ApprovalType{detection.ApprovalCommand},
 		Enabled:       false, // Disabled
 		Priority:      100,
 		Action:        ActionAutoApprove,
@@ -247,9 +249,9 @@ func TestPolicyEngine_EvaluateDisabledPolicy(t *testing.T) {
 
 	engine.AddPolicy(policy)
 
-	request := &ApprovalRequest{
+	request := &detection.ApprovalRequest{
 		ID:   "test-request",
-		Type: ApprovalCommand,
+		Type: detection.ApprovalCommand,
 	}
 
 	decision, err := engine.Evaluate(request)
@@ -268,7 +270,7 @@ func TestPolicyEngine_EvaluatePriority(t *testing.T) {
 	// Lower priority - auto approve
 	lowPriority := &ApprovalPolicy{
 		Name:          "low_priority",
-		ApprovalTypes: []ApprovalType{ApprovalCommand},
+		ApprovalTypes: []detection.ApprovalType{detection.ApprovalCommand},
 		Enabled:       true,
 		Priority:      50,
 		Action:        ActionAutoApprove,
@@ -278,7 +280,7 @@ func TestPolicyEngine_EvaluatePriority(t *testing.T) {
 	// Higher priority - auto reject
 	highPriority := &ApprovalPolicy{
 		Name:          "high_priority",
-		ApprovalTypes: []ApprovalType{ApprovalCommand},
+		ApprovalTypes: []detection.ApprovalType{detection.ApprovalCommand},
 		Enabled:       true,
 		Priority:      100,
 		Action:        ActionAutoReject,
@@ -288,9 +290,9 @@ func TestPolicyEngine_EvaluatePriority(t *testing.T) {
 	engine.AddPolicy(lowPriority)
 	engine.AddPolicy(highPriority)
 
-	request := &ApprovalRequest{
+	request := &detection.ApprovalRequest{
 		ID:   "test-request",
-		Type: ApprovalCommand,
+		Type: detection.ApprovalCommand,
 	}
 
 	decision, err := engine.Evaluate(request)
@@ -309,7 +311,7 @@ func TestPolicyEngine_RegexCondition(t *testing.T) {
 
 	policy := &ApprovalPolicy{
 		Name:          "regex_test",
-		ApprovalTypes: []ApprovalType{ApprovalCommand},
+		ApprovalTypes: []detection.ApprovalType{detection.ApprovalCommand},
 		Enabled:       true,
 		Priority:      100,
 		Action:        ActionAutoApprove,
@@ -324,9 +326,9 @@ func TestPolicyEngine_RegexCondition(t *testing.T) {
 
 	engine.AddPolicy(policy)
 
-	request := &ApprovalRequest{
+	request := &detection.ApprovalRequest{
 		ID:   "test-request",
-		Type: ApprovalCommand,
+		Type: detection.ApprovalCommand,
 		ExtractedData: map[string]string{
 			"command": "ls -la",
 		},
@@ -347,7 +349,7 @@ func TestPolicyEngine_MultipleConditions(t *testing.T) {
 
 	policy := &ApprovalPolicy{
 		Name:          "multiple_conditions",
-		ApprovalTypes: []ApprovalType{ApprovalCommand},
+		ApprovalTypes: []detection.ApprovalType{detection.ApprovalCommand},
 		Enabled:       true,
 		Priority:      100,
 		Action:        ActionAutoApprove,
@@ -368,9 +370,9 @@ func TestPolicyEngine_MultipleConditions(t *testing.T) {
 	engine.AddPolicy(policy)
 
 	// Should match (has ls, no rm)
-	request1 := &ApprovalRequest{
+	request1 := &detection.ApprovalRequest{
 		ID:   "test-request-1",
-		Type: ApprovalCommand,
+		Type: detection.ApprovalCommand,
 		ExtractedData: map[string]string{
 			"command": "ls -la",
 		},
@@ -382,9 +384,9 @@ func TestPolicyEngine_MultipleConditions(t *testing.T) {
 	}
 
 	// Should not match (has both ls and rm)
-	request2 := &ApprovalRequest{
+	request2 := &detection.ApprovalRequest{
 		ID:   "test-request-2",
-		Type: ApprovalCommand,
+		Type: detection.ApprovalCommand,
 		ExtractedData: map[string]string{
 			"command": "ls | xargs rm",
 		},
@@ -403,7 +405,7 @@ func TestPolicyEngine_TimeRestriction(t *testing.T) {
 
 	policy := &ApprovalPolicy{
 		Name:          "time_restricted",
-		ApprovalTypes: []ApprovalType{ApprovalCommand},
+		ApprovalTypes: []detection.ApprovalType{detection.ApprovalCommand},
 		Enabled:       true,
 		Priority:      100,
 		Action:        ActionAutoApprove,
@@ -417,9 +419,9 @@ func TestPolicyEngine_TimeRestriction(t *testing.T) {
 
 	engine.AddPolicy(policy)
 
-	request := &ApprovalRequest{
+	request := &detection.ApprovalRequest{
 		ID:   "test-request",
-		Type: ApprovalCommand,
+		Type: detection.ApprovalCommand,
 	}
 
 	decision, err := engine.Evaluate(request)
@@ -439,7 +441,7 @@ func TestPolicyEngine_TimeRestrictionOutsideHours(t *testing.T) {
 
 	policy := &ApprovalPolicy{
 		Name:          "time_restricted",
-		ApprovalTypes: []ApprovalType{ApprovalCommand},
+		ApprovalTypes: []detection.ApprovalType{detection.ApprovalCommand},
 		Enabled:       true,
 		Priority:      100,
 		Action:        ActionAutoApprove,
@@ -453,9 +455,9 @@ func TestPolicyEngine_TimeRestrictionOutsideHours(t *testing.T) {
 
 	engine.AddPolicy(policy)
 
-	request := &ApprovalRequest{
+	request := &detection.ApprovalRequest{
 		ID:   "test-request",
-		Type: ApprovalCommand,
+		Type: detection.ApprovalCommand,
 	}
 
 	decision, err := engine.Evaluate(request)
@@ -473,7 +475,7 @@ func TestPolicyEngine_UsageLimit(t *testing.T) {
 
 	policy := &ApprovalPolicy{
 		Name:          "usage_limited",
-		ApprovalTypes: []ApprovalType{ApprovalCommand},
+		ApprovalTypes: []detection.ApprovalType{detection.ApprovalCommand},
 		Enabled:       true,
 		Priority:      100,
 		Action:        ActionAutoApprove,
@@ -486,9 +488,9 @@ func TestPolicyEngine_UsageLimit(t *testing.T) {
 
 	engine.AddPolicy(policy)
 
-	request := &ApprovalRequest{
+	request := &detection.ApprovalRequest{
 		ID:   "test-request",
-		Type: ApprovalCommand,
+		Type: detection.ApprovalCommand,
 	}
 
 	// First use - should match
@@ -515,7 +517,7 @@ func TestPolicyEngine_GetAuditLog(t *testing.T) {
 
 	policy := &ApprovalPolicy{
 		Name:          "audit_test",
-		ApprovalTypes: []ApprovalType{ApprovalCommand},
+		ApprovalTypes: []detection.ApprovalType{detection.ApprovalCommand},
 		Enabled:       true,
 		Priority:      100,
 		Action:        ActionAutoApprove,
@@ -526,9 +528,9 @@ func TestPolicyEngine_GetAuditLog(t *testing.T) {
 
 	// Generate some evaluations
 	for i := 0; i < 5; i++ {
-		request := &ApprovalRequest{
+		request := &detection.ApprovalRequest{
 			ID:   "test-request",
-			Type: ApprovalCommand,
+			Type: detection.ApprovalCommand,
 		}
 		engine.Evaluate(request)
 	}
@@ -545,7 +547,7 @@ func TestPolicyEngine_ClearAuditLog(t *testing.T) {
 
 	policy := &ApprovalPolicy{
 		Name:          "audit_test",
-		ApprovalTypes: []ApprovalType{ApprovalCommand},
+		ApprovalTypes: []detection.ApprovalType{detection.ApprovalCommand},
 		Enabled:       true,
 		Priority:      100,
 		Action:        ActionAutoApprove,
@@ -554,9 +556,9 @@ func TestPolicyEngine_ClearAuditLog(t *testing.T) {
 
 	engine.AddPolicy(policy)
 
-	request := &ApprovalRequest{
+	request := &detection.ApprovalRequest{
 		ID:   "test-request",
-		Type: ApprovalCommand,
+		Type: detection.ApprovalCommand,
 	}
 	engine.Evaluate(request)
 
@@ -573,7 +575,7 @@ func TestPolicyEngine_GetStatistics(t *testing.T) {
 
 	approvePolicy := &ApprovalPolicy{
 		Name:          "approve_policy",
-		ApprovalTypes: []ApprovalType{ApprovalCommand},
+		ApprovalTypes: []detection.ApprovalType{detection.ApprovalCommand},
 		Enabled:       true,
 		Priority:      100,
 		Action:        ActionAutoApprove,
@@ -584,7 +586,7 @@ func TestPolicyEngine_GetStatistics(t *testing.T) {
 
 	rejectPolicy := &ApprovalPolicy{
 		Name:          "reject_policy",
-		ApprovalTypes: []ApprovalType{ApprovalCommand},
+		ApprovalTypes: []detection.ApprovalType{detection.ApprovalCommand},
 		Enabled:       false, // Disabled
 		Priority:      50,
 		Action:        ActionAutoReject,
@@ -595,9 +597,9 @@ func TestPolicyEngine_GetStatistics(t *testing.T) {
 	engine.AddPolicy(rejectPolicy)
 
 	// Generate evaluations
-	request := &ApprovalRequest{
+	request := &detection.ApprovalRequest{
 		ID:            "test-request",
-		Type:          ApprovalCommand,
+		Type:          detection.ApprovalCommand,
 		ExtractedData: map[string]string{"command": "approve_me"},
 	}
 	engine.Evaluate(request)
@@ -670,7 +672,7 @@ func Benchmark_PolicyEngine_Evaluate(b *testing.B) {
 
 	policy := &ApprovalPolicy{
 		Name:          "benchmark_policy",
-		ApprovalTypes: []ApprovalType{ApprovalCommand},
+		ApprovalTypes: []detection.ApprovalType{detection.ApprovalCommand},
 		Enabled:       true,
 		Priority:      100,
 		Action:        ActionAutoApprove,
@@ -681,9 +683,9 @@ func Benchmark_PolicyEngine_Evaluate(b *testing.B) {
 
 	engine.AddPolicy(policy)
 
-	request := &ApprovalRequest{
+	request := &detection.ApprovalRequest{
 		ID:            "bench-request",
-		Type:          ApprovalCommand,
+		Type:          detection.ApprovalCommand,
 		ExtractedData: map[string]string{"command": "test command"},
 	}
 

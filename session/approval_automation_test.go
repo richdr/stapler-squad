@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"claude-squad/session/detection"
 )
 
 func TestNewApprovalAutomation(t *testing.T) {
@@ -130,9 +132,9 @@ func TestApprovalAutomation_HandlePromptUser(t *testing.T) {
 	controller, _ := NewClaudeController(instance)
 	automation := NewApprovalAutomation("test-session", controller)
 
-	request := &ApprovalRequest{
+	request := &detection.ApprovalRequest{
 		ID:   "test-request",
-		Type: ApprovalCommand,
+		Type: detection.ApprovalCommand,
 	}
 
 	decision := &PolicyDecision{
@@ -157,9 +159,9 @@ func TestApprovalAutomation_RespondToApprovalApprove(t *testing.T) {
 	controller, _ := NewClaudeController(instance)
 	automation := NewApprovalAutomation("test-session", controller)
 
-	request := &ApprovalRequest{
+	request := &detection.ApprovalRequest{
 		ID:   "test-request",
-		Type: ApprovalCommand,
+		Type: detection.ApprovalCommand,
 	}
 
 	decision := &PolicyDecision{
@@ -188,9 +190,9 @@ func TestApprovalAutomation_RespondToApprovalReject(t *testing.T) {
 	controller, _ := NewClaudeController(instance)
 	automation := NewApprovalAutomation("test-session", controller)
 
-	request := &ApprovalRequest{
+	request := &detection.ApprovalRequest{
 		ID:   "test-request",
-		Type: ApprovalCommand,
+		Type: detection.ApprovalCommand,
 	}
 
 	decision := &PolicyDecision{
@@ -219,9 +221,9 @@ func TestApprovalAutomation_HandleAutoApprove(t *testing.T) {
 	ch := automation.Subscribe("test-subscriber")
 	defer automation.Unsubscribe("test-subscriber")
 
-	request := &ApprovalRequest{
+	request := &detection.ApprovalRequest{
 		ID:   "test-request",
-		Type: ApprovalCommand,
+		Type: detection.ApprovalCommand,
 	}
 
 	decision := &PolicyDecision{
@@ -255,9 +257,9 @@ func TestApprovalAutomation_HandleAutoReject(t *testing.T) {
 	ch := automation.Subscribe("test-subscriber")
 	defer automation.Unsubscribe("test-subscriber")
 
-	request := &ApprovalRequest{
+	request := &detection.ApprovalRequest{
 		ID:   "test-request",
-		Type: ApprovalCommand,
+		Type: detection.ApprovalCommand,
 	}
 
 	decision := &PolicyDecision{
@@ -286,16 +288,16 @@ func TestApprovalAutomation_CanExecute(t *testing.T) {
 	automation := NewApprovalAutomation("test-session", controller)
 
 	// Command type can be executed
-	commandRequest := &ApprovalRequest{
-		Type: ApprovalCommand,
+	commandRequest := &detection.ApprovalRequest{
+		Type: detection.ApprovalCommand,
 	}
 	if !automation.canExecute(commandRequest) {
 		t.Error("Command type should be executable")
 	}
 
 	// File write type cannot be executed
-	fileRequest := &ApprovalRequest{
-		Type: ApprovalFileWrite,
+	fileRequest := &detection.ApprovalRequest{
+		Type: detection.ApprovalFileWrite,
 	}
 	if automation.canExecute(fileRequest) {
 		t.Error("File write type should not be executable")
@@ -312,9 +314,9 @@ func TestApprovalAutomation_CheckExpiredApprovals(t *testing.T) {
 
 	// Add pending approval with past expiry
 	pending := &PendingApproval{
-		Request: &ApprovalRequest{
+		Request: &detection.ApprovalRequest{
 			ID:   "expired-request",
-			Type: ApprovalCommand,
+			Type: detection.ApprovalCommand,
 		},
 		Status:     PendingStatusAwaiting,
 		ReceivedAt: time.Now().Add(-10 * time.Minute),
@@ -359,9 +361,9 @@ func TestApprovalAutomation_MaxQueueSize(t *testing.T) {
 
 	// Add 5 requests (should only keep last 3)
 	for i := 0; i < 5; i++ {
-		request := &ApprovalRequest{
+		request := &detection.ApprovalRequest{
 			ID:   fmt.Sprintf("request-%d", i),
-			Type: ApprovalCommand,
+			Type: detection.ApprovalCommand,
 		}
 		automation.handlePromptUser(request, decision, options)
 	}
@@ -402,9 +404,9 @@ func TestDefaultApprovalAutomationOptions(t *testing.T) {
 }
 
 func TestPendingApproval_Fields(t *testing.T) {
-	request := &ApprovalRequest{
+	request := &detection.ApprovalRequest{
 		ID:   "test-request",
-		Type: ApprovalCommand,
+		Type: detection.ApprovalCommand,
 	}
 
 	decision := &PolicyDecision{
