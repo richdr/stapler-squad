@@ -1692,6 +1692,36 @@ Comprehensive UX overhaul of the History Browser page (`/history`) to achieve fe
 
 ---
 
+## READY: Debug Snapshot Diagnostic Tool
+
+**Status**: Planning Complete, Ready for Implementation
+**Priority**: P2 - Developer Experience and Troubleshooting
+**Epic ID**: EPIC-DEBUGSNAP-001
+**Estimated Effort**: 6-8 hours (1 engineer, 1 day)
+**Progress**: 0% (Planning 100%, Implementation 0%)
+
+### Overview
+
+One-click diagnostic capture from the web UI debug menu. Gathers session metadata, tmux pane content, pending approvals, and recent server logs into a single JSON file at `~/.claude-squad/logs/debug-snapshot-{timestamp}.json`.
+
+**Key Features**:
+- [ ] **Story 1**: Backend snapshot collector service (3-4 hours)
+- [ ] **Story 2**: ConnectRPC endpoint (1.5-2 hours)
+- [ ] **Story 3**: Web UI integration in existing debug menu (1.5-2 hours)
+
+### Technical Approach:
+- Single `CreateDebugSnapshot` unary RPC on `SessionService`
+- Server-side collector with per-subsystem 5-second timeouts
+- Captures: session state, tmux pane output, approval store, recent logs
+- JSON file output with version field for future schema evolution
+- Partial failure tolerance (errors recorded in snapshot, not fatal)
+
+**See Full Details**: [Debug Snapshot Feature Plan](docs/tasks/debug-snapshot.md)
+
+**Next Action**: Task 1.1 - Create `server/services/debug_snapshot.go` (2 hours)
+
+---
+
 ## Future Priorities
 
 ### Medium Term (After Search & Sort):
