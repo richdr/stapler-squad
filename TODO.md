@@ -1692,6 +1692,76 @@ Comprehensive UX overhaul of the History Browser page (`/history`) to achieve fe
 
 ---
 
+## READY: Passkey Authentication and Remote Access
+
+**Status**: Planning Complete, Ready for Implementation
+**Priority**: P1 - Enables secure remote access to claude-squad
+**Epic ID**: EPIC-PASSKEY-001
+**Estimated Effort**: 3-4 weeks (1 engineer, 5 stories, 16 atomic tasks)
+**Progress**: 0% (Planning 100%, Implementation 0%)
+
+### Overview
+
+Implement WebAuthn/FIDO2 passkey authentication with QR-code-based enrollment to enable secure remote access to the claude-squad web UI from non-local machines (phone, tablet, laptop).
+
+**Key Problems Solved**:
+- **No remote access** - Server binds exclusively to localhost, inaccessible from other devices
+- **No authentication** - Localhost-only was the implicit security boundary
+- **No enrollment UX** - No way to register devices for access
+
+**Strategic Value**:
+- **Remote Monitoring**: Check AI agent sessions from phone while away from desk
+- **Approval Workflow**: Respond to permission requests from mobile devices
+- **Multi-Device Access**: Use claude-squad from any device on the network
+
+### Implementation Plan (5 Stories, 16 Tasks)
+
+#### Story 1: Network Exposure and TLS Foundation - READY
+- [ ] Task 1.1: Add listen address configuration (config.go, main.go) [2h] - NEXT ACTION
+- [ ] Task 1.2: Auto-generate self-signed TLS certificate (server/tls.go) [3h]
+- [ ] Task 1.3: Enable HTTPS when remote access is active (server/server.go) [2h]
+- [ ] Task 1.4: Update CORS middleware for remote origins (middleware/cors.go) [2h]
+
+#### Story 2: WebAuthn Backend - BLOCKED by Story 1 (Task 1.3)
+- [ ] Task 2.1: Implement credential store (server/auth/store.go) [3h]
+- [ ] Task 2.2: Implement session token manager (server/auth/session.go) [2h]
+- [ ] Task 2.3: Implement WebAuthn registration endpoint (server/auth/handlers.go) [3h]
+- [ ] Task 2.4: Implement WebAuthn authentication endpoint (server/auth/handlers.go) [2h]
+- [ ] Task 2.5: Implement setup token for first-time registration (server/auth/setup.go) [2h]
+
+#### Story 3: QR Code Enrollment Flow - BLOCKED by Story 2 (Task 2.3)
+- [ ] Task 3.1: Add QR code generation (server/auth/qrcode.go) [2h]
+- [ ] Task 3.2: Setup page with QR code display (server/auth/handlers.go) [2h]
+
+#### Story 4: Frontend Auth UI - BLOCKED by Story 2 (Task 2.4)
+- [ ] Task 4.1: Create login page component (web-app/src/app/auth/) [3h]
+- [ ] Task 4.2: Create auth context and route guard (web-app/src/lib/contexts/) [3h]
+- [ ] Task 4.3: Add passkey management to settings (web-app/src/app/settings/) [2h]
+
+#### Story 5: Auth Middleware - BLOCKED by Story 2 (Task 2.2)
+- [ ] Task 5.1: Implement auth middleware (server/middleware/auth.go) [3h]
+- [ ] Task 5.2: Wire auth middleware into server startup (server/server.go) [2h]
+- [ ] Task 5.3: Add bearer token fallback for API access (server/middleware/auth.go) [2h]
+
+### Key Architecture Decisions
+- **WebAuthn/FIDO2** for phishing-resistant authentication (ADR-001)
+- **Direct bind with auto-TLS** for network exposure (ADR-002)
+- **JSON file storage** for credentials, matching existing patterns (ADR-003)
+- **go-webauthn/webauthn** library (de facto Go standard) (ADR-004)
+- **QR code encodes registration URL** for device enrollment (ADR-005)
+
+### Known Critical Issues
+- WebAuthn rpID must match access hostname (BUG-PASSKEY-001, CRITICAL)
+- Self-signed TLS cert trust on phones (BUG-PASSKEY-002, HIGH)
+- Bootstrap race condition during first registration (BUG-PASSKEY-003, HIGH)
+- CORS with credentials for WebAuthn (BUG-PASSKEY-004, HIGH)
+
+**See Full Details**: [Passkey Authentication Feature Plan](docs/tasks/passkey-authentication.md)
+
+**Next Action**: Task 1.1 - Add listen address configuration (2 hours)
+
+---
+
 ## Future Priorities
 
 ### Medium Term (After Search & Sort):
