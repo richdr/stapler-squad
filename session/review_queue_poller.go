@@ -28,15 +28,33 @@ func DefaultReviewQueuePollerConfig() ReviewQueuePollerConfig {
 	}
 }
 
+// ApprovalMetadata holds metadata about a pending approval for enriching review queue items.
+type ApprovalMetadata struct {
+	ApprovalID string
+	ToolName   string
+	ToolInput  map[string]interface{}
+	Cwd        string
+	Orphaned   bool
+}
+
+// ApprovalMetadataProvider provides approval metadata for enriching review queue items.
+// This interface decouples the poller (session package) from the ApprovalStore (services package).
+type ApprovalMetadataProvider interface {
+	// GetApprovalMetadataBySession returns approval metadata for the given session ID.
+	// Returns nil if no approvals exist for the session.
+	GetApprovalMetadataBySession(sessionID string) []ApprovalMetadata
+}
+
 // ReviewQueuePoller automatically monitors sessions and adds them to the review queue
 // when they become idle or need attention.
 type ReviewQueuePoller struct {
-	queue          *ReviewQueue
-	statusManager  *InstanceStatusManager
-	storage        *Storage
-	instances      []*Instance
-	config         ReviewQueuePollerConfig
-	statusDetector *detection.StatusDetector // For detecting status in sessions without ClaudeController
+	queue            *ReviewQueue
+	statusManager    *InstanceStatusManager
+	storage          *Storage
+	instances        []*Instance
+	config           ReviewQueuePollerConfig
+	statusDetector   *detection.StatusDetector // For detecting status in sessions without ClaudeController
+	approvalProvider ApprovalMetadataProvider  // Optional: enriches approval items with hook metadata
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -89,6 +107,13 @@ func (rqp *ReviewQueuePoller) RemoveInstance(instanceTitle string) {
 		}
 	}
 	rqp.instances = filtered
+}
+
+// SetApprovalProvider sets the approval metadata provider for enriching review queue items.
+func (rqp *ReviewQueuePoller) SetApprovalProvider(provider ApprovalMetadataProvider) {
+	rqp.mu.Lock()
+	defer rqp.mu.Unlock()
+	rqp.approvalProvider = provider
 }
 
 // Start begins polling for idle sessions.
@@ -754,6 +779,30 @@ func (rqp *ReviewQueuePoller) checkSession(inst *Instance) {
 			DiffStats:    inst.GetDiffStats(),
 			LastActivity: inst.LastMeaningfulOutput,
 		}
+
+		// Enrich approval items with hook metadata from ApprovalStore (Story 3, Task 3.2).
+		if reason == ReasonApprovalPending && rqp.approvalProvider != nil {
+			if approvals := rqp.approvalProvider.GetApprovalMetadataBySession(inst.Title); len(approvals) > 0 {
+				a := approvals[0] // Use the most recent/first approval
+				if item.Metadata == nil {
+					item.Metadata = make(map[string]string)
+				}
+				item.Metadata["pending_approval_id"] = a.ApprovalID
+				item.Metadata["tool_name"] = a.ToolName
+				if cmd, ok := a.ToolInput["command"].(string); ok && cmd != "" {
+					item.Metadata["tool_input_command"] = cmd
+				}
+				if filePath, ok := a.ToolInput["file_path"].(string); ok && filePath != "" {
+					item.Metadata["tool_input_file"] = filePath
+				}
+				if a.Orphaned {
+					item.Metadata["orphaned"] = "true"
+				}
+				log.InfoLog.Printf("[ReviewQueue] Session '%s': Enriched approval item with hook metadata (tool=%s, approval_id=%s)",
+					inst.Title, a.ToolName, a.ApprovalID)
+			}
+		}
+
 		log.InfoLog.Printf("[ReviewQueue] Session '%s': ADDING TO QUEUE - reason=%s, priority=%s, context=%q",
 			inst.Title, reason.String(), priority.String(), context)
 		rqp.queue.Add(item)

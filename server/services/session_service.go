@@ -7,6 +7,7 @@ import (
 	"claude-squad/log"
 	"claude-squad/server/adapters"
 	"claude-squad/server/events"
+	"claude-squad/server/notifications"
 	"claude-squad/session"
 	"claude-squad/session/search"
 	"connectrpc.com/connect"
@@ -54,6 +55,9 @@ type SessionService struct {
 
 	// approvalStore holds pending Claude Code hook approval requests.
 	approvalStore *ApprovalStore
+
+	// notificationStore persists notification history for the notification history RPCs.
+	notificationStore *notifications.NotificationHistoryStore
 }
 
 // NewSessionService creates a new SessionService with the given storage and event bus.
@@ -79,7 +83,15 @@ func NewSessionService(storage *session.Storage, eventBus *events.EventBus) *Ses
 		}
 	}
 
-	approvalStore := NewApprovalStore()
+	// Build approval store with disk persistence path
+	approvalFilePath := ""
+	configDir, configErr := config.GetConfigDir()
+	if configErr == nil {
+		approvalFilePath = configDir + "/pending_approvals.json"
+	} else {
+		log.WarningLog.Printf("Failed to get config dir for approval persistence: %v", configErr)
+	}
+	approvalStore := NewApprovalStore(approvalFilePath)
 	reviewQueueSvc := NewReviewQueueService(reviewQueue, storage, eventBus)
 	reviewQueueSvc.SetApprovalStore(approvalStore)
 
@@ -226,6 +238,16 @@ func (s *SessionService) SetReactiveQueueManager(mgr ReactiveQueueManager) {
 // SetExternalDiscovery sets the external session discovery for accessing mux-enabled sessions.
 func (s *SessionService) SetExternalDiscovery(discovery *session.ExternalSessionDiscovery) {
 	s.externalDiscovery = discovery
+}
+
+// SetNotificationStore sets the notification history store for the notification history RPCs.
+func (s *SessionService) SetNotificationStore(store *notifications.NotificationHistoryStore) {
+	s.notificationStore = store
+}
+
+// GetNotificationStore returns the notification history store.
+func (s *SessionService) GetNotificationStore() *notifications.NotificationHistoryStore {
+	return s.notificationStore
 }
 
 // ListSessions returns all sessions with optional filtering.

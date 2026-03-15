@@ -34,18 +34,33 @@ type hookDecision struct {
 	Message  string `json:"message,omitempty"`
 }
 
+// ReviewQueueChecker is an interface for triggering immediate review queue checks.
+// This avoids importing the session package's concrete ReviewQueuePoller type directly.
+type ReviewQueueChecker interface {
+	FindInstance(sessionID string) *session.Instance
+	CheckSession(inst *session.Instance)
+}
+
 // ApprovalHandler handles Claude Code HTTP hooks for PermissionRequest events.
 // It blocks the HTTP connection open while waiting for the user's decision,
 // then returns the decision in the hookSpecificOutput JSON format.
 type ApprovalHandler struct {
-	store    *ApprovalStore
-	storage  *session.Storage
-	eventBus *events.EventBus
+	store        *ApprovalStore
+	storage      *session.Storage
+	eventBus     *events.EventBus
+	queueChecker ReviewQueueChecker // optional: triggers immediate review queue check on new approval
 }
 
 // NewApprovalHandler creates a new ApprovalHandler.
 func NewApprovalHandler(store *ApprovalStore, storage *session.Storage, eventBus *events.EventBus) *ApprovalHandler {
 	return &ApprovalHandler{store: store, storage: storage, eventBus: eventBus}
+}
+
+// SetQueueChecker injects a ReviewQueueChecker for triggering immediate review queue updates
+// when a new approval is created. This provides <100ms feedback instead of waiting for the
+// next 2-second poll cycle.
+func (h *ApprovalHandler) SetQueueChecker(checker ReviewQueueChecker) {
+	h.queueChecker = checker
 }
 
 // HandlePermissionRequest handles POST /api/hooks/permission-request.
@@ -100,6 +115,16 @@ func (h *ApprovalHandler) HandlePermissionRequest(w http.ResponseWriter, r *http
 
 	// Notify all web UI clients about the pending approval
 	h.broadcastApprovalNotification(sessionID, approval)
+
+	// Trigger immediate review queue check for this session (Story 3, Task 3.1).
+	// This provides <100ms feedback in the review queue instead of waiting for the
+	// next 2-second poll cycle.
+	if h.queueChecker != nil && sessionID != "unknown" {
+		if inst := h.queueChecker.FindInstance(sessionID); inst != nil {
+			h.queueChecker.CheckSession(inst)
+			log.InfoLog.Printf("[ApprovalHandler] Triggered immediate queue check for session '%s'", sessionID)
+		}
+	}
 
 	log.InfoLog.Printf("[ApprovalHandler] Waiting for decision on approval %s (session=%s, tool=%s)",
 		approvalID, sessionID, payload.ToolName)

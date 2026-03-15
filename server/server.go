@@ -1,14 +1,17 @@
 package server
 
 import (
+	"claude-squad/config"
 	"claude-squad/gen/proto/go/session/v1/sessionv1connect"
 	"claude-squad/log"
 	"claude-squad/server/middleware"
+	"claude-squad/server/notifications"
 	"claude-squad/server/services"
 	"claude-squad/server/web"
 	"context"
 	"errors"
 	"net/http"
+	"path/filepath"
 	"time"
 
 	"connectrpc.com/connect"
@@ -63,8 +66,27 @@ func NewServer(addr string) *Server {
 		// Continue without services — all RPC calls will return errors
 	} else {
 		// Start background components
-		go deps.ReactiveQueueMgr.Start(context.Background())
+		serverCtx := context.Background()
+		go deps.ReactiveQueueMgr.Start(serverCtx)
 		log.InfoLog.Printf("ReactiveQueueManager started")
+
+		// Initialize notification history store and EventBus subscriber
+		configDir, configErr := config.GetConfigDir()
+		if configErr != nil {
+			log.ErrorLog.Printf("Failed to get config dir for notification store: %v", configErr)
+		} else {
+			notifStorePath := filepath.Join(configDir, "notifications.json")
+			notifStore, storeErr := notifications.NewNotificationHistoryStore(notifStorePath)
+			if storeErr != nil {
+				log.ErrorLog.Printf("Failed to create notification history store: %v", storeErr)
+			} else {
+				notifications.StartSubscriber(serverCtx, deps.EventBus, notifStore)
+				log.InfoLog.Printf("NotificationHistoryStore initialized at %s", notifStorePath)
+
+				// Wire the notification store into the session service for RPC access
+				deps.SessionService.SetNotificationStore(notifStore)
+			}
+		}
 
 		// Wire external discovery to SessionService for unified session listing
 		deps.SessionService.SetExternalDiscovery(deps.ExternalDiscovery)
@@ -108,6 +130,8 @@ func NewServer(addr string) *Server {
 			deps.Storage,
 			deps.EventBus,
 		)
+		// Wire the review queue poller for immediate queue checks on new approvals (Story 3, Task 3.1)
+		approvalHandler.SetQueueChecker(deps.ReviewQueuePoller)
 		srv.mux.HandleFunc("/api/hooks/permission-request", approvalHandler.HandlePermissionRequest)
 		log.InfoLog.Printf("Registered Claude Code hook approval handler at /api/hooks/permission-request")
 

@@ -5,10 +5,12 @@ import (
 	"claude-squad/server/events"
 	"claude-squad/server/services"
 	"claude-squad/session"
+	"claude-squad/session/detection"
 	"claude-squad/session/scrollback"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // ServerDependencies holds all wired service components for the HTTP server.
@@ -45,6 +47,9 @@ func BuildDependencies() (*ServerDependencies, error) {
 	// Steps 2-3: StatusManager and ReviewQueuePoller (before storage starts)
 	statusManager := session.NewInstanceStatusManager()
 	reviewQueuePoller := session.NewReviewQueuePoller(reviewQueue, statusManager, storage)
+
+	// Wire ApprovalStore as metadata provider for enriching review queue items (Story 3, Task 3.2)
+	reviewQueuePoller.SetApprovalProvider(sessionService.GetApprovalStore())
 
 	// Steps 5-7: load, wire, start instances and controllers
 	instances, err := storage.LoadInstances()
@@ -97,6 +102,12 @@ func BuildDependencies() (*ServerDependencies, error) {
 			}
 		}
 	}
+
+	// Step 7.5: Startup scan and orphaned approval sync (after controllers, before ReactiveQueueManager)
+	// Brief settling delay to allow controllers to initialize their terminal readers.
+	time.Sleep(500 * time.Millisecond)
+	scanSessionsOnStartup(instances, reviewQueue, statusManager)
+	syncOrphanedApprovalsToQueue(sessionService.GetApprovalStore(), instances, reviewQueue)
 
 	// Step 8: ReactiveQueueManager
 	reactiveQueueMgr := NewReactiveQueueManager(reviewQueue, reviewQueuePoller, eventBus, statusManager, storage)
@@ -195,4 +206,187 @@ func BuildDependencies() (*ServerDependencies, error) {
 		ExternalDiscovery:       externalDiscovery,
 		ExternalApprovalMonitor: externalApprovalMonitor,
 	}, nil
+}
+
+// scanSessionsOnStartup scans all running sessions for pre-existing approval prompts,
+// input required states, and errors. Adds matching sessions to the review queue immediately
+// so the user sees them before the regular polling cycle kicks in.
+func scanSessionsOnStartup(
+	instances []*session.Instance,
+	queue *session.ReviewQueue,
+	statusManager *session.InstanceStatusManager,
+) {
+	detector := detection.NewStatusDetector()
+	scanned, added := 0, 0
+
+	for _, inst := range instances {
+		if !inst.Started() || inst.Paused() {
+			continue
+		}
+		scanned++
+
+		// Try controller-based detection first
+		statusInfo := statusManager.GetStatus(inst)
+		if statusInfo.IsControllerActive {
+			reason, priority, context := mapDetectedStatus(statusInfo.ClaudeStatus, statusInfo.StatusContext)
+			if reason != "" {
+				addStartupItem(queue, inst, reason, priority, context)
+				added++
+				log.InfoLog.Printf("[StartupScan] Session '%s': detected %s via controller (status=%s)",
+					inst.Title, reason, statusInfo.ClaudeStatus.String())
+			}
+			continue
+		}
+
+		// Fallback: terminal content detection
+		content, err := inst.Preview()
+		if err != nil {
+			log.WarningLog.Printf("[StartupScan] Session '%s': failed to get terminal content: %v", inst.Title, err)
+			continue
+		}
+		if content == "" {
+			log.InfoLog.Printf("[StartupScan] Session '%s': empty terminal content, skipping", inst.Title)
+			continue
+		}
+
+		detectedStatus, statusContext := detector.DetectWithContext([]byte(content))
+		reason, priority, ctx := mapDetectedStatus(detectedStatus, statusContext)
+		if reason != "" {
+			addStartupItem(queue, inst, reason, priority, ctx)
+			added++
+			log.InfoLog.Printf("[StartupScan] Session '%s': detected %s via terminal (status=%s)",
+				inst.Title, reason, detectedStatus.String())
+		}
+	}
+
+	log.InfoLog.Printf("[StartupScan] Scanned %d sessions, added %d to review queue", scanned, added)
+}
+
+// mapDetectedStatus maps a DetectedStatus to a review queue reason, priority, and context string.
+// Returns empty reason if the status does not warrant adding to the review queue.
+func mapDetectedStatus(status detection.DetectedStatus, statusContext string) (session.AttentionReason, session.Priority, string) {
+	switch status {
+	case detection.StatusNeedsApproval:
+		ctx := statusContext
+		if ctx == "" {
+			ctx = "Waiting for approval to proceed"
+		}
+		return session.ReasonApprovalPending, session.PriorityHigh, ctx
+	case detection.StatusInputRequired:
+		ctx := statusContext
+		if ctx == "" {
+			ctx = "Waiting for explicit user input"
+		}
+		return session.ReasonInputRequired, session.PriorityMedium, ctx
+	case detection.StatusError:
+		ctx := statusContext
+		if ctx == "" {
+			ctx = "Error state detected"
+		}
+		return session.ReasonErrorState, session.PriorityUrgent, ctx
+	default:
+		return "", 0, ""
+	}
+}
+
+// addStartupItem creates a ReviewItem from an instance and adds it to the queue.
+func addStartupItem(queue *session.ReviewQueue, inst *session.Instance, reason session.AttentionReason, priority session.Priority, context string) {
+	item := &session.ReviewItem{
+		SessionID:    inst.Title,
+		SessionName:  inst.Title,
+		Reason:       reason,
+		Priority:     priority,
+		DetectedAt:   time.Now(),
+		Context:      context,
+		Program:      inst.Program,
+		Branch:       inst.Branch,
+		Path:         inst.Path,
+		WorkingDir:   inst.WorkingDir,
+		Status:       inst.Status.String(),
+		Tags:         inst.Tags,
+		Category:     inst.Category,
+		DiffStats:    inst.GetDiffStats(),
+		LastActivity: inst.LastMeaningfulOutput,
+	}
+	queue.Add(item)
+}
+
+// syncOrphanedApprovalsToQueue adds review queue items for orphaned (persisted) approvals.
+// This ensures sessions with known pending approvals appear in the queue immediately on startup,
+// even before the first poll cycle detects them via terminal content scanning.
+func syncOrphanedApprovalsToQueue(
+	store *services.ApprovalStore,
+	instances []*session.Instance,
+	queue *session.ReviewQueue,
+) {
+	if store == nil {
+		return
+	}
+
+	orphaned := store.ListAll()
+	if len(orphaned) == 0 {
+		return
+	}
+
+	// Build a lookup map for instances by title
+	instMap := make(map[string]*session.Instance, len(instances))
+	for _, inst := range instances {
+		instMap[inst.Title] = inst
+	}
+
+	added := 0
+	for _, approval := range orphaned {
+		if !approval.Orphaned {
+			continue
+		}
+
+		// Build context from approval metadata
+		context := fmt.Sprintf("Permission required: %s", approval.ToolName)
+		if cmd, ok := approval.ToolInput["command"].(string); ok && cmd != "" {
+			if len(cmd) > 120 {
+				context = cmd[:120] + "..."
+			} else {
+				context = cmd
+			}
+		}
+
+		item := &session.ReviewItem{
+			SessionID:   approval.SessionID,
+			SessionName: approval.SessionID,
+			Reason:      session.ReasonApprovalPending,
+			Priority:    session.PriorityHigh,
+			DetectedAt:  approval.CreatedAt,
+			Context:     context,
+			Metadata: map[string]string{
+				"pending_approval_id": approval.ID,
+				"tool_name":           approval.ToolName,
+				"orphaned":            "true",
+			},
+			LastActivity: approval.CreatedAt,
+		}
+
+		// Enrich with instance data if available
+		if inst, ok := instMap[approval.SessionID]; ok {
+			item.Program = inst.Program
+			item.Branch = inst.Branch
+			item.Path = inst.Path
+			item.WorkingDir = inst.WorkingDir
+			item.Status = inst.Status.String()
+			item.Tags = inst.Tags
+			item.Category = inst.Category
+			item.DiffStats = inst.GetDiffStats()
+			if !inst.LastMeaningfulOutput.IsZero() {
+				item.LastActivity = inst.LastMeaningfulOutput
+			}
+		}
+
+		queue.Add(item)
+		added++
+		log.InfoLog.Printf("[ApprovalSync] Added orphaned approval to review queue: session=%s, tool=%s, approval_id=%s",
+			approval.SessionID, approval.ToolName, approval.ID)
+	}
+
+	if added > 0 {
+		log.InfoLog.Printf("[ApprovalSync] Synced %d orphaned approvals to review queue", added)
+	}
 }
