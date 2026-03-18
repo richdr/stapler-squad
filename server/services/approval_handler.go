@@ -347,7 +347,8 @@ func (s *SessionService) ListPendingApprovals(
 // hookEntry is the individual hook definition within a matcher group.
 type hookEntry struct {
 	Type    string            `json:"type"`
-	URL     string            `json:"url"`
+	Command string            `json:"command,omitempty"`
+	URL     string            `json:"url,omitempty"`
 	Timeout int               `json:"timeout,omitempty"`
 	Headers map[string]string `json:"headers,omitempty"`
 }
@@ -386,13 +387,14 @@ func InjectHookConfig(rootDir, sessionTitle string) error {
 	settingsPath := filepath.Join(claudeDir, "settings.local.json")
 
 	// Desired hook entry for this session.
+	// settings.local.json only supports "command" type hooks; use curl to POST to the approval URL.
+	curlCmd := fmt.Sprintf(
+		"curl -s --max-time %d -X POST '%s' -H 'Content-Type: application/json' -H 'X-CS-Session-ID: %s' -d @-",
+		hookTimeout, hookApprovalURL, sessionTitle,
+	)
 	entry := hookEntry{
-		Type:    "http",
-		URL:     hookApprovalURL,
-		Timeout: hookTimeout,
-		Headers: map[string]string{
-			"X-CS-Session-ID": sessionTitle,
-		},
+		Type:    "command",
+		Command: curlCmd,
 	}
 	group := hookMatcherGroup{Hooks: []hookEntry{entry}}
 
@@ -410,7 +412,7 @@ func InjectHookConfig(rootDir, sessionTitle string) error {
 		}
 	}
 
-	// Check whether our hook is already present.
+	// Check whether our command-type hook is already present.
 	if hooksRaw, ok := raw["hooks"]; ok {
 		var hooks map[string]json.RawMessage
 		if err := json.Unmarshal(hooksRaw, &hooks); err == nil {
@@ -419,9 +421,7 @@ func InjectHookConfig(rootDir, sessionTitle string) error {
 				if err := json.Unmarshal(prRaw, &groups); err == nil {
 					for _, g := range groups {
 						for _, h := range g.Hooks {
-							if h.URL == hookApprovalURL {
-								// Already injected — update the session title header only.
-								h.Headers["X-CS-Session-ID"] = sessionTitle
+							if h.Type == "command" && strings.Contains(h.Command, hookApprovalURL) {
 								log.DebugLog.Printf("[InjectHookConfig] Hook already present in %s", settingsPath)
 								return nil
 							}
@@ -433,12 +433,28 @@ func InjectHookConfig(rootDir, sessionTitle string) error {
 	}
 
 	// Merge: prepend our group to PermissionRequest hooks.
+	// Also remove any old http-type entries pointing to our URL (migration from old format).
 	var prGroups []hookMatcherGroup
 	if hooksRaw, ok := raw["hooks"]; ok {
 		var hooks map[string]json.RawMessage
 		if err := json.Unmarshal(hooksRaw, &hooks); err == nil {
 			if prRaw, ok := hooks["PermissionRequest"]; ok {
-				_ = json.Unmarshal(prRaw, &prGroups)
+				var existingGroups []hookMatcherGroup
+				if err := json.Unmarshal(prRaw, &existingGroups); err == nil {
+					for _, g := range existingGroups {
+						// Strip out any old http-type hooks pointing to our URL.
+						filtered := g.Hooks[:0]
+						for _, h := range g.Hooks {
+							if h.URL != hookApprovalURL {
+								filtered = append(filtered, h)
+							}
+						}
+						if len(filtered) > 0 {
+							g.Hooks = filtered
+							prGroups = append(prGroups, g)
+						}
+					}
+				}
 			}
 		}
 	}
