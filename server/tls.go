@@ -47,10 +47,13 @@ func EnsureTLSCerts(hostnames []string) (*TLSPaths, error) {
 		CAFile:   filepath.Join(configDir, caFileName),
 	}
 
-	// Reuse existing cert if it is present and not expired.
-	if tlsValid(paths.CertFile) {
+	// Reuse existing cert only if it is unexpired AND covers all required SANs.
+	if tlsValidForHosts(paths.CertFile, hostnames) {
 		log.InfoLog.Printf("tls: reusing existing certificate at %s", paths.CertFile)
 		return paths, nil
+	}
+	if tlsValid(paths.CertFile) {
+		log.InfoLog.Printf("tls: existing certificate does not cover all required SANs %v — regenerating", hostnames)
 	}
 
 	log.InfoLog.Printf("tls: generating self-signed certificate for %v", hostnames)
@@ -114,6 +117,47 @@ func tlsValid(certFile string) bool {
 		return false
 	}
 	return time.Now().Add(7 * 24 * time.Hour).Before(cert.NotAfter)
+}
+
+// tlsValidForHosts returns true if the cert at certFile is unexpired AND
+// contains all of the required hostnames/IPs in its SANs.
+func tlsValidForHosts(certFile string, required []string) bool {
+	data, err := os.ReadFile(certFile)
+	if err != nil {
+		return false
+	}
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return false
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return false
+	}
+	// Check expiry first.
+	if !time.Now().Add(7 * 24 * time.Hour).Before(cert.NotAfter) {
+		return false
+	}
+	// Verify every required hostname/IP is covered by the cert.
+	for _, h := range required {
+		if ip := net.ParseIP(h); ip != nil {
+			found := false
+			for _, certIP := range cert.IPAddresses {
+				if certIP.Equal(ip) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return false
+			}
+		} else {
+			if err := cert.VerifyHostname(h); err != nil {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func generateCA() (*ecdsa.PrivateKey, *x509.Certificate, []byte, error) {

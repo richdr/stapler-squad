@@ -10,11 +10,13 @@ import {
   UpdateSessionRequest,
 } from "@/gen/session/v1/session_pb";
 import { SessionEvent, NotificationEvent } from "@/gen/session/v1/events_pb";
-import { getApiBaseUrl } from "@/lib/config";
+import { getApiBaseUrl, createAuthInterceptor } from "@/lib/config";
 
 interface UseSessionServiceOptions {
   baseUrl?: string;
   autoWatch?: boolean;
+  /** When false, suppresses all API calls (e.g. while auth is loading). Defaults to true. */
+  enabled?: boolean;
   onNotification?: (notification: NotificationEvent) => void;
 }
 
@@ -44,7 +46,7 @@ interface UseSessionServiceReturn {
 export function useSessionService(
   options: UseSessionServiceOptions = {}
 ): UseSessionServiceReturn {
-  const { baseUrl = getApiBaseUrl(), autoWatch = false, onNotification } = options;
+  const { baseUrl = getApiBaseUrl(), autoWatch = false, enabled = true, onNotification } = options;
   const onNotificationRef = useRef(onNotification);
 
   // Keep ref updated for callback in streaming loop
@@ -63,6 +65,7 @@ export function useSessionService(
   useEffect(() => {
     const transport = createConnectTransport({
       baseUrl,
+      interceptors: [createAuthInterceptor()],
     });
 
     clientRef.current = createPromiseClient(SessionService, transport);
@@ -399,8 +402,9 @@ export function useSessionService(
     }
   }, []);
 
-  // Auto-watch on mount if enabled
+  // Auto-watch on mount if enabled and authenticated
   useEffect(() => {
+    if (!enabled) return;
     if (autoWatch) {
       watchSessions();
     }
@@ -408,12 +412,13 @@ export function useSessionService(
     return () => {
       stopWatching();
     };
-  }, [autoWatch, watchSessions, stopWatching]);
+  }, [enabled, autoWatch, watchSessions, stopWatching]);
 
-  // Initial load
+  // Initial load (gated on auth being ready)
   useEffect(() => {
+    if (!enabled) return;
     listSessions();
-  }, [listSessions]);
+  }, [enabled, listSessions]);
 
   return {
     sessions,

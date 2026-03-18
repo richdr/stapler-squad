@@ -26,8 +26,7 @@ func PrintQRToTerminal(url string) error {
 	if err != nil {
 		return fmt.Errorf("create QR: %w", err)
 	}
-	fmt.Fprintln(os.Stderr, "\n── Scan this QR code with your phone to set up remote access ──")
 	fmt.Fprintln(os.Stderr, q.ToSmallString(false))
-	fmt.Fprintf(os.Stderr, "Setup URL: %s\n\n", url)
+	fmt.Fprintf(os.Stderr, "%s\n\n", url)
 	return nil
 }

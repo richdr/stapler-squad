@@ -4,6 +4,7 @@ import { createContext, useContext, useState, useCallback, useEffect, ReactNode 
 import { useRouter } from "next/navigation";
 import { Omnibar, OmnibarSessionData } from "@/components/sessions/Omnibar";
 import { useSessionService } from "@/lib/hooks/useSessionService";
+import { useAuth } from "@/lib/contexts/AuthContext";
 
 interface OmnibarContextValue {
   isOpen: boolean;
@@ -29,7 +30,10 @@ interface OmnibarProviderProps {
 export function OmnibarProvider({ children }: OmnibarProviderProps) {
   const [isOpen, setIsOpen] = useState(false);
   const router = useRouter();
-  const { createSession } = useSessionService();
+  const { authEnabled, authenticated, loading: authLoading } = useAuth();
+  const { createSession } = useSessionService({
+    enabled: !authLoading && (!authEnabled || authenticated),
+  });
 
   const open = useCallback(() => setIsOpen(true), []);
   const close = useCallback(() => setIsOpen(false), []);

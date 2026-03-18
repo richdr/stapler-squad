@@ -3,8 +3,12 @@ package auth
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
+	"os"
 	"sync"
 	"time"
+
+	"claude-squad/log"
 
 	"github.com/go-webauthn/webauthn/webauthn"
 )
@@ -28,15 +32,13 @@ const (
 // SessionManager manages two distinct token spaces:
 //  1. WebAuthn ceremony sessions (short-lived, indexed by a random key stored
 //     in the browser session storage during the ceremony).
-//  2. Authenticated sessions (long-lived, stored in an httpOnly cookie after
-//     successful login or registration).
-//
-// All state is in-memory; it is intentionally not persisted across server
-// restarts to force re-authentication.
+//  2. Authenticated sessions (long-lived, persisted to disk so they survive
+//     server restarts).
 type SessionManager struct {
-	mu          sync.Mutex
-	ceremonies  map[string]*ceremony  // key → ceremony session
+	mu           sync.Mutex
+	ceremonies   map[string]*ceremony   // key → ceremony session
 	authSessions map[string]*authSession // token → auth session
+	sessionsPath string                  // file path for persistence; empty = in-memory only
 }
 
 type ceremony struct {
@@ -53,20 +55,78 @@ const (
 )
 
 type authSession struct {
-	token     string
-	createdAt time.Time
-	expiresAt time.Time
+	Token     string    `json:"token"`
+	CreatedAt time.Time `json:"created_at"`
+	ExpiresAt time.Time `json:"expires_at"`
 }
 
-// NewSessionManager creates an empty SessionManager and starts a background
-// goroutine to purge expired entries.
-func NewSessionManager() *SessionManager {
+// NewSessionManager creates a SessionManager. If sessionsPath is non-empty,
+// auth sessions are loaded from and persisted to that file so they survive
+// server restarts (user stays logged in across rebuilds).
+func NewSessionManager(sessionsPath string) *SessionManager {
 	sm := &SessionManager{
 		ceremonies:   make(map[string]*ceremony),
 		authSessions: make(map[string]*authSession),
+		sessionsPath: sessionsPath,
+	}
+	if sessionsPath != "" {
+		sm.loadFromDisk()
 	}
 	go sm.cleanup()
 	return sm
+}
+
+// persistedSessions is the JSON format used on disk.
+type persistedSessions struct {
+	Sessions []*authSession `json:"sessions"`
+}
+
+// loadFromDisk restores auth sessions from disk, ignoring already-expired ones.
+func (sm *SessionManager) loadFromDisk() {
+	data, err := os.ReadFile(sm.sessionsPath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.WarningLog.Printf("auth: failed to read sessions file: %v", err)
+		}
+		return
+	}
+	var p persistedSessions
+	if err := json.Unmarshal(data, &p); err != nil {
+		log.WarningLog.Printf("auth: failed to parse sessions file: %v", err)
+		return
+	}
+	now := time.Now()
+	loaded := 0
+	for _, s := range p.Sessions {
+		if now.Before(s.ExpiresAt) {
+			sm.authSessions[s.Token] = s
+			loaded++
+		}
+	}
+	log.InfoLog.Printf("auth: loaded %d active session(s) from disk", loaded)
+}
+
+// saveToDisk writes all non-expired auth sessions to disk.
+// Must be called with sm.mu held.
+func (sm *SessionManager) saveToDisk() {
+	if sm.sessionsPath == "" {
+		return
+	}
+	now := time.Now()
+	var sessions []*authSession
+	for _, s := range sm.authSessions {
+		if now.Before(s.ExpiresAt) {
+			sessions = append(sessions, s)
+		}
+	}
+	data, err := json.Marshal(persistedSessions{Sessions: sessions})
+	if err != nil {
+		log.WarningLog.Printf("auth: failed to marshal sessions: %v", err)
+		return
+	}
+	if err := os.WriteFile(sm.sessionsPath, data, 0600); err != nil {
+		log.WarningLog.Printf("auth: failed to write sessions file: %v", err)
+	}
 }
 
 // StoreCeremony stores the WebAuthn session data for an in-progress ceremony
@@ -115,10 +175,11 @@ func (sm *SessionManager) CreateAuthSession() (string, error) {
 	defer sm.mu.Unlock()
 
 	sm.authSessions[token] = &authSession{
-		token:     token,
-		createdAt: now,
-		expiresAt: now.Add(authTokenTTL),
+		Token:     token,
+		CreatedAt: now,
+		ExpiresAt: now.Add(authTokenTTL),
 	}
+	sm.saveToDisk()
 	return token, nil
 }
 
@@ -131,7 +192,7 @@ func (sm *SessionManager) ValidateAuthSession(token string) bool {
 	if !ok {
 		return false
 	}
-	if time.Now().After(s.expiresAt) {
+	if time.Now().After(s.ExpiresAt) {
 		delete(sm.authSessions, token)
 		return false
 	}
@@ -143,6 +204,7 @@ func (sm *SessionManager) RevokeAuthSession(token string) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	delete(sm.authSessions, token)
+	sm.saveToDisk()
 }
 
 // RevokeAllSessions invalidates all authenticated sessions (force re-auth).
@@ -150,6 +212,7 @@ func (sm *SessionManager) RevokeAllSessions() {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.authSessions = make(map[string]*authSession)
+	sm.saveToDisk()
 }
 
 // AuthTokenTTL returns the authentication token TTL for use in cookie Max-Age.
@@ -170,10 +233,11 @@ func (sm *SessionManager) cleanup() {
 			}
 		}
 		for k, s := range sm.authSessions {
-			if now.After(s.expiresAt) {
+			if now.After(s.ExpiresAt) {
 				delete(sm.authSessions, k)
 			}
 		}
+		sm.saveToDisk()
 		sm.mu.Unlock()
 	}
 }

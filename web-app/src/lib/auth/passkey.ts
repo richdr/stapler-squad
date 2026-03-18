@@ -53,8 +53,9 @@ export async function registerPasskey(setupToken?: string): Promise<void> {
   }
   const { ceremony_key, options } = await beginResp.json();
 
-  // 2. Browser prompts user to create a passkey
-  const credential = await startRegistration({ optionsJSON: options });
+  // go-webauthn wraps options as { publicKey: {...} } per the W3C spec.
+  // @simplewebauthn/browser expects the flat inner PublicKeyCredentialCreationOptionsJSON.
+  const credential = await startRegistration({ optionsJSON: options.publicKey });
 
   // 3. Finish registration – send credential back to server
   const finishResp = await fetch(
@@ -87,8 +88,9 @@ export async function loginWithPasskey(): Promise<void> {
   }
   const { ceremony_key, options } = await beginResp.json();
 
-  // 2. Browser prompts user to sign with their passkey
-  const credential = await startAuthentication({ optionsJSON: options });
+  // go-webauthn wraps options as { publicKey: {...} } per the W3C spec.
+  // @simplewebauthn/browser expects the flat inner PublicKeyCredentialRequestOptionsJSON.
+  const credential = await startAuthentication({ optionsJSON: options.publicKey });
 
   // 3. Finish login
   const finishResp = await fetch(

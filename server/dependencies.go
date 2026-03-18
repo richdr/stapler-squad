@@ -51,6 +51,13 @@ func BuildDependencies() (*ServerDependencies, error) {
 	// Wire ApprovalStore as metadata provider for enriching review queue items (Story 3, Task 3.2)
 	reviewQueuePoller.SetApprovalProvider(sessionService.GetApprovalStore())
 
+	// Wire StatusManager and ReviewQueuePoller into SessionService so that:
+	// 1. New/deleted sessions are added/removed from the poller (fixes review queue gaps)
+	// 2. loadInstancesWithWiring() sets statusManager on instances (fixes status detection)
+	// 3. AcknowledgeSession updates poller instance references (prevents spam after ack)
+	sessionService.SetStatusManager(statusManager)
+	sessionService.SetReviewQueuePoller(reviewQueuePoller)
+
 	// Steps 5-7: load, wire, start instances and controllers
 	instances, err := storage.LoadInstances()
 	if err != nil {

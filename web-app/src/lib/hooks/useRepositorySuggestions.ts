@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { createPromiseClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 import { SessionService } from "@/gen/session/v1/session_connect";
+import { getApiBaseUrl } from "@/lib/config";
 
 interface RepositorySuggestionsOptions {
   baseUrl?: string;
@@ -14,7 +15,7 @@ interface RepositorySuggestionsOptions {
  * Returns a list of unique repository paths from all sessions.
  */
 export function useRepositorySuggestions(options: RepositorySuggestionsOptions = {}) {
-  const { baseUrl = "http://localhost:8543/api" } = options;
+  const { baseUrl = getApiBaseUrl() } = options;
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 

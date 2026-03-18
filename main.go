@@ -21,7 +21,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
@@ -40,6 +39,7 @@ var (
 	traceFlag         bool
 	listenAddrFlag    string
 	remoteAccessFlag  bool
+	remotePortFlag    int
 	rpIDFlag          string
 	rootCmd           = &cobra.Command{
 		Use:   "claude-squad",
@@ -158,14 +158,6 @@ var (
 			if port := os.Getenv("PORT"); port != "" {
 				address = "localhost:" + port
 			}
-			// --remote-access flag: bind to all interfaces
-			if remoteAccessFlag {
-				_, port, err := net.SplitHostPort(address)
-				if err != nil {
-					port = "8543"
-				}
-				address = "0.0.0.0:" + port
-			}
 			// --listen flag: explicit override (highest priority)
 			if listenAddrFlag != "" {
 				address = listenAddrFlag
@@ -185,11 +177,10 @@ var (
 
 			srv := server.NewServer(address)
 
-			// Set up passkey auth when remote access is enabled or explicitly configured.
-			isRemote := host != "localhost" && host != "127.0.0.1" && host != "::1"
-			if isRemote || cfg.PasskeyEnabled {
-				if err := setupPasskeyAuth(srv, address, cfg); err != nil {
-					return fmt.Errorf("setup passkey auth: %w", err)
+			// Start a second HTTPS server with passkey auth for remote access.
+			if remoteAccessFlag || cfg.PasskeyEnabled {
+				if err := startRemoteAccess(ctx, srv, address, cfg, remotePortFlag); err != nil {
+					return fmt.Errorf("start remote access: %w", err)
 				}
 			}
 
@@ -506,10 +497,13 @@ func init() {
 	rootCmd.Flags().StringVar(&listenAddrFlag, "listen", "",
 		"Address to listen on (e.g. '0.0.0.0:8543'). Overrides config listen_address.")
 	rootCmd.Flags().BoolVar(&remoteAccessFlag, "remote-access", false,
-		"Enable remote access by binding to 0.0.0.0 (shorthand for --listen 0.0.0.0:<port>)")
+		"Enable remote access: starts a second HTTPS server with passkey auth on --remote-port (default 8444). "+
+			"Local server on localhost remains unchanged.")
+	rootCmd.Flags().IntVar(&remotePortFlag, "remote-port", 8444,
+		"Port for the remote access HTTPS server (used with --remote-access, default: 8444)")
 	rootCmd.Flags().StringVar(&rpIDFlag, "rp-id", "",
-		"WebAuthn Relying Party ID (your LAN IP or hostname, e.g. '192.168.1.42'). "+
-			"Required for passkey auth when using remote access.")
+		"WebAuthn Relying Party ID override (your LAN IP or hostname, e.g. '192.168.1.42'). "+
+			"Defaults to the detected LAN IP.")
 
 	// Hide the daemonFlag as it's only for internal use
 	err := rootCmd.Flags().MarkHidden("daemon")
@@ -524,24 +518,69 @@ func init() {
 	rootCmd.AddCommand(listSessionsCmd)
 }
 
-// setupPasskeyAuth initialises TLS + WebAuthn and wires them into srv.
-func setupPasskeyAuth(srv *server.Server, address string, cfg *config.Config) error {
-	// Determine the host for the TLS cert SANs and WebAuthn rpID.
-	host, port, err := net.SplitHostPort(address)
+// resolveLANHostname returns a domain name suitable for use as a WebAuthn rpID.
+// It tries (in order):
+//  1. Reverse-DNS PTR lookup on lanIPStr (picks up DHCP-assigned FQDNs)
+//  2. os.Hostname() + ".local"  (mDNS/Bonjour, always works on macOS/iOS LANs)
+//
+// Returns empty string if neither succeeds (caller falls back to raw IP).
+func resolveLANHostname(lanIPStr string) string {
+	// 1. Reverse DNS — works when the DHCP server registers PTR records.
+	if names, err := net.LookupAddr(lanIPStr); err == nil && len(names) > 0 {
+		// PTR records end with a trailing dot; strip it.
+		name := names[0]
+		if len(name) > 0 && name[len(name)-1] == '.' {
+			name = name[:len(name)-1]
+		}
+		if name != "" {
+			log.InfoLog.Printf("auth: resolved LAN hostname via PTR: %s", name)
+			return name
+		}
+	}
+
+	// 2. mDNS .local — universally available on Apple devices / Bonjour LANs.
+	if h, err := os.Hostname(); err == nil && h != "" {
+		log.InfoLog.Printf("auth: using mDNS hostname: %s.local", h)
+		return h + ".local"
+	}
+
+	return ""
+}
+
+// getOutboundIP detects the primary LAN IP by consulting the OS routing table.
+// No data is sent – this just triggers a routing lookup.
+func getOutboundIP() (net.IP, error) {
+	conn, err := net.Dial("udp", "8.8.8.8:53")
 	if err != nil {
-		host = address
-		port = "8543"
+		return nil, err
 	}
-	if host == "0.0.0.0" || host == "::" {
-		// Listening on all interfaces; use localhost as fallback SAN.
-		// The user must also set cfg.PasskeyRPID to their LAN IP/hostname.
-		host = "localhost"
+	defer conn.Close()
+	return conn.LocalAddr().(*net.UDPAddr).IP, nil
+}
+
+// startRemoteAccess starts a second HTTPS server on all interfaces with passkey
+// authentication, while the local server on localhost stays unchanged.
+func startRemoteAccess(ctx context.Context, srv *server.Server, localAddr string, cfg *config.Config, remotePort int) error {
+	// Detect LAN IP for QR code URLs and TLS cert SANs.
+	lanIP, err := getOutboundIP()
+	if err != nil {
+		log.WarningLog.Printf("Could not detect LAN IP: %v; using localhost", err)
+		lanIP = net.ParseIP("127.0.0.1")
+	}
+	lanIPStr := lanIP.String()
+
+	// Resolve a usable domain name for WebAuthn rpID — browsers reject raw IPs.
+	// Priority: reverse-DNS (DHCP-assigned FQDN) > mDNS .local > raw IP fallback.
+	localHostname := resolveLANHostname(lanIPStr)
+
+	remoteAddr := fmt.Sprintf("0.0.0.0:%d", remotePort)
+
+	// Build SAN list for the TLS cert (include both hostname and IP).
+	sans := []string{"localhost", "127.0.0.1", lanIPStr}
+	if localHostname != "" {
+		sans = append(sans, localHostname)
 	}
 
-	// Build SAN list for the TLS cert.
-	sans := []string{host, "localhost", "127.0.0.1"}
-
-	// Generate / reuse TLS certs.
 	tlsPaths, err := server.EnsureTLSCerts(sans)
 	if err != nil {
 		return fmt.Errorf("ensure TLS certs: %w", err)
@@ -551,20 +590,24 @@ func setupPasskeyAuth(srv *server.Server, address string, cfg *config.Config) er
 	if err != nil {
 		return fmt.Errorf("load TLS config: %w", err)
 	}
-	srv.SetupTLS(tlsCfg)
 
-	// Determine rpID: config > flag > inferred host.
+	// Determine rpID: config/flag override > .local hostname > detected LAN IP.
+	// WebAuthn spec requires a domain name; IP addresses are not accepted by browsers.
 	rpID := cfg.PasskeyRPID
+	displayHost := lanIPStr // host used in QR code URLs
 	if rpID == "" {
-		rpID = host
-	}
-	if rpID == "0.0.0.0" || rpID == "::" {
-		rpID = "localhost"
+		if localHostname != "" {
+			rpID = localHostname
+			displayHost = localHostname
+		} else {
+			rpID = lanIPStr
+		}
+	} else {
+		displayHost = rpID
 	}
 
-	origin := fmt.Sprintf("https://%s:%s", rpID, port)
-	origins := []string{origin, "https://localhost:" + port}
-	// Deduplicate
+	origin := fmt.Sprintf("https://%s:%d", displayHost, remotePort)
+	origins := []string{origin, fmt.Sprintf("https://localhost:%d", remotePort)}
 	seen := map[string]bool{}
 	unique := origins[:0]
 	for _, o := range origins {
@@ -580,7 +623,13 @@ func setupPasskeyAuth(srv *server.Server, address string, cfg *config.Config) er
 		return fmt.Errorf("create credential store: %w", err)
 	}
 
-	sessions := serverauth.NewSessionManager()
+	// Persist auth sessions so the phone stays logged in across server restarts.
+	configDir, err := config.GetConfigDir()
+	if err != nil {
+		return fmt.Errorf("get config dir: %w", err)
+	}
+	sessionsPath := filepath.Join(configDir, "auth-sessions.json")
+	sessions := serverauth.NewSessionManager(sessionsPath)
 
 	waHandler, err := serverauth.NewHandler(rpID, unique, store, sessions)
 	if err != nil {
@@ -589,41 +638,45 @@ func setupPasskeyAuth(srv *server.Server, address string, cfg *config.Config) er
 
 	setupMgr := serverauth.NewSetupManager()
 
-	// Register auth routes on the server's mux.
+	// Register auth routes on the shared mux (accessible via both servers).
 	serverauth.RegisterRoutes(srv.Mux(), waHandler, sessions, store, setupMgr, tlsPaths.CAFile)
 
-	// Apply auth middleware (protects all non-exempt routes).
-	srv.SetupAuth(middleware.Auth(sessions))
+	// Start the remote HTTPS server with auth middleware applied.
+	if err := srv.StartRemote(ctx, remoteAddr, tlsCfg, middleware.Auth(sessions)); err != nil {
+		return fmt.Errorf("start remote server: %w", err)
+	}
 
-	// Bootstrap: if no passkeys are registered, generate a setup token and
-	// print it + a QR code to stderr so the operator can enroll the first device.
+	// Bootstrap: if no passkeys registered, print setup + CA QR codes.
 	if !store.HasCredentials() {
 		token, tokenErr := setupMgr.Init()
 		if tokenErr != nil {
 			log.WarningLog.Printf("Failed to generate setup token: %v", tokenErr)
 		} else {
-			setupURL := fmt.Sprintf("https://%s:%s/login?setup_token=%s", rpID, port, token)
+			setupURL := fmt.Sprintf("https://%s:%d/login?setup_token=%s", displayHost, remotePort, token)
+			caURL := fmt.Sprintf("https://%s:%d/auth/ca.pem", displayHost, remotePort)
+
 			fmt.Fprintf(os.Stderr, "\n╔══════════════════════════════════════════════════════╗\n")
-			fmt.Fprintf(os.Stderr, "║  PASSKEY SETUP REQUIRED                              ║\n")
+			fmt.Fprintf(os.Stderr, "║  REMOTE ACCESS ENABLED                               ║\n")
 			fmt.Fprintf(os.Stderr, "╠══════════════════════════════════════════════════════╣\n")
-			fmt.Fprintf(os.Stderr, "║  No passkeys registered. Scan the QR code or visit: ║\n")
-			fmt.Fprintf(os.Stderr, "║  %-52s ║\n", setupURL)
-			fmt.Fprintf(os.Stderr, "║  CA cert for phone trust: %s/auth/ca.pem%-10s ║\n",
-				fmt.Sprintf("https://%s:%s", rpID, port), "")
+			fmt.Fprintf(os.Stderr, "║  Local  (no auth): http://%-26s ║\n", localAddr)
+			fmt.Fprintf(os.Stderr, "║  Remote (HTTPS):   https://%s:%-5d               ║\n", displayHost, remotePort)
+			fmt.Fprintf(os.Stderr, "╠══════════════════════════════════════════════════════╣\n")
+			fmt.Fprintf(os.Stderr, "║  No passkeys registered — scan QR codes below:       ║\n")
 			fmt.Fprintf(os.Stderr, "╚══════════════════════════════════════════════════════╝\n")
+
+			fmt.Fprintf(os.Stderr, "\n── QR Code 1: Install CA certificate (trust HTTPS on your phone) ──\n")
+			if qrErr := serverauth.PrintQRToTerminal(caURL); qrErr != nil {
+				log.WarningLog.Printf("CA QR print failed: %v", qrErr)
+			}
+
+			fmt.Fprintf(os.Stderr, "\n── QR Code 2: Register passkey (after installing CA cert) ──\n")
 			if qrErr := serverauth.PrintQRToTerminal(setupURL); qrErr != nil {
-				log.WarningLog.Printf("QR print failed: %v", qrErr)
+				log.WarningLog.Printf("Setup QR print failed: %v", qrErr)
 			}
 		}
 	}
 
-	// Warn if rpID looks misconfigured.
-	if strings.HasPrefix(rpID, "0.0.0.0") || rpID == "::" {
-		log.WarningLog.Printf("WARNING: PasskeyRPID=%q is a wildcard address. "+
-			"Passkeys will not work. Set --rp-id to your actual LAN IP or hostname.", rpID)
-	}
-
-	log.InfoLog.Printf("auth: passkey auth enabled – rpID=%s origin=%s", rpID, origin)
+	log.InfoLog.Printf("auth: remote access enabled on port %d – rpID=%s host=%s LAN IP=%s", remotePort, rpID, displayHost, lanIPStr)
 	log.InfoLog.Printf("auth: TLS CA cert: %s", tlsPaths.CAFile)
 	return nil
 }

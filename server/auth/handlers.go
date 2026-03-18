@@ -3,6 +3,7 @@ package auth
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"time"
 
@@ -38,11 +39,35 @@ type httpHandlers struct {
 	caPath   string
 }
 
+// isLocalhostRequest returns true when the request originates from the loopback
+// interface (127.0.0.1 or ::1). Auth is not required for local access.
+func isLocalhostRequest(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 // status returns the current auth configuration state.
 // Used by the frontend to decide what to show (setup page, login, or nothing).
+// Requests from localhost always get auth_enabled=false so the local UI never
+// requires a passkey — only remote (HTTPS) clients need to authenticate.
 func (h *httpHandlers) status(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Local clients bypass auth entirely.
+	if isLocalhostRequest(r) {
+		jsonResponse(w, map[string]interface{}{
+			"auth_enabled":    false,
+			"has_credentials": h.store.HasCredentials(),
+			"authenticated":   true,
+			"setup_active":    h.setup.IsActive(),
+		})
 		return
 	}
 

@@ -54,16 +54,16 @@ function LoginContent() {
 
   if (loading) {
     return (
-      <div className={styles.container}>
+      <main id="main-content" className={styles.container}>
         <div className={styles.card}>
           <p className={styles.hint}>Checking auth status…</p>
         </div>
-      </div>
+      </main>
     );
   }
 
   return (
-    <div className={styles.container}>
+    <main id="main-content" className={styles.container}>
       <div className={styles.card}>
         <div className={styles.logo}>⚔️</div>
         <h1 className={styles.title}>Claude Squad</h1>
@@ -109,7 +109,7 @@ function LoginContent() {
           </p>
         )}
       </div>
-    </div>
+    </main>
   );
 }
 

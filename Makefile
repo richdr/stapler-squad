@@ -4,6 +4,7 @@
 # Variables
 PROFILE_FLAGS ?=
 PROFILE_PORT ?= 6060
+SERVER_FLAGS ?= --remote-access
 
 .PHONY: help build test benchmark install-tools lint analyze nil-safety security format check-deps clean all proto-gen proto-lint proto-build web-build web-dev restart-web restart-web-profile
 
@@ -41,7 +42,7 @@ restart-web: build-all ## Rebuild and restart the web server
 	@-pkill -f "^\./claude-squad" 2>/dev/null || true
 	@sleep 1
 	@echo "Starting server..."
-	@./claude-squad $(PROFILE_FLAGS) &
+	@./claude-squad $(SERVER_FLAGS) $(PROFILE_FLAGS) &
 	@sleep 2
 	@echo "✅ Server restarted at http://localhost:8543"
 	@if [ -n "$(PROFILE_FLAGS)" ]; then \
