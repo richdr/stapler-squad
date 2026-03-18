@@ -7,6 +7,7 @@ This file serves as a lightweight index of all feature plans in `docs/tasks/`.
 | Plan | Status | Stories | Priority |
 |------|--------|---------|----------|
 | [Review Queue Navigation](review-queue-navigation.md) | Draft | 3 stories, 11 tasks | High |
+| [Test Coverage: Core Business Logic](test-coverage-core-logic.md) | Draft | 3 stories, 15 tasks | High |
 
 ## Completed Plans
 
