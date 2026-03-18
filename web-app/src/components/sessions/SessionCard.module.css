@@ -64,7 +64,7 @@
 
 .title {
   margin: 0;
-  font-size: 18px;
+  font-size: 1.125rem;
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -84,13 +84,13 @@
   background: #6366f1;
   color: white;
   border-radius: 12px;
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 600;
   border: 1px solid #4f46e5;
 }
 
 .muxIndicator {
-  font-size: 10px;
+  font-size: 0.625rem;
   background: rgba(255, 255, 255, 0.3);
   padding: 2px 4px;
   border-radius: 4px;
@@ -109,7 +109,7 @@
 }
 
 .reviewContext {
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: var(--text-secondary);
   font-style: italic;
 }
@@ -117,7 +117,7 @@
 .status {
   padding: 4px 12px;
   border-radius: 12px;
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;
 }
@@ -158,7 +158,7 @@
   background: var(--category-bg);
   color: var(--category-text);
   border-radius: 4px;
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 500;
 }
 
@@ -179,7 +179,7 @@
 .tag {
   display: inline-block;
   padding: 4px 10px;
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-weight: 500;
   background: #1e40af;
   color: #dbeafe;
@@ -193,7 +193,7 @@
 
 .editTagsButton {
   padding: 4px 12px;
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-weight: 600;
   background: transparent;
   color: #1e40af;
@@ -221,7 +221,7 @@
 .infoRow {
   display: flex;
   gap: 8px;
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 
 .label {
@@ -254,7 +254,7 @@
   gap: 12px;
   margin-top: 8px;
   font-family: monospace;
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 
 .diffAdded {
@@ -282,7 +282,7 @@
 }
 
 .timestamp {
-  font-size: 12px;
+  font-size: 0.75rem;
   color: var(--text-secondary);
 }
 
@@ -297,7 +297,7 @@
   border-radius: 6px;
   background: var(--button-bg);
   color: var(--button-text);
-  font-size: 14px;
+  font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -388,19 +388,19 @@
 .dialogContent h3 {
   margin: 0 0 16px 0;
   color: var(--text-primary);
-  font-size: 20px;
+  font-size: 1.25rem;
 }
 
 .dialogContent p {
   margin: 12px 0;
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 
 .warningText {
   color: #ef4444 !important;
   font-weight: 500;
-  font-size: 13px !important;
+  font-size: 0.8125rem !important;
 }
 
 .renameInput {
@@ -410,7 +410,7 @@
   border-radius: 8px;
   background: var(--button-bg);
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: 0.875rem;
   margin-bottom: 8px;
   transition: border-color 0.2s ease;
 }
@@ -424,7 +424,7 @@
 .errorMessage {
   display: block;
   color: #ef4444;
-  font-size: 12px;
+  font-size: 0.75rem;
   margin: 8px 0;
 }
 
@@ -440,7 +440,7 @@
 .dangerButton {
   padding: 8px 20px;
   border-radius: 8px;
-  font-size: 14px;
+  font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -514,7 +514,7 @@
     border-radius: 6px;
     background: var(--button-bg);
     color: var(--button-text);
-    font-size: 14px;
+    font-size: 0.875rem;
     font-weight: 500;
     cursor: pointer;
     transition: background 0.2s ease;
@@ -541,7 +541,7 @@
     min-height: 44px;
     padding: 10px 8px;
     justify-content: center;
-    font-size: 13px;
+    font-size: 0.8125rem;
     text-align: center;
   }
 
@@ -551,7 +551,7 @@
   }
 
   .title {
-    font-size: 16px;
+    font-size: 1rem;
   }
 }
 

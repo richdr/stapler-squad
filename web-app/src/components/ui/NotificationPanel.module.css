@@ -5,7 +5,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0, 0, 0, 0.5);
+  background-color: var(--overlay-background);
   z-index: 9998;
   animation: fadeIn 0.3s ease-out;
 }
@@ -27,7 +27,7 @@
   bottom: 0;
   width: 400px;
   max-width: 90vw;
-  background-color: var(--background-color, #ffffff);
+  background-color: var(--background);
   box-shadow: -2px 0 10px rgba(0, 0, 0, 0.2);
   z-index: 9999;
   transform: translateX(100%);
@@ -47,8 +47,8 @@
   align-items: center;
   justify-content: space-between;
   padding: 1rem 1.25rem;
-  border-bottom: 1px solid var(--border-color, #e0e0e0);
-  background-color: var(--header-background, #f5f5f5);
+  border-bottom: 1px solid var(--border-color);
+  background-color: var(--card-background);
   flex-shrink: 0;
 }
 
@@ -59,7 +59,7 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  color: var(--text-color, #333);
+  color: var(--text-primary);
 }
 
 .unreadBadge {
@@ -69,7 +69,7 @@
   min-width: 1.5rem;
   height: 1.5rem;
   padding: 0 0.5rem;
-  background-color: var(--color-error, #f44336);
+  background-color: var(--error);
   color: white;
   border-radius: 12px;
   font-size: 0.75rem;
@@ -86,22 +86,22 @@
 .clearButton {
   padding: 0.5rem 0.75rem;
   background-color: transparent;
-  border: 1px solid var(--border-color, #e0e0e0);
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   cursor: pointer;
   font-size: 0.875rem;
-  color: var(--text-color, #333);
+  color: var(--text-primary);
   transition: all 0.2s ease;
 }
 
 .markAllButton:hover,
 .clearButton:hover {
-  background-color: var(--hover-background, #f0f0f0);
-  border-color: var(--border-hover-color, #ccc);
+  background-color: var(--hover-background);
+  border-color: var(--border-color);
 }
 
 .clearButton {
-  color: var(--color-error, #f44336);
+  color: var(--error);
 }
 
 .closeButton {
@@ -115,12 +115,12 @@
   border-radius: 50%;
   cursor: pointer;
   font-size: 1.5rem;
-  color: var(--text-color, #666);
+  color: var(--text-secondary);
   transition: background-color 0.2s ease;
 }
 
 .closeButton:hover {
-  background-color: var(--hover-background, #f0f0f0);
+  background-color: var(--hover-background);
 }
 
 /* Content */
@@ -139,7 +139,7 @@
   height: 100%;
   padding: 2rem;
   text-align: center;
-  color: var(--text-secondary, #666);
+  color: var(--text-secondary);
 }
 
 .emptyIcon {
@@ -152,13 +152,13 @@
   font-size: 1.125rem;
   font-weight: 500;
   margin: 0 0 0.5rem 0;
-  color: var(--text-color, #333);
+  color: var(--text-primary);
 }
 
 .emptySubtext {
   font-size: 0.875rem;
   margin: 0;
-  color: var(--text-secondary, #666);
+  color: var(--text-secondary);
 }
 
 /* Notification List */
@@ -170,18 +170,18 @@
 /* Notification Item */
 .item {
   padding: 1rem 1.25rem;
-  border-bottom: 1px solid var(--border-color, #e0e0e0);
+  border-bottom: 1px solid var(--border-color);
   border-left: 3px solid var(--priority-color);
-  background-color: var(--background-color, #ffffff);
+  background-color: var(--background);
   transition: background-color 0.2s ease;
 }
 
 .item:hover {
-  background-color: var(--hover-background, #f9f9f9);
+  background-color: var(--hover-background);
 }
 
 .item.unread {
-  background-color: var(--unread-background, #f0f7ff);
+  background-color: rgba(0, 112, 243, 0.07);
 }
 
 .item.read {
@@ -200,7 +200,7 @@
   align-items: center;
   gap: 0.5rem;
   font-size: 0.875rem;
-  color: var(--text-color, #333);
+  color: var(--text-primary);
   flex-wrap: wrap;
   flex: 1;
   min-width: 0;
@@ -233,14 +233,14 @@
 
 .itemContext {
   font-size: 0.75rem;
-  color: var(--text-secondary, #666);
+  color: var(--text-secondary);
   margin-bottom: 0.5rem;
   font-weight: 500;
 }
 
 .itemWorkingDir {
   font-size: 0.75rem;
-  color: var(--text-secondary, #666);
+  color: var(--text-secondary);
   margin-bottom: 0.5rem;
   display: flex;
   align-items: center;
@@ -259,8 +259,8 @@
 .focusButton {
   padding: 0.375rem 0.5rem;
   background-color: transparent;
-  color: var(--color-primary, #0070f3);
-  border: 1px solid var(--color-primary, #0070f3);
+  color: var(--primary);
+  border: 1px solid var(--primary);
   border-radius: 6px;
   cursor: pointer;
   font-size: 0.75rem;
@@ -270,7 +270,7 @@
 }
 
 .focusButton:hover {
-  background-color: var(--color-primary, #0070f3);
+  background-color: var(--primary);
   color: white;
 }
 
@@ -278,7 +278,7 @@
   display: inline-block;
   width: 8px;
   height: 8px;
-  background-color: var(--color-info, #2196f3);
+  background-color: var(--primary);
   border-radius: 50%;
 }
 
@@ -293,7 +293,7 @@
   border-radius: 50%;
   cursor: pointer;
   font-size: 1rem;
-  color: var(--text-secondary, #999);
+  color: var(--text-muted);
   transition: all 0.2s ease;
   opacity: 0;
   flex-shrink: 0;
@@ -304,15 +304,15 @@
 }
 
 .removeButton:hover {
-  background-color: var(--hover-background, #f0f0f0);
-  color: var(--text-color, #333);
+  background-color: var(--hover-background);
+  color: var(--text-primary);
 }
 
 .itemMessage {
   margin: 0 0 0.75rem 0;
   font-size: 0.875rem;
   line-height: 1.4;
-  color: var(--text-color, #333);
+  color: var(--text-primary);
 }
 
 .itemFooter {
@@ -324,12 +324,12 @@
 
 .timestamp {
   font-size: 0.75rem;
-  color: var(--text-secondary, #999);
+  color: var(--text-muted);
 }
 
 .viewButton {
   padding: 0.375rem 0.75rem;
-  background-color: var(--color-primary, #0070f3);
+  background-color: var(--primary);
   color: white;
   border: none;
   border-radius: 6px;
@@ -340,106 +340,7 @@
 }
 
 .viewButton:hover {
-  background-color: var(--color-primary-dark, #0051cc);
-}
-
-/* Dark mode support */
-@media (prefers-color-scheme: dark) {
-  .panel {
-    background-color: #1e1e1e;
-    box-shadow: -2px 0 10px rgba(0, 0, 0, 0.5);
-  }
-
-  .header {
-    background-color: #2a2a2a;
-    border-bottom-color: #404040;
-  }
-
-  .title {
-    color: #e0e0e0;
-  }
-
-  .markAllButton,
-  .clearButton {
-    border-color: #404040;
-    color: #e0e0e0;
-  }
-
-  .markAllButton:hover,
-  .clearButton:hover {
-    background-color: #333;
-    border-color: #555;
-  }
-
-  .closeButton {
-    color: #999;
-  }
-
-  .closeButton:hover {
-    background-color: #333;
-  }
-
-  .item {
-    background-color: #1e1e1e;
-    border-bottom-color: #404040;
-  }
-
-  .item:hover {
-    background-color: #2a2a2a;
-  }
-
-  .item.unread {
-    background-color: #1a2332;
-  }
-
-  .itemTitle {
-    color: #e0e0e0;
-  }
-
-  .itemMessage {
-    color: #c0c0c0;
-  }
-
-  .removeButton:hover {
-    background-color: #333;
-    color: #e0e0e0;
-  }
-
-  .emptyText {
-    color: #e0e0e0;
-  }
-
-  .emptySubtext {
-    color: #999;
-  }
-
-  .itemContext {
-    color: #a0a0a0;
-  }
-
-  .itemWorkingDir {
-    color: #a0a0a0;
-  }
-
-  .focusButton {
-    color: #60a0ff;
-    border-color: #60a0ff;
-  }
-
-  .focusButton:hover {
-    background-color: #60a0ff;
-    color: white;
-  }
-
-  .loadMoreButton {
-    border-color: #404040;
-    color: #e0e0e0;
-  }
-
-  .loadMoreButton:hover:not(:disabled) {
-    background-color: #333;
-    border-color: #555;
-  }
+  background-color: var(--primary-hover);
 }
 
 /* Load more */
@@ -452,17 +353,17 @@
 .loadMoreButton {
   padding: 0.5rem 1.5rem;
   background-color: transparent;
-  border: 1px solid var(--border-color, #e0e0e0);
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   cursor: pointer;
   font-size: 0.875rem;
-  color: var(--text-color, #333);
+  color: var(--text-primary);
   transition: all 0.2s ease;
 }
 
 .loadMoreButton:hover:not(:disabled) {
-  background-color: var(--hover-background, #f0f0f0);
-  border-color: var(--border-hover-color, #ccc);
+  background-color: var(--hover-background);
+  border-color: var(--border-color);
 }
 
 .loadMoreButton:disabled {
@@ -474,7 +375,7 @@
 .itemSubtitle {
   font-size: 0.8rem;
   font-weight: 500;
-  color: var(--color-text-secondary, #666);
+  color: var(--text-secondary);
   margin-bottom: 0.125rem;
 }
 
@@ -485,21 +386,21 @@
   gap: 0.25rem;
   margin: 0.375rem 0;
   padding: 0.5rem 0.625rem;
-  background-color: var(--code-background, rgba(0, 0, 0, 0.04));
-  border-left: 2px solid var(--color-warning, #ff9800);
+  background-color: rgba(0, 0, 0, 0.04);
+  border-left: 2px solid var(--warning);
   border-radius: 0 4px 4px 0;
   font-size: 0.8rem;
 }
 
 .approvalTool {
-  color: var(--color-text-secondary, #666);
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
 .approvalCommand {
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
   font-size: 0.78rem;
-  color: var(--color-text-primary, #333);
+  color: var(--text-primary);
   background: transparent;
   white-space: pre-wrap;
   word-break: break-all;
@@ -507,7 +408,7 @@
 }
 
 .approvalCwd {
-  color: var(--color-text-muted, #999);
+  color: var(--text-muted);
   font-size: 0.75rem;
 }
 
@@ -516,16 +417,16 @@
   padding: 0.25rem 0.625rem;
   font-size: 0.78rem;
   font-weight: 600;
-  border: 1px solid var(--color-success, #4caf50);
+  border: 1px solid var(--success);
   border-radius: 4px;
   background: transparent;
-  color: var(--color-success, #4caf50);
+  color: var(--success);
   cursor: pointer;
   transition: background-color 0.15s, color 0.15s;
 }
 
 .approveButton:hover {
-  background-color: var(--color-success, #4caf50);
+  background-color: var(--success);
   color: white;
 }
 
@@ -533,16 +434,16 @@
   padding: 0.25rem 0.625rem;
   font-size: 0.78rem;
   font-weight: 600;
-  border: 1px solid var(--color-error, #f44336);
+  border: 1px solid var(--error);
   border-radius: 4px;
   background: transparent;
-  color: var(--color-error, #f44336);
+  color: var(--error);
   cursor: pointer;
   transition: background-color 0.15s, color 0.15s;
 }
 
 .denyButton:hover {
-  background-color: var(--color-error, #f44336);
+  background-color: var(--error);
   color: white;
 }
 

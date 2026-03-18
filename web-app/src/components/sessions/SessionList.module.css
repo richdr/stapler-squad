@@ -19,7 +19,7 @@
 
 .title {
   margin: 0;
-  font-size: 24px;
+  font-size: 1.5rem;
   font-weight: 700;
   color: var(--text-primary);
 }
@@ -30,7 +30,7 @@
   gap: 6px;
   padding: 10px 20px;
   border-radius: 6px;
-  font-size: 14px;
+  font-size: 0.875rem;
   font-weight: 600;
   color: white;
   background: var(--primary-color, #0066cc);
@@ -58,7 +58,7 @@
 .selectModeButton {
   padding: 10px 20px;
   border-radius: 6px;
-  font-size: 14px;
+  font-size: 0.875rem;
   font-weight: 600;
   background: var(--card-background);
   border: 1px solid var(--border-color);
@@ -101,7 +101,7 @@
   border-radius: 8px;
   background: var(--input-bg);
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
   min-height: 44px;
@@ -140,7 +140,7 @@
   border-radius: 8px;
   background: var(--input-bg);
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: 0.875rem;
   transition: border-color 0.2s ease;
 }
 
@@ -155,7 +155,7 @@
   border-radius: 8px;
   background: var(--input-bg);
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: 0.875rem;
   cursor: pointer;
   transition: border-color 0.2s ease;
 }
@@ -171,7 +171,7 @@
   border-radius: 8px;
   background: var(--input-bg);
   color: var(--text-primary);
-  font-size: 16px;
+  font-size: 1rem;
   line-height: 1;
   cursor: pointer;
   transition: border-color 0.2s ease;
@@ -192,7 +192,7 @@
   border-radius: 8px;
   background: var(--input-bg);
   cursor: pointer;
-  font-size: 14px;
+  font-size: 0.875rem;
   color: var(--text-primary);
   transition: border-color 0.2s ease;
 }
@@ -220,7 +220,7 @@
 .categoryTitle {
   margin: 0;
   padding: 8px 12px;
-  font-size: 16px;
+  font-size: 1rem;
   font-weight: 600;
   color: var(--text-primary);
   background: var(--category-header-bg);
@@ -246,7 +246,7 @@
 
 .empty p {
   margin: 0 0 16px 0;
-  font-size: 16px;
+  font-size: 1rem;
 }
 
 .clearButton {
@@ -255,7 +255,7 @@
   border-radius: 8px;
   background: var(--button-bg);
   color: var(--button-text);
-  font-size: 14px;
+  font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -276,7 +276,7 @@
 
 .emptyHint {
   margin: 0;
-  font-size: 15px;
+  font-size: 0.9375rem;
   color: var(--text-secondary);
 }
 
@@ -286,7 +286,7 @@
   gap: 8px;
   padding: 14px 28px;
   border-radius: 8px;
-  font-size: 16px;
+  font-size: 1rem;
   font-weight: 600;
   color: white;
   background: var(--primary-color, #0066cc);
