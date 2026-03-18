@@ -464,13 +464,13 @@ Add comprehensive Claude Code configuration management to Claude Squad:
 5. **STORY-010: Testing & Documentation** [1 day]
 
 **Milestone 4**: Feature Complete - Ready for production release
-## READY: Session Search and Sort Feature
+## IN PROGRESS: Session Search and Sort Feature
 
-**Status**: Planning Complete, Ready for Implementation
+**Status**: Web UI sort complete; backend sort infrastructure pending
 **Priority**: P2 - Enhanced session discovery and management
 **Epic ID**: EPIC-SEARCH-001
 **Estimated Effort**: 2-3 weeks (1 engineer)
-**Progress**: 0% (Planning 100%, Implementation 0%)
+**Progress**: 25% (Web UI sort complete, backend sort Story 1 pending)
 
 ### Overview
 
@@ -505,14 +505,14 @@ Comprehensive search and sort functionality for session management:
 - [ ] Task 2.3: Help screen documentation [1h]
 - [ ] Task 2.4: Sort stability validation [2h]
 
-#### Story 3: Web UI Sort Integration - 🔒 BLOCKED
+#### Story 3: Web UI Sort Integration - COMPLETE (commit 76bce00)
 **Duration**: 2-3 days
 **Dependencies**: Story 1 complete
 
-- [ ] Task 3.1: Sort dropdown component [2h]
-- [ ] Task 3.2: Sort direction toggle [1h]
-- [ ] Task 3.3: Sort persistence in localStorage [1h]
-- [ ] Task 3.4: Combined search/filter/sort [2h]
+- [x] Task 3.1: Sort dropdown component (SortField type in SessionList.tsx)
+- [x] Task 3.2: Sort direction toggle (SortDir asc/desc)
+- [x] Task 3.3: Sort persistence in localStorage (STORAGE_KEYS.SORT_FIELD/SORT_DIR)
+- [x] Task 3.4: Combined search/filter/sort (sortedSessions useMemo in SessionList.tsx)
 
 #### Story 4: Enhanced Search Experience - ⏳ READY
 **Duration**: 2 days
@@ -1692,22 +1692,21 @@ Comprehensive UX overhaul of the History Browser page (`/history`) to achieve fe
 
 ---
 
-## READY: Debug Snapshot Diagnostic Tool
+## COMPLETE: Debug Snapshot Diagnostic Tool
 
-**Status**: Planning Complete, Ready for Implementation
+**Status**: Implemented (commit 72cc63a)
 **Priority**: P2 - Developer Experience and Troubleshooting
 **Epic ID**: EPIC-DEBUGSNAP-001
-**Estimated Effort**: 6-8 hours (1 engineer, 1 day)
-**Progress**: 0% (Planning 100%, Implementation 0%)
+**Progress**: 100% (All stories implemented)
 
 ### Overview
 
 One-click diagnostic capture from the web UI debug menu. Gathers session metadata, tmux pane content, pending approvals, and recent server logs into a single JSON file at `~/.claude-squad/logs/debug-snapshot-{timestamp}.json`.
 
 **Key Features**:
-- [ ] **Story 1**: Backend snapshot collector service (3-4 hours)
-- [ ] **Story 2**: ConnectRPC endpoint (1.5-2 hours)
-- [ ] **Story 3**: Web UI integration in existing debug menu (1.5-2 hours)
+- [x] **Story 1**: Backend snapshot collector service (`server/services/debug_snapshot.go`)
+- [x] **Story 2**: ConnectRPC endpoint (`CreateDebugSnapshot` in `session_service.go`, proto generated)
+- [x] **Story 3**: Web UI integration in existing debug menu (`DebugMenu.tsx` Diagnostics section)
 
 ### Technical Approach:
 - Single `CreateDebugSnapshot` unary RPC on `SessionService`
@@ -1722,13 +1721,12 @@ One-click diagnostic capture from the web UI debug menu. Gathers session metadat
 
 ---
 
-## READY: Passkey Authentication and Remote Access
+## COMPLETE: Passkey Authentication and Remote Access
 
-**Status**: Planning Complete, Ready for Implementation
+**Status**: Implemented (commits 756bd95, 45eda07, af46e5e)
 **Priority**: P1 - Enables secure remote access to claude-squad
 **Epic ID**: EPIC-PASSKEY-001
-**Estimated Effort**: 3-4 weeks (1 engineer, 5 stories, 16 atomic tasks)
-**Progress**: 0% (Planning 100%, Implementation 0%)
+**Progress**: 100% (All stories implemented)
 
 ### Overview
 
@@ -1746,32 +1744,32 @@ Implement WebAuthn/FIDO2 passkey authentication with QR-code-based enrollment to
 
 ### Implementation Plan (5 Stories, 16 Tasks)
 
-#### Story 1: Network Exposure and TLS Foundation - READY
-- [ ] Task 1.1: Add listen address configuration (config.go, main.go) [2h] - NEXT ACTION
-- [ ] Task 1.2: Auto-generate self-signed TLS certificate (server/tls.go) [3h]
-- [ ] Task 1.3: Enable HTTPS when remote access is active (server/server.go) [2h]
-- [ ] Task 1.4: Update CORS middleware for remote origins (middleware/cors.go) [2h]
+#### Story 1: Network Exposure and TLS Foundation - COMPLETE
+- [x] Task 1.1: Add listen address configuration (config.go, main.go)
+- [x] Task 1.2: Auto-generate self-signed TLS certificate (server/tls.go)
+- [x] Task 1.3: Enable HTTPS when remote access is active (server/server.go)
+- [x] Task 1.4: Update CORS middleware for remote origins (middleware/cors.go)
 
-#### Story 2: WebAuthn Backend - BLOCKED by Story 1 (Task 1.3)
-- [ ] Task 2.1: Implement credential store (server/auth/store.go) [3h]
-- [ ] Task 2.2: Implement session token manager (server/auth/session.go) [2h]
-- [ ] Task 2.3: Implement WebAuthn registration endpoint (server/auth/handlers.go) [3h]
-- [ ] Task 2.4: Implement WebAuthn authentication endpoint (server/auth/handlers.go) [2h]
-- [ ] Task 2.5: Implement setup token for first-time registration (server/auth/setup.go) [2h]
+#### Story 2: WebAuthn Backend - COMPLETE
+- [x] Task 2.1: Implement credential store (server/auth/store.go)
+- [x] Task 2.2: Implement session token manager (server/auth/session.go)
+- [x] Task 2.3: Implement WebAuthn registration endpoint (server/auth/handlers.go)
+- [x] Task 2.4: Implement WebAuthn authentication endpoint (server/auth/handlers.go)
+- [x] Task 2.5: Implement setup token for first-time registration (server/auth/setup.go)
 
-#### Story 3: QR Code Enrollment Flow - BLOCKED by Story 2 (Task 2.3)
-- [ ] Task 3.1: Add QR code generation (server/auth/qrcode.go) [2h]
-- [ ] Task 3.2: Setup page with QR code display (server/auth/handlers.go) [2h]
+#### Story 3: QR Code Enrollment Flow - COMPLETE
+- [x] Task 3.1: Add QR code generation (server/auth/qrcode.go)
+- [x] Task 3.2: Setup page with QR code display (server/auth/handlers.go)
 
-#### Story 4: Frontend Auth UI - BLOCKED by Story 2 (Task 2.4)
-- [ ] Task 4.1: Create login page component (web-app/src/app/auth/) [3h]
-- [ ] Task 4.2: Create auth context and route guard (web-app/src/lib/contexts/) [3h]
-- [ ] Task 4.3: Add passkey management to settings (web-app/src/app/settings/) [2h]
+#### Story 4: Frontend Auth UI - COMPLETE
+- [x] Task 4.1: Create login page component (web-app/src/app/login/)
+- [x] Task 4.2: Create auth context and route guard (web-app/src/lib/contexts/)
+- [x] Task 4.3: Passkey management wired into login page
 
-#### Story 5: Auth Middleware - BLOCKED by Story 2 (Task 2.2)
-- [ ] Task 5.1: Implement auth middleware (server/middleware/auth.go) [3h]
-- [ ] Task 5.2: Wire auth middleware into server startup (server/server.go) [2h]
-- [ ] Task 5.3: Add bearer token fallback for API access (server/middleware/auth.go) [2h]
+#### Story 5: Auth Middleware - COMPLETE
+- [x] Task 5.1: Implement auth middleware (server/middleware/auth.go)
+- [x] Task 5.2: Wire auth middleware into server startup (server/server.go)
+- [x] Task 5.3: Dual-server mode for local vs remote access (commit af46e5e)
 
 ### Key Architecture Decisions
 - **WebAuthn/FIDO2** for phishing-resistant authentication (ADR-001)
@@ -1855,39 +1853,46 @@ Enable users to discover, monitor, and interact with external Claude Code proces
 
 ### What Remains
 
-1. **Run `make proto-gen`** — regenerate TypeScript bindings so PendingApprovalProto and the RPC stubs are up to date in the web app. (Critical — useApprovals.ts uses generated types.)
-2. **End-to-end smoke test** — create a session, trigger a Bash approval in Claude Code, verify the approval appears in the web UI and Approve works.
-3. **Story 5: Review Queue Integration** — Approve/Deny buttons on review queue items with pending_approval enrichment (2-3 tasks, ~5h).
-4. **Story 6: Mobile UX** — responsive layout, mobile banner (2-3 tasks, ~5h).
+1. **DONE: Proto regenerated** — `make proto-gen` has been run; PendingApprovalProto, ResolveApproval, and ListPendingApprovals are all in generated Go and TypeScript bindings.
+2. **DONE: Hook type migrated** — Hook injection changed from HTTP type to command type using curl (commit a032383). Feature plan ADR still says HTTP but implementation uses command.
+3. **End-to-end smoke test** — create a session, trigger a Bash approval in Claude Code, verify the approval appears in the web UI and Approve works.
+4. **Story 5: Review Queue Integration** — Approve/Deny buttons on review queue items with pending_approval enrichment (2-3 tasks, ~5h).
+5. **Story 6: Mobile UX** — responsive layout, mobile banner (2-3 tasks, ~5h).
 
 ### Highest-Priority Next Action
 
-Run `make proto-gen` then do an end-to-end smoke test. If the UI renders and approve/deny work, the core feature is shippable. Stories 5-6 are enhancements.
+Do an end-to-end smoke test. If the UI renders and approve/deny work, the core feature is shippable. Stories 5-6 are enhancements.
 
 ---
 
 ## Context Notes
 
-**Last Updated**: 2026-03-13
-**Current Phase**: Approval feature (Stories 1-4) complete — needs proto regen + smoke test
-**Next Milestone**: Verify end-to-end approval flow works; then Stories 5-6 or ship Stories 1-4
+**Last Updated**: 2026-03-18
+**Current Phase**: Mobile/Lighthouse improvements active (commit 76bce00 added mobile filter panel); Approval Stories 5-6 pending
+**Next Milestone**: Mobile Lighthouse Phase 1 completion; Approval Story 5 (Review Queue Integration)
 
 **Completed Projects**:
-1. **Web UI Implementation** - ✅ 100% complete (all 5 stories)
-2. **Session History Viewer Integration** - ✅ 100% complete (TUI + launch from history)
-3. **BUG-001 Investigation** - ✅ Already fixed in codebase
-4. **BUG-002 Investigation** - ✅ Already fixed in codebase
-5. **BUG-003 Resolution** - ✅ FIXED (2025-12-01) - 42x file size reduction
-6. **Claude Config Editor Phase 1** - ✅ Backend foundation complete
-7. **Claude Config Editor Phase 2** - ✅ TUI overlay complete
-8. **Claude Config Editor Phase 2.5** - ✅ TUI integration complete (E key binding)
-9. **Claude Config Editor Phase 3** - ✅ Web UI complete (Monaco, validation, navigation)
-10. **Test Stabilization Bug Fixes** - ✅ 4 bugs fixed (BUG-004 through BUG-007) in 90 minutes
-11. **Hook Approval Stories 1-4** - ✅ Backend, HTTP endpoint, RPCs, web UI components all implemented
+1. **Web UI Implementation** - Complete (all 5 stories)
+2. **Session History Viewer Integration** - Complete (TUI + launch from history)
+3. **BUG-001 Investigation** - Already fixed in codebase
+4. **BUG-002 Investigation** - Already fixed in codebase
+5. **BUG-003 Resolution** - FIXED (2025-12-01) - 42x file size reduction
+6. **Claude Config Editor Phase 1** - Backend foundation complete
+7. **Claude Config Editor Phase 2** - TUI overlay complete
+8. **Claude Config Editor Phase 2.5** - TUI integration complete (E key binding)
+9. **Claude Config Editor Phase 3** - Web UI complete (Monaco, validation, navigation)
+10. **Test Stabilization Bug Fixes** - 4 bugs fixed (BUG-004 through BUG-007) in 90 minutes
+11. **Hook Approval Stories 1-4** - Backend, command hook, RPCs, web UI components all implemented; proto regenerated; hook migrated to command type
+12. **Passkey Authentication (EPIC-PASSKEY-001)** - Complete (commits 756bd95, 45eda07, af46e5e); server/auth/ with WebAuthn, QR code, dual-server mode
+13. **Debug Snapshot (EPIC-DEBUGSNAP-001)** - Complete (commit 72cc63a); DebugMenu.tsx Diagnostics section wired to CreateDebugSnapshot RPC
+14. **Notification History Persistence** - Complete (commit 1cc2c6c); server-side storage, GetNotificationHistory RPC, NotificationPanel surfaces history
+15. **Review Queue Persistence and Background Monitoring** - Complete (commit 4b55b66); startup scan for pre-existing approval prompts
+16. **Session Sort Web UI (EPIC-SEARCH-001 Story 3)** - Complete (commit 76bce00); SortField/SortDir with localStorage persistence in SessionList.tsx
 
 **Current Status**:
-- Approval feature: Stories 1-4 complete, Stories 5-6 pending; needs proto regen + smoke test
+- Approval feature: Stories 1-4 + proto regen + hook migration complete; Stories 5-6 pending (smoke test recommended before starting Story 5)
+- Mobile/Lighthouse: Feature plan at docs/tasks/mobile-lighthouse-improvements.md; Phase 1 partially done (mobile filter panel); Task 1.1 (viewport meta tag) still pending
+- Search/Sort: Web UI sort complete; backend sort infrastructure (Story 1) still pending
 - 7 bugs fixed total (BUG-001 through BUG-007)
 - 1 CRITICAL bug blocking test development (BUG-008 - sessions don't render in tests)
 - 4 additional bugs require investigation (BUG-009 through BUG-012)
-- Config Editor fully functional in both TUI and Web UI
