@@ -9,7 +9,10 @@ import (
 	"claude-squad/server/services"
 	"claude-squad/server/web"
 	"context"
+	"crypto/tls"
 	"errors"
+	"fmt"
+	"net"
 	"net/http"
 	"path/filepath"
 	"time"
@@ -21,9 +24,11 @@ import (
 
 // Server manages the HTTP server with ConnectRPC handlers.
 type Server struct {
-	addr       string
+	addr      string
 	httpServer *http.Server
 	mux        *http.ServeMux
+	tlsConfig  *tls.Config          // non-nil when TLS is enabled
+	authMiddleware func(http.Handler) http.Handler // nil when auth is disabled
 }
 
 // NewServer creates a new HTTP server instance with SessionService registered.
@@ -157,6 +162,20 @@ func NewServer(addr string) *Server {
 	return srv
 }
 
+// SetupTLS configures the server to use TLS with the provided tls.Config.
+// Must be called before Start().
+func (s *Server) SetupTLS(cfg *tls.Config) {
+	s.tlsConfig = cfg
+	s.httpServer.TLSConfig = cfg
+	log.InfoLog.Printf("TLS enabled on %s", s.addr)
+}
+
+// SetupAuth installs authentication middleware.  Must be called before Start().
+// authMiddleware is a function that wraps an http.Handler; pass nil to disable.
+func (s *Server) SetupAuth(authMiddleware func(http.Handler) http.Handler) {
+	s.authMiddleware = authMiddleware
+}
+
 // RegisterConnectHandler registers a ConnectRPC service handler.
 // This should be called before Start().
 func (s *Server) RegisterConnectHandler(path string, handler http.Handler) {
@@ -174,26 +193,44 @@ func (s *Server) RegisterHTTPHandler(pattern string, handler http.Handler) {
 // Start starts the HTTP server with middleware chain.
 // This is a blocking call. Use Start() in a goroutine for concurrent operation.
 func (s *Server) Start(ctx context.Context) error {
+	// Register health check endpoint
+	s.mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"ok","service":"claude-squad-web"}`)) //nolint:errcheck
+	})
+
+	// Build middleware chain:
+	// otelhttp -> logging -> CORS -> [auth] -> mux
+	inner := http.Handler(s.mux)
+	if s.authMiddleware != nil {
+		inner = s.authMiddleware(inner)
+	}
 	handler := otelhttp.NewHandler(
-		middleware.Logging(middleware.CORS(s.mux)),
+		middleware.Logging(middleware.CORS(inner)),
 		"claude-squad-http",
 		otelhttp.WithMessageEvents(otelhttp.ReadEvents, otelhttp.WriteEvents),
 	)
 	s.httpServer.Handler = handler
 
-	s.mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok","service":"claude-squad-web"}`))
-	})
-
-	log.InfoLog.Printf("Starting HTTP server on %s", s.addr)
-	log.InfoLog.Printf("Web UI: http://%s", s.addr)
-	log.InfoLog.Printf("Health check: http://%s/health", s.addr)
+	scheme := "http"
+	if s.tlsConfig != nil {
+		scheme = "https"
+	}
+	log.InfoLog.Printf("Starting %s server on %s", scheme, s.addr)
+	log.InfoLog.Printf("Web UI: %s://%s", scheme, s.addr)
+	log.InfoLog.Printf("Health check: %s://%s/health", scheme, s.addr)
 
 	errCh := make(chan error, 1)
 	go func() {
-		if err := s.httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		var err error
+		if s.tlsConfig != nil {
+			// TLS mode: cert/key are already in TLSConfig.Certificates
+			err = s.httpServer.ListenAndServeTLS("", "")
+		} else {
+			err = s.httpServer.ListenAndServe()
+		}
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
 	}()
@@ -224,6 +261,64 @@ func (s *Server) Shutdown() error {
 // GetAddr returns the server address.
 func (s *Server) GetAddr() string {
 	return s.addr
+}
+
+// Mux returns the HTTP request multiplexer so callers can register additional
+// routes before calling Start().
+func (s *Server) Mux() *http.ServeMux {
+	return s.mux
+}
+
+// StartRemote starts a second HTTPS server on remoteAddr, sharing the same
+// route mux as the local server but protected by TLS and auth middleware.
+// It binds eagerly (returns a bind error immediately if the port is in use),
+// then runs the server in a background goroutine until ctx is cancelled.
+func (s *Server) StartRemote(ctx context.Context, remoteAddr string, tlsCfg *tls.Config, authMW func(http.Handler) http.Handler) error {
+	inner := http.Handler(s.mux)
+	if authMW != nil {
+		inner = authMW(inner)
+	}
+	handler := otelhttp.NewHandler(
+		middleware.Logging(middleware.CORS(inner)),
+		"claude-squad-remote",
+		otelhttp.WithMessageEvents(otelhttp.ReadEvents, otelhttp.WriteEvents),
+	)
+
+	remoteSrv := &http.Server{
+		Addr:         remoteAddr,
+		Handler:      handler,
+		TLSConfig:    tlsCfg,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 0,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	// Bind eagerly so the caller gets a port-in-use error immediately.
+	ln, err := net.Listen("tcp", remoteAddr)
+	if err != nil {
+		return fmt.Errorf("bind remote server on %s: %w", remoteAddr, err)
+	}
+	log.InfoLog.Printf("Remote HTTPS server listening on %s", remoteAddr)
+
+	go func() {
+		// Shutdown when the main context is cancelled.
+		go func() {
+			<-ctx.Done()
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if shutdownErr := remoteSrv.Shutdown(shutdownCtx); shutdownErr != nil {
+				log.ErrorLog.Printf("Remote HTTPS server shutdown error: %v", shutdownErr)
+			} else {
+				log.InfoLog.Printf("Remote HTTPS server stopped gracefully")
+			}
+		}()
+
+		if serveErr := remoteSrv.ServeTLS(ln, "", ""); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			log.ErrorLog.Printf("Remote HTTPS server error: %v", serveErr)
+		}
+	}()
+
+	return nil
 }
 
 // ConnectOptions returns standard ConnectRPC options with OpenTelemetry instrumentation.
