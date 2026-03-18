@@ -651,7 +651,7 @@ export default function HistoryBrowserPage() {
   // ============================================================================
 
   return (
-    <div className={styles.container}>
+    <main id="main-content" className={styles.container}>
       <div className={styles.header}>
         <h1 className={styles.title}>
           📚 Claude History Browser
@@ -1185,6 +1185,6 @@ export default function HistoryBrowserPage() {
           </div>
         </div>
       )}
-    </div>
+    </main>
   );
 }

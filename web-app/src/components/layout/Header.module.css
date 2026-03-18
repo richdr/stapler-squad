@@ -7,6 +7,8 @@
   z-index: 1100;
   backdrop-filter: blur(8px);
   background-color: rgba(26, 26, 26, 0.95);
+  /* needed for absolute-positioned mobile nav dropdown */
+  isolation: isolate;
 }
 
 .container {
@@ -15,7 +17,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 4rem;
+  height: var(--header-height);
   gap: 2rem;
 }
 
@@ -229,11 +231,57 @@
   }
 }
 
+/* Hamburger menu button (hidden on desktop) */
+.hamburger {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 5px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 10px;
+  background: transparent;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 0.375rem;
+  cursor: pointer;
+  order: -1;
+  flex-shrink: 0;
+}
+
+.hamburgerLine {
+  display: block;
+  width: 20px;
+  height: 2px;
+  background-color: var(--text-secondary, #888);
+  border-radius: 2px;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+  transform-origin: center;
+}
+
+.hamburgerLineOpen1 {
+  transform: translateY(7px) rotate(45deg);
+}
+
+.hamburgerLineOpen2 {
+  opacity: 0;
+}
+
+.hamburgerLineOpen3 {
+  transform: translateY(-7px) rotate(-45deg);
+}
+
+/* Hide "New Session" text label on small screens, keep accessible via aria-label */
+.newSessionLabel {
+  display: inline;
+}
+
 /* Responsive adjustments */
 @media (max-width: 768px) {
   .container {
-    height: 3.5rem;
-    gap: 1rem;
+    height: var(--header-height);
+    gap: 0.75rem;
+    position: relative;
   }
 
   .subtitle {
@@ -244,8 +292,60 @@
     font-size: 1.125rem;
   }
 
+  .hamburger {
+    display: flex;
+  }
+
+  /* Mobile nav: hidden by default, drops down as overlay */
+  .nav {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: -1rem; /* account for header padding */
+    right: -1rem;
+    flex-direction: column;
+    gap: 0;
+    background-color: rgba(20, 20, 20, 0.98);
+    border-bottom: 1px solid var(--border-color, #333);
+    padding: 0.5rem 0;
+    z-index: 1000;
+    backdrop-filter: blur(8px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  }
+
+  .nav.navOpen {
+    display: flex;
+  }
+
   .navLink {
-    padding: 0.375rem 0.75rem;
-    font-size: 0.8125rem;
+    padding: 0.875rem 1.25rem;
+    border-radius: 0;
+    font-size: 0.9375rem;
+    border-bottom: 1px solid var(--border-color, #222);
+    min-height: 44px;
+  }
+
+  .navLink:last-child {
+    border-bottom: none;
+  }
+
+  /* Keep "New Session" button but hide its text label on mobile */
+  .newSessionLabel {
+    display: none;
+  }
+
+  .newSessionButton {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0.5rem;
+    justify-content: center;
+  }
+
+  /* Ensure action buttons meet 44px touch target */
+  .debugButton,
+  .helpButton,
+  .notificationButton {
+    width: 44px;
+    height: 44px;
   }
 }

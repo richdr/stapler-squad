@@ -11,12 +11,14 @@ import { KeyboardHints } from "@/components/ui/KeyboardHint";
 import { useSessionService } from "@/lib/hooks/useSessionService";
 import { useSessionNotifications } from "@/lib/hooks/useSessionNotifications";
 import { useKeyboard } from "@/lib/hooks/useKeyboard";
+import { useAuth } from "@/lib/contexts/AuthContext";
 import { getApiBaseUrl } from "@/lib/config";
 import styles from "./page.module.css";
 
 function HomeContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { authEnabled, authenticated, loading: authLoading } = useAuth();
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
   const [activeTab, setActiveTab] = useState<SessionDetailTab>("info");
   const [showHelp, setShowHelp] = useState(false);
@@ -51,6 +53,7 @@ function HomeContent() {
   } = useSessionService({
     baseUrl: getApiBaseUrl(),
     autoWatch: true,
+    enabled: !authLoading && (!authEnabled || authenticated),
     onNotification: handleNotification,
   });
 
@@ -234,7 +237,7 @@ function HomeContent() {
 
   return (
     <div className={styles.page}>
-      <main className={styles.main}>
+      <main id="main-content" className={styles.main}>
         {loading && <SessionListSkeleton count={4} />}
         {error && !loading && (
           <ErrorState

@@ -7,6 +7,7 @@ import { ReviewQueuePanel } from "@/components/sessions/ReviewQueuePanel";
 import { SessionDetail, SessionDetailTab } from "@/components/sessions/SessionDetail";
 import { useSessionService } from "@/lib/hooks/useSessionService";
 import { useReviewQueue } from "@/lib/hooks/useReviewQueue";
+import { useAuth } from "@/lib/contexts/AuthContext";
 import { getApiBaseUrl } from "@/lib/config";
 import styles from "./page.module.css";
 
@@ -28,6 +29,7 @@ function sessionFromReviewItem(item: ReviewItem): Session {
 function ReviewQueueContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { authEnabled, authenticated, loading: authLoading } = useAuth();
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
   const [selectedTab, setSelectedTab] = useState<SessionDetailTab>("terminal");
   const [isSessionFullscreen, setIsSessionFullscreen] = useState(false);
@@ -36,6 +38,7 @@ function ReviewQueueContent() {
   const { sessions } = useSessionService({
     baseUrl: getApiBaseUrl(),
     autoWatch: true, // Enable WebSocket streaming for session list
+    enabled: !authLoading && (!authEnabled || authenticated),
   });
 
   // Acknowledge function for dismissing sessions from the modal
@@ -199,7 +202,7 @@ function ReviewQueueContent() {
 
   return (
     <div className={styles.page}>
-      <main className={styles.main}>
+      <main id="main-content" className={styles.main}>
         <ReviewQueuePanel
           onSessionClick={handleSessionClick}
           onItemsChange={handleItemsChange}
@@ -235,9 +238,24 @@ function ReviewQueueContent() {
   );
 }
 
+function ReviewQueueSkeleton() {
+  return (
+    <div className={styles.page}>
+      <main id="main-content" className={styles.main} aria-busy="true" aria-label="Loading review queue">
+        <div className={styles.skeletonHeader} />
+        <div className={styles.skeletonList}>
+          {[1, 2, 3].map((i) => (
+            <div key={i} className={styles.skeletonCard} aria-hidden="true" />
+          ))}
+        </div>
+      </main>
+    </div>
+  );
+}
+
 export default function ReviewQueuePage() {
   return (
-    <Suspense fallback={<div>Loading...</div>}>
+    <Suspense fallback={<ReviewQueueSkeleton />}>
       <ReviewQueueContent />
     </Suspense>
   );

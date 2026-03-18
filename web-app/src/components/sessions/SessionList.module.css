@@ -86,6 +86,52 @@
   align-items: center;
 }
 
+/* Always-visible top row: search + mobile filter toggle */
+.filterTopRow {
+  display: contents; /* on desktop, children participate in the parent flex */
+}
+
+/* Filter toggle button — hidden on desktop, shown on mobile */
+.filterToggle {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+  background: var(--input-bg);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  min-height: 44px;
+  white-space: nowrap;
+  transition: border-color 0.2s ease;
+}
+
+.filterToggle:hover {
+  border-color: var(--input-border-focus);
+}
+
+.filterToggleActive {
+  border-color: var(--primary-color, #0066cc);
+  color: var(--primary-color, #0066cc);
+}
+
+.filterActiveDot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background: var(--primary-color, #0066cc);
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Collapsible filter controls container */
+.filterControls {
+  display: contents; /* on desktop, children participate in the parent flex */
+}
+
 .searchInput {
   flex: 1;
   min-width: 250px;
@@ -116,6 +162,24 @@
 
 .select:focus {
   outline: none;
+  border-color: var(--input-border-focus);
+}
+
+.sortDirButton {
+  padding: 10px 14px;
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+  background: var(--input-bg);
+  color: var(--text-primary);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.sortDirButton:hover {
   border-color: var(--input-border-focus);
 }
 
@@ -289,12 +353,50 @@
     padding: 16px;
   }
 
-  .filters {
-    flex-direction: column;
-    align-items: stretch;
+  .searchInput {
+    min-width: unset;
+  }
+
+  /* On mobile: switch top row to a real flex row */
+  .filterTopRow {
+    display: flex;
+    gap: 8px;
+    width: 100%;
   }
 
   .searchInput {
-    min-width: unset;
+    flex: 1;
+  }
+
+  /* Show filter toggle on mobile */
+  .filterToggle {
+    display: flex;
+  }
+
+  /* Hide all filter controls by default on mobile; show when toggled */
+  .filterControls {
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .filterControlsOpen {
+    display: flex;
+  }
+
+  /* Stack the whole filters section vertically */
+  .filters {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  /* Ensure selects and checkboxes are full-width */
+  .select,
+  .checkbox,
+  .sortDirButton {
+    width: 100%;
+    min-height: 44px;
   }
 }

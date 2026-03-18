@@ -43,7 +43,7 @@ export function Omnibar({ isOpen, onClose, onCreateSession }: OmnibarProps) {
   // Session type and worktree state
   const [sessionType, setSessionType] = useState<"directory" | "new_worktree" | "existing_worktree">("new_worktree");
   const [branch, setBranch] = useState("");
-  const [useTitleAsBranch, setUseTitleAsBranch] = useState(false);
+  const [useTitleAsBranch, setUseTitleAsBranch] = useState(true);
   const [existingWorktree, setExistingWorktree] = useState("");
   const [workingDir, setWorkingDir] = useState("");
 

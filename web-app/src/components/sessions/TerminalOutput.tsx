@@ -765,12 +765,16 @@ export function TerminalOutput({ sessionId, baseUrl, isExternal = false, tmuxSes
       // OPTIMIZED: Skip size stability wait if we have cached dimensions
       // This dramatically speeds up reconnection to sessions with known sizes
       if (hasCachedDimensionsRef.current && !hasInitiatedConnectionRef.current && !isConnected && !error && isMountedRef.current) {
-        console.log(`[TerminalOutput] Using cached dimensions, skipping stability wait`);
+        // Use the cached dimensions (lastResize holds the cached value before this initial
+        // resize event fired with the xterm default 80×24). This ensures the initial
+        // tmux pane handshake uses the correct size rather than the xterm default.
+        const initDims = lastResize ?? { cols, rows };
+        console.log(`[TerminalOutput] Using cached dimensions, skipping stability wait (${initDims.cols}x${initDims.rows})`);
         metricsRef.current.sizeStableTime = performance.now();
         metricsRef.current.connectionInitTime = performance.now();
         hasInitiatedConnectionRef.current = true;
         setIsWaitingForStableSize(false);
-        connect(cols, rows);
+        connect(initDims.cols, initDims.rows);
         return;
       }
 
@@ -849,6 +853,15 @@ export function TerminalOutput({ sessionId, baseUrl, isExternal = false, tmuxSes
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
       }
+
+      // Re-sync terminal dimensions after connecting. Resize events fired while the
+      // WebSocket was still connecting are blocked (isConnected was false), so the
+      // tmux pane may be sized differently from the actual xterm.js viewport.
+      const currentSize = lastResizeRef.current;
+      if (currentSize) {
+        console.log(`[TerminalOutput] Post-connection resize sync: ${currentSize.cols}x${currentSize.rows}`);
+        resize(currentSize.cols, currentSize.rows);
+      }
     } else if (wasConnected && !isConnected) {
       // Just disconnected
       console.log("[TerminalOutput] Connection lost, will attempt reconnection");
@@ -866,7 +879,7 @@ export function TerminalOutput({ sessionId, baseUrl, isExternal = false, tmuxSes
         clearTimeout(reconnectTimeoutRef.current);
       }
     };
-  }, [isConnected]);
+  }, [isConnected, resize]);
 
   // Auto-reconnect with exponential backoff
   useEffect(() => {
@@ -1151,6 +1164,53 @@ export function TerminalOutput({ sessionId, baseUrl, isExternal = false, tmuxSes
           fontSize={14}
           scrollback={0}  // Disabled - tmux handles scrollback
         />
+      </div>
+      {/* Mobile keyboard toolbar — only visible on touch/small screens */}
+      <div className={styles.mobileKeyboard}>
+        <div className={styles.mobileKeyRow}>
+          <button
+            className={styles.mobileKey}
+            onPointerDown={(e) => { e.preventDefault(); handleTerminalData('\x1b'); }}
+            aria-label="Escape"
+          >Esc</button>
+          <button
+            className={styles.mobileKey}
+            onPointerDown={(e) => { e.preventDefault(); handleTerminalData('\t'); }}
+            aria-label="Tab"
+          >Tab</button>
+          <button
+            className={styles.mobileKey}
+            onPointerDown={(e) => { e.preventDefault(); handleTerminalData('\x03'); }}
+            aria-label="Control C"
+          >Ctrl+C</button>
+          <button
+            className={styles.mobileKey}
+            onPointerDown={(e) => { e.preventDefault(); handleTerminalData('\x04'); }}
+            aria-label="Control D"
+          >Ctrl+D</button>
+        </div>
+        <div className={styles.mobileKeyRow}>
+          <button
+            className={styles.mobileKey}
+            onPointerDown={(e) => { e.preventDefault(); handleTerminalData('\x1b[D'); }}
+            aria-label="Left arrow"
+          >←</button>
+          <button
+            className={styles.mobileKey}
+            onPointerDown={(e) => { e.preventDefault(); handleTerminalData('\x1b[A'); }}
+            aria-label="Up arrow"
+          >↑</button>
+          <button
+            className={styles.mobileKey}
+            onPointerDown={(e) => { e.preventDefault(); handleTerminalData('\x1b[B'); }}
+            aria-label="Down arrow"
+          >↓</button>
+          <button
+            className={styles.mobileKey}
+            onPointerDown={(e) => { e.preventDefault(); handleTerminalData('\x1b[C'); }}
+            aria-label="Right arrow"
+          >→</button>
+        </div>
       </div>
     </div>
   );

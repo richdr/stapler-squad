@@ -320,6 +320,14 @@
   color: #ef4444;
 }
 
+/* Mobile responsive — ensure filter buttons meet 44px touch target */
+@media (max-width: 768px) {
+  .filterButton {
+    padding: 12px 16px;
+    min-height: 44px;
+  }
+}
+
 .loading,
 .empty,
 .error {

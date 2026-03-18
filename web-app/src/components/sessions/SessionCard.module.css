@@ -5,8 +5,17 @@
   padding: 16px;
   margin-bottom: 12px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, opacity 0.3s ease, transform 0.3s ease, max-height 0.3s ease;
   position: relative;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.card.deleting {
+  opacity: 0.4;
+  transform: scale(0.97);
+  border-color: #ef4444;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.25);
+  pointer-events: none;
 }
 
 .card:hover {
@@ -305,9 +314,17 @@
   border-color: #fca5a5;
 }
 
-.deleteButton:hover {
+.deleteButton:hover:not(:disabled) {
   background: #fecaca;
   border-color: #f87171;
+}
+
+.deleteButton:disabled {
+  background: #fca5a5;
+  color: #7f1d1d;
+  border-color: #ef4444;
+  opacity: 0.8;
+  cursor: not-allowed;
 }
 
 .restartButton {
@@ -473,6 +490,71 @@
   cursor: not-allowed;
 }
 
+/* Actions toggle button — hidden on desktop, shown on mobile */
+.actionsToggle {
+  display: none;
+}
+
+/* Mobile responsive — accordion for action buttons */
+@media (max-width: 768px) {
+  .footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .actionsToggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    min-height: 44px;
+    padding: 10px 16px;
+    border: 1px solid var(--button-border);
+    border-radius: 6px;
+    background: var(--button-bg);
+    color: var(--button-text);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s ease;
+  }
+
+  .actionsToggle:hover {
+    background: var(--button-bg-hover);
+  }
+
+  /* Actions hidden by default on mobile */
+  .actions {
+    display: none;
+    width: 100%;
+  }
+
+  /* Show actions as a 2-column grid when open */
+  .actionsOpen {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .actionButton {
+    min-height: 44px;
+    padding: 10px 8px;
+    justify-content: center;
+    font-size: 13px;
+    text-align: center;
+  }
+
+  /* Delete button spans full width for emphasis and easy tapping */
+  .deleteButton {
+    grid-column: 1 / -1;
+  }
+
+  .title {
+    font-size: 16px;
+  }
+}
+
 /* Dark mode support */
 @media (prefers-color-scheme: dark) {
   .card {
@@ -523,7 +605,7 @@
     border-color: #991b1b;
   }
 
-  .deleteButton:hover {
+  .deleteButton:hover:not(:disabled) {
     background: #991b1b;
     border-color: #b91c1c;
   }

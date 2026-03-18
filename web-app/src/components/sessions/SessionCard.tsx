@@ -10,7 +10,7 @@ import styles from "./SessionCard.module.css";
 interface SessionCardProps {
   session: Session;
   onClick?: () => void;
-  onDelete?: () => void;
+  onDelete?: () => Promise<void> | void;
   onPause?: () => void;
   onResume?: () => void;
   onDuplicate?: () => void;
@@ -40,10 +40,12 @@ export function SessionCard({
 }: SessionCardProps) {
   const [showTagEditor, setShowTagEditor] = useState(false);
   const [showRenameDialog, setShowRenameDialog] = useState(false);
+  const [showActions, setShowActions] = useState(false);
   const [newTitle, setNewTitle] = useState(session.title);
   const [showRestartConfirm, setShowRestartConfirm] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [isRestarting, setIsRestarting] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [renameError, setRenameError] = useState("");
   const getStatusColor = (status: SessionStatus): string => {
     switch (status) {
@@ -287,7 +289,7 @@ export function SessionCard({
         </div>
       )}
     <div
-      className={`${styles.card} ${selectMode ? styles.selectMode : ""} ${isSelected ? styles.selected : ""} ${isExternal ? styles.external : ""}`}
+      className={`${styles.card} ${selectMode ? styles.selectMode : ""} ${isSelected ? styles.selected : ""} ${isExternal ? styles.external : ""} ${isDeleting ? styles.deleting : ""}`}
       onClick={handleCardClick}
       onKeyDown={handleCardKeyDown}
       role="button"
@@ -458,14 +460,32 @@ export function SessionCard({
           <span className={styles.timestamp}>
             Updated: <time dateTime={session.updatedAt ? new Date(Number(session.updatedAt.seconds) * 1000).toISOString() : ""}>{formatDate(session.updatedAt)}</time>
           </span>
-          {session.lastMeaningfulOutput && (
-            <span className={styles.timestamp} title="Last meaningful terminal output (excluding tmux banners)">
-              Last Activity: <time dateTime={new Date(Number(session.lastMeaningfulOutput.seconds) * 1000).toISOString()}>{formatTimeAgo(session.lastMeaningfulOutput)}</time>
-            </span>
-          )}
+          {(() => {
+            // Use the most recent of lastMeaningfulOutput and lastTerminalUpdate.
+            // lastMeaningfulOutput is gated by a content-signature check, so it can lag
+            // behind lastTerminalUpdate when content repeats (e.g. idle prompt).
+            const moSecs = session.lastMeaningfulOutput?.seconds ?? BigInt(0);
+            const tuSecs = session.lastTerminalUpdate?.seconds ?? BigInt(0);
+            const lastActivity = moSecs === BigInt(0) && tuSecs === BigInt(0)
+              ? undefined
+              : moSecs >= tuSecs ? session.lastMeaningfulOutput : session.lastTerminalUpdate;
+            return lastActivity ? (
+              <span className={styles.timestamp} title="Last terminal activity">
+                Last Activity: <time dateTime={new Date(Number(lastActivity.seconds) * 1000).toISOString()}>{formatTimeAgo(lastActivity)}</time>
+              </span>
+            ) : null;
+          })()}
         </div>
 
-        <div className={styles.actions}>
+          <button
+            className={styles.actionsToggle}
+            onClick={(e) => { e.stopPropagation(); setShowActions(!showActions); }}
+            aria-expanded={showActions}
+            aria-label="Toggle session actions"
+          >
+            Actions {showActions ? "▲" : "▼"}
+          </button>
+        <div className={`${styles.actions} ${showActions ? styles.actionsOpen : ""}`}>
           {isPaused ? (
             <button
               className={styles.actionButton}
@@ -520,14 +540,20 @@ export function SessionCard({
           </button>
           <button
             className={`${styles.actionButton} ${styles.deleteButton}`}
-            onClick={(e) => {
+            onClick={async (e) => {
               e.stopPropagation();
-              onDelete?.();
+              setIsDeleting(true);
+              try {
+                await onDelete?.();
+              } catch {
+                setIsDeleting(false);
+              }
             }}
+            disabled={isDeleting}
             aria-label={`Delete session ${session.title}`}
             title="Delete this session"
           >
-            🗑️ Delete
+            {isDeleting ? "Deleting..." : "🗑️ Delete"}
           </button>
         </div>
       </div>

@@ -330,7 +330,7 @@ export default function LogsPage() {
   };
 
   return (
-    <div className={styles.container}>
+    <main id="main-content" className={styles.container}>
       <header className={styles.header}>
         <h1>Application Logs</h1>
         <div className={styles.headerActions}>
@@ -597,6 +597,6 @@ export default function LogsPage() {
           <kbd>⌘K</kbd> Search • <kbd>R</kbd> Refresh • <kbd>L</kbd> Live Tail • <kbd>Esc</kbd> Clear
         </span>
       </footer>
-    </div>
+    </main>
   );
 }

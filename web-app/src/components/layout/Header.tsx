@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AppLink } from "@/components/ui/AppLink";
 import { usePathname } from "next/navigation";
 import { ReviewQueueNavBadge } from "@/components/sessions/ReviewQueueNavBadge";
@@ -13,9 +13,26 @@ import styles from "./Header.module.css";
 export function Header() {
   const pathname = usePathname();
   const [isDebugMenuOpen, setIsDebugMenuOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { togglePanel, getUnreadCount } = useNotifications();
   const { open: openOmnibar } = useOmnibar();
   const unreadCount = getUnreadCount();
+
+  // Close mobile menu on Escape
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isMobileMenuOpen) {
+        setIsMobileMenuOpen(false);
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isMobileMenuOpen]);
+
+  // Close mobile menu on route change
+  useEffect(() => {
+    setIsMobileMenuOpen(false);
+  }, [pathname]);
 
   return (
     <>
@@ -26,18 +43,32 @@ export function Header() {
           <span className={styles.subtitle}>Session Manager</span>
         </div>
 
-        <nav className={styles.nav}>
+        <button
+          className={styles.hamburger}
+          aria-label={isMobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
+          aria-expanded={isMobileMenuOpen}
+          aria-controls="mobile-nav"
+          onClick={() => setIsMobileMenuOpen((prev) => !prev)}
+        >
+          <span className={`${styles.hamburgerLine} ${isMobileMenuOpen ? styles.hamburgerLineOpen1 : ""}`} />
+          <span className={`${styles.hamburgerLine} ${isMobileMenuOpen ? styles.hamburgerLineOpen2 : ""}`} />
+          <span className={`${styles.hamburgerLine} ${isMobileMenuOpen ? styles.hamburgerLineOpen3 : ""}`} />
+        </button>
+
+        <nav
+          id="mobile-nav"
+          aria-label="Main navigation"
+          className={`${styles.nav} ${isMobileMenuOpen ? styles.navOpen : ""}`}
+        >
           <AppLink
             href="/"
             className={`${styles.navLink} ${pathname === "/" ? styles.active : ""}`}
-            onClick={() => console.log("Sessions link clicked")}
           >
             Sessions
           </AppLink>
           <AppLink
             href="/review-queue"
             className={`${styles.navLink} ${pathname === "/review-queue" ? styles.active : ""}`}
-            onClick={() => console.log("Review Queue link clicked")}
           >
             <span className={styles.navLinkText}>Review Queue</span>
             <ReviewQueueNavBadge inline={true} />
@@ -45,21 +76,18 @@ export function Header() {
           <AppLink
             href="/logs"
             className={`${styles.navLink} ${pathname === "/logs" ? styles.active : ""}`}
-            onClick={() => console.log("Logs link clicked")}
           >
             Logs
           </AppLink>
           <AppLink
             href="/history"
             className={`${styles.navLink} ${pathname === "/history" ? styles.active : ""}`}
-            onClick={() => console.log("History link clicked")}
           >
             History
           </AppLink>
           <AppLink
             href="/config"
             className={`${styles.navLink} ${pathname === "/config" ? styles.active : ""}`}
-            onClick={() => console.log("Config link clicked")}
           >
             Config
           </AppLink>
@@ -72,8 +100,8 @@ export function Header() {
             aria-label="Create new session (⌘K)"
             title="Create new session (⌘K)"
           >
-            <span className={styles.newSessionIcon}>+</span>
-            New Session
+            <span className={styles.newSessionIcon} aria-hidden="true">+</span>
+            <span className={styles.newSessionLabel}>New Session</span>
           </button>
           <ApprovalNavBadge />
           <button
@@ -82,9 +110,9 @@ export function Header() {
             aria-label="Open notifications"
             title="Notifications"
           >
-            🔔
+            <span aria-hidden="true">🔔</span>
             {unreadCount > 0 && (
-              <span className={styles.notificationBadge}>{unreadCount}</span>
+              <span className={styles.notificationBadge} aria-label={`${unreadCount} unread`}>{unreadCount}</span>
             )}
           </button>
           <button
@@ -93,12 +121,11 @@ export function Header() {
             aria-label="Open debug menu"
             title="Debug menu"
           >
-            🛠️
+            <span aria-hidden="true">🛠️</span>
           </button>
           <button
             className={styles.helpButton}
             onClick={() => {
-              // Will be wired up to show keyboard shortcuts
               window.dispatchEvent(new KeyboardEvent("keydown", { key: "?" }));
             }}
             aria-label="Show keyboard shortcuts"

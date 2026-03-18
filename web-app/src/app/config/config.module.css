@@ -298,6 +298,29 @@
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
+/* Mobile layout — stack file list above editor */
+@media (max-width: 768px) {
+  .content {
+    flex-direction: column;
+  }
+
+  .fileList {
+    width: 100%;
+    max-height: 220px;
+    overflow-y: auto;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .editor {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .shortcutsHelp {
+    display: none; /* keyboard shortcuts not relevant on mobile */
+  }
+}
+
 /* Passkey / Security Section */
 .securitySection {
   margin-top: 32px;

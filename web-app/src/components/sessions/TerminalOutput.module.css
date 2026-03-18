@@ -190,8 +190,54 @@
   background: #264f78;
 }
 
+/* Mobile keyboard toolbar */
+.mobileKeyboard {
+  display: none; /* hidden on desktop */
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.4rem 0.5rem;
+  background: #252526;
+  border-top: 1px solid #3e3e42;
+  flex-shrink: 0;
+}
+
+.mobileKeyRow {
+  display: flex;
+  gap: 0.3rem;
+  justify-content: center;
+}
+
+.mobileKey {
+  flex: 1;
+  padding: 0.55rem 0.4rem;
+  background: #3c3c3c;
+  border: 1px solid #555;
+  border-bottom: 3px solid #333;
+  border-radius: 5px;
+  color: #d4d4d4;
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  text-align: center;
+  transition: background 0.08s, border-bottom-width 0.08s, transform 0.08s;
+}
+
+.mobileKey:active {
+  background: #555;
+  border-bottom-width: 1px;
+  transform: translateY(2px);
+}
+
 /* Mobile responsiveness */
 @media (max-width: 768px) {
+  .mobileKeyboard {
+    display: flex;
+  }
+
   .toolbar {
     padding: 0.5rem 0.75rem;
   }

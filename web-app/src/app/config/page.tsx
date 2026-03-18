@@ -368,7 +368,7 @@ export default function ConfigEditorPage() {
   }, [hasUnsavedChanges, saving, canSave, content, selectedConfig, configs, loadConfig]);
 
   return (
-    <div className={styles.container}>
+    <main id="main-content" className={styles.container}>
       <h1 className={styles.title}>
         📝 Claude Config Editor
       </h1>
@@ -577,6 +577,6 @@ export default function ConfigEditorPage() {
           </div>
         </div>
       )}
-    </div>
+    </main>
   );
 }

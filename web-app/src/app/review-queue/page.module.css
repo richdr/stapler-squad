@@ -1,7 +1,7 @@
 .page {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 4rem); /* Fill remaining viewport after sticky header */
+  height: calc(100vh - var(--header-height)); /* Fill remaining viewport after sticky header */
   overflow: hidden;
   background: var(--background, #0a0a0a);
 }
@@ -61,11 +61,46 @@
   }
 
   .modal {
-    padding: 1rem;
+    padding: 0;
+    padding-top: var(--header-height); /* Clear sticky mobile header */
   }
 
   .modalContent {
-    max-width: 100%;
-    max-height: 100%;
+    max-width: 100vw;
+    width: 100vw;
+    max-height: calc(100vh - var(--header-height));
+    height: calc(100vh - var(--header-height));
+    border-radius: 0;
   }
+}
+
+/* Loading skeleton styles */
+.skeletonHeader {
+  height: 2rem;
+  width: 40%;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--card-background, #1a1a1a) 25%, var(--hover-background, #2a2a2a) 50%, var(--card-background, #1a1a1a) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+.skeletonList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 1rem;
+}
+
+.skeletonCard {
+  height: 120px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, var(--card-background, #1a1a1a) 25%, var(--hover-background, #2a2a2a) 50%, var(--card-background, #1a1a1a) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border: 1px solid var(--border-color, #333);
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }

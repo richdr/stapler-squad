@@ -48,6 +48,9 @@
   --input-focus-border: #0070f3;
   --input-text: #0a0a0a;
 
+  /* Header height — keep in sync with Header.module.css .container */
+  --header-height: 4rem;
+
   /* Responsive breakpoints */
   --breakpoint-sm: 640px;
   --breakpoint-md: 768px;
@@ -56,6 +59,13 @@
 
   /* Touch target sizes (WCAG 2.1 AA) */
   --min-touch-target: 44px;
+}
+
+/* Mobile header height override */
+@media (max-width: 768px) {
+  :root {
+    --header-height: 3.5rem;
+  }
 }
 
 /* Dark mode override */
@@ -71,7 +81,7 @@
     --text-primary: #ededed;
     --text-secondary: #b4b4b4;
     --text-muted: #8a8a8a;
-    --text-disabled: #5a5a5a;
+    --text-disabled: #767676; /* minimum #767676 for WCAG AA 4.5:1 on dark backgrounds */
 
     /* Interactive elements */
     --primary: #2d9cdb;
@@ -285,4 +295,36 @@ a {
 @keyframes spin {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
+}
+
+/* Skip-to-content link for keyboard users (WCAG 2.4.1) */
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: 0;
+  padding: 8px 16px;
+  background: var(--background);
+  color: var(--foreground);
+  font-weight: 600;
+  z-index: 9999;
+  border: 2px solid var(--primary);
+  border-radius: 0 0 4px 0;
+  text-decoration: none;
+  transition: top 0.1s;
+}
+
+.skip-link:focus {
+  top: 0;
+}
+
+/* Respect reduced-motion user preference (WCAG 2.3.3) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
