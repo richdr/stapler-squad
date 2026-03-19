@@ -16,6 +16,21 @@ import (
 // Fields are protected by Instance.stateMutex; do not lock ReviewState independently.
 // Methods on ReviewState are intentionally non-locking — callers must hold stateMutex
 // if concurrent access is possible.
+//
+// Direct field access via Go embedding promotion (inst.LastMeaningfulOutput etc.) is used by:
+//   - session/review_queue_poller.go: reads LastMeaningfulOutput, LastAcknowledged,
+//     LastAddedToQueue, ProcessingGraceUntil, LastPromptDetected, LastPromptSignature,
+//     LastUserResponse, LastViewed, LastTerminalUpdate, LastOutputSignature
+//   - server/dependencies.go: reads LastMeaningfulOutput, LastTerminalUpdate,
+//     LastAddedToQueue, LastAcknowledged
+//   - server/adapters/instance_adapter.go: reads LastTerminalUpdate, LastMeaningfulOutput
+//   - server/review_queue_manager.go: writes LastUserResponse directly
+//
+// All access is either within the session package (under stateMutex) or through
+// Instance methods that acquire stateMutex.
+//
+// TODO: Migrate cross-package field accesses (server/) to accessor methods to enable
+// future encapsulation of ReviewState as a composed (non-embedded) field.
 type ReviewState struct {
 	// LastAcknowledged tracks when the user last acknowledged this session in the review queue.
 	// Sessions acknowledged after their last update won't appear in the queue until they update again.

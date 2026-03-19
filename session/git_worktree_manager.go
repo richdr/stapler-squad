@@ -2,6 +2,7 @@ package session
 
 import (
 	"fmt"
+	"os"
 
 	"claude-squad/session/git"
 )
@@ -144,6 +145,22 @@ func (gm *GitWorktreeManager) OpenBranchURL() error {
 		return fmt.Errorf("git worktree not initialized")
 	}
 	return gm.worktree.OpenBranchURL()
+}
+
+// ComputeDiffIfReady checks if the worktree path exists and computes a new diff.
+// Returns (stats, needsPause) where needsPause is true if the worktree directory is missing.
+// This method performs I/O and should be called WITHOUT holding Instance.stateMutex.
+// Returns (nil, false) if no worktree is set.
+func (gm *GitWorktreeManager) ComputeDiffIfReady() (stats *git.DiffStats, needsPause bool) {
+	if gm.worktree == nil {
+		return nil, false
+	}
+	worktreePath := gm.worktree.GetWorktreePath()
+	if _, err := os.Stat(worktreePath); os.IsNotExist(err) {
+		return nil, true
+	}
+	result := gm.worktree.Diff()
+	return result, false
 }
 
 // ComputeDiff runs git diff and returns the result without storing it.

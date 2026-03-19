@@ -123,6 +123,10 @@ func (m *mockTmuxExecutor) Output(cmd *exec.Cmd) ([]byte, error) {
 	return nil, fmt.Errorf("unexpected command in mock: %v", cmd.Args)
 }
 
+func (m *mockTmuxExecutor) CombinedOutput(cmd *exec.Cmd) ([]byte, error) {
+	return m.Output(cmd)
+}
+
 // TestInstanceBuilder provides a fluent interface for creating test instances with proper isolation
 type TestInstanceBuilder struct {
 	t    *testing.T

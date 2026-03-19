@@ -2,6 +2,7 @@ package session
 
 import (
 	"errors"
+	"fmt"
 	"time"
 	"unicode"
 )
@@ -264,6 +265,39 @@ var (
 	ErrDuplicateTitle     = errors.New("a session with this title already exists")
 	ErrCannotRestart      = errors.New("session cannot be restarted in current state")
 )
+
+// ErrInvalidTransition is returned when a status transition is not allowed
+// by the state machine defined in state_machine.go.
+type ErrInvalidTransition struct {
+	From Status
+	To   Status
+}
+
+func (e ErrInvalidTransition) Error() string {
+	return fmt.Sprintf("invalid transition: %s -> %s", e.From, e.To)
+}
+
+// ErrDuplicateTag is returned when adding a tag that already exists.
+type ErrDuplicateTag struct {
+	Tag string
+}
+
+func (e ErrDuplicateTag) Error() string {
+	return fmt.Sprintf("duplicate tag: %q", e.Tag)
+}
+
+// ErrTagTooLong is returned when a tag exceeds the maximum length.
+type ErrTagTooLong struct {
+	Tag    string
+	MaxLen int
+}
+
+func (e ErrTagTooLong) Error() string {
+	return fmt.Sprintf("tag %q exceeds maximum length %d", e.Tag, e.MaxLen)
+}
+
+// MaxTagLength is the maximum allowed length for a single tag.
+const MaxTagLength = 50
 
 // isValidTitle validates that a title contains only allowed characters:
 // alphanumeric, spaces, dashes, and underscores

@@ -232,3 +232,37 @@ func (tm *TmuxProcessManager) HasMeaningfulContent(content string) bool {
 	}
 	return tm.session.HasMeaningfulContent(content)
 }
+
+// CaptureViewport captures the last N lines of the pane.
+// If lines <= 0, captures the current viewport height.
+func (tm *TmuxProcessManager) CaptureViewport(lines int) (string, error) {
+	if tm.session == nil {
+		return "", fmt.Errorf("tmux session not initialized")
+	}
+	if lines <= 0 {
+		_, height, err := tm.session.GetPaneDimensions()
+		if err != nil {
+			lines = 40 // Fallback
+		} else {
+			lines = height
+		}
+	}
+	startLine := fmt.Sprintf("-%d", lines)
+	return tm.session.CapturePaneContentWithOptions(startLine, "-")
+}
+
+// SendPromptWithEnter sends text to the session followed by Enter key.
+// Includes a brief pause between text and Enter to prevent interpretation issues.
+func (tm *TmuxProcessManager) SendPromptWithEnter(prompt string) error {
+	if tm.session == nil {
+		return fmt.Errorf("tmux session not initialized")
+	}
+	if _, err := tm.session.SendKeys(prompt); err != nil {
+		return fmt.Errorf("error sending keys to tmux session: %w", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if err := tm.session.TapEnter(); err != nil {
+		return fmt.Errorf("error tapping enter: %w", err)
+	}
+	return nil
+}

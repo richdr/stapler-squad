@@ -213,7 +213,9 @@ func (rqm *ReactiveQueueManager) handleApprovalResponse(event *events.Event) {
 	// Find the instance and update status
 	inst := rqm.poller.FindInstance(sessionID)
 	if inst != nil && approved {
-		inst.SetStatus(session.Running)
+		if err := inst.Approve(); err != nil {
+			log.ErrorLog.Printf("[ReactiveQueueManager] Failed to approve '%s': %v", sessionID, err)
+		}
 	}
 
 	// Immediate removal from queue

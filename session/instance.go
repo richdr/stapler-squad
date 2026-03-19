@@ -30,6 +30,10 @@ const (
 	Paused
 	// NeedsApproval is if the instance is waiting for user approval on a prompt.
 	NeedsApproval
+	// Creating is the status when the instance is being initialized.
+	Creating
+	// Stopped is a terminal state: the instance has been shut down and cannot transition further.
+	Stopped
 )
 
 // String returns a human-readable name for the status.
@@ -45,10 +49,16 @@ func (s Status) String() string {
 		return "Paused"
 	case NeedsApproval:
 		return "NeedsApproval"
+	case Creating:
+		return "Creating"
+	case Stopped:
+		return "Stopped"
 	default:
 		return fmt.Sprintf("Status(%d)", int(s))
 	}
 }
+
+// ==== Instance -- Core Fields and Construction ====
 
 // Instance is a running instance of claude code.
 type Instance struct {
@@ -145,6 +155,11 @@ type Instance struct {
 	tmuxManager TmuxProcessManager
 	// gitManager owns the git worktree and diff stats.
 	gitManager GitWorktreeManager
+
+	// tagManager provides CRUD operations for session tags.
+	// Backed by a pointer to Instance.Tags for zero-sync compatibility with
+	// callers that read inst.Tags directly.
+	tagManager TagManager
 
 	// Mutex to protect concurrent access to instance state
 	stateMutex sync.RWMutex
@@ -305,6 +320,9 @@ func FromInstanceData(data InstanceData) (*Instance, error) {
 		IsWorktree:   data.IsWorktree,
 	}
 
+	// Initialize TagManager backed by the Instance.Tags slice
+	instance.tagManager = NewTagManager(&instance.Tags)
+
 	// Restore git worktree and diff stats via manager (cannot use struct literal for sub-manager fields).
 	instance.gitManager.SetWorktree(git.NewGitWorktreeFromStorage(
 		data.Worktree.RepoPath,
@@ -340,13 +358,17 @@ func FromInstanceData(data InstanceData) (*Instance, error) {
 	// Initialize session-specific logging
 	_ = log.GetSessionLoggers
 
-	// Check if the worktree still exists on disk if the instance is not paused
+	// Check if the worktree still exists on disk if the instance is not paused.
+	// NOTE: This is a recovery path during deserialization. We bypass the state machine
+	// because the instance may be in any state (e.g., Ready, Loading) from which
+	// Paused is not a valid transition, yet the worktree is physically gone.
+	// No mutex is needed here because the instance is not yet shared.
 	if !instance.Paused() && instance.gitManager.worktree != nil {
 		worktreePath := instance.gitManager.worktree.GetWorktreePath()
 		if _, err := os.Stat(worktreePath); os.IsNotExist(err) {
 			// Worktree has been deleted, mark instance as paused
 			log.LogForSession(instance.Title, "warning", "Worktree directory doesn't exist at '%s', marking as paused", worktreePath)
-			instance.Status = Paused
+			instance.setStatus(Paused)
 		}
 	}
 
@@ -512,6 +534,9 @@ func NewInstance(opts InstanceOptions) (*Instance, error) {
 		ClonedRepoPath:  opts.ClonedRepoPath,
 	}
 
+	// Initialize TagManager backed by the Instance.Tags slice
+	instance.tagManager = NewTagManager(&instance.Tags)
+
 	// Auto-detect worktree info if GitHub owner/repo not explicitly set
 	// This extracts repository information from the git remote URL
 	if instance.GitHubOwner == "" || instance.GitHubRepo == "" {
@@ -570,10 +595,31 @@ func (i *Instance) RepoName() (string, error) {
 	return i.gitManager.GetRepoName(), nil
 }
 
+// SetStatus sets the instance status.
+// Deprecated: Use transitionTo for validated state transitions within the session package.
+// This exported method is retained temporarily for the detection/poller subsystem
+// which sets NeedsApproval based on terminal output patterns. It will be removed
+// once that subsystem is refactored to use domain methods.
 func (i *Instance) SetStatus(status Status) {
 	i.stateMutex.Lock()
 	defer i.stateMutex.Unlock()
 	i.Status = status
+}
+
+// setStatus sets the instance status without locking.
+// Must be called with i.stateMutex held.
+func (i *Instance) setStatus(status Status) {
+	i.Status = status
+}
+
+// transitionTo validates and executes a state transition using the state machine.
+// Must be called with i.stateMutex held.
+func (i *Instance) transitionTo(s Status) error {
+	if !CanTransition(i.Status, s) {
+		return ErrInvalidTransition{From: i.Status, To: s}
+	}
+	i.setStatus(s)
+	return nil
 }
 
 // GetCategoryPath returns the category path as a slice of strings for nested category support
@@ -591,6 +637,10 @@ func (i *Instance) GetCategoryPath() []string {
 	}
 	return parts
 }
+
+// ==== Lifecycle Methods ====
+// Start, Pause, Resume, Kill, Destroy, Restart and their internal helpers.
+// These coordinate across sub-managers (tmuxManager, gitManager, controllerManager).
 
 // firstTimeSetup is true if this is a new instance. Otherwise, it's one loaded from storage.
 func (i *Instance) Start(firstTimeSetup bool) error {
@@ -672,7 +722,17 @@ func (i *Instance) start(firstTimeSetup bool, setupCleanup bool, cleanup *tmux.C
 		}
 	}
 
-	i.SetStatus(Running)
+	i.stateMutex.Lock()
+	// Only transition if not already Running (e.g., recovery/restart after KillSession
+	// preserves the Running status).
+	if i.Status != Running {
+		if err := i.transitionTo(Running); err != nil {
+			i.stateMutex.Unlock()
+			setupErr = fmt.Errorf("failed to transition to Running: %w", err)
+			return setupErr
+		}
+	}
+	i.stateMutex.Unlock()
 	i.started = true
 
 	// Start controller for new sessions only; loaded sessions are wired later by server.go.
@@ -1041,7 +1101,12 @@ func (i *Instance) Pause() error {
 		return err
 	}
 
-	i.SetStatus(Paused)
+	i.stateMutex.Lock()
+	if err := i.transitionTo(Paused); err != nil {
+		i.stateMutex.Unlock()
+		return fmt.Errorf("failed to transition to Paused: %w", err)
+	}
+	i.stateMutex.Unlock()
 	_ = clipboard.WriteAll(i.gitManager.GetBranchName())
 	return nil
 }
@@ -1117,7 +1182,12 @@ func (i *Instance) Resume() error {
 		}
 	}
 
-	i.SetStatus(Running)
+	i.stateMutex.Lock()
+	if err := i.transitionTo(Running); err != nil {
+		i.stateMutex.Unlock()
+		return fmt.Errorf("failed to transition to Running on resume: %w", err)
+	}
+	i.stateMutex.Unlock()
 
 	// Start ClaudeController for idle detection and automation
 	// This is non-critical - we log errors but don't fail the resume
@@ -1265,16 +1335,23 @@ func (i *Instance) Restart(preserveOutput bool) error {
 		// Continue - controller is optional functionality
 	}
 
-	i.SetStatus(Running)
+	// Restart preserves the existing status (already Running or NeedsApproval).
+	// No state transition is needed since the session stays in its current operational state.
+	i.stateMutex.Lock()
 	i.UpdatedAt = time.Now()
+	i.stateMutex.Unlock()
 
 	log.InfoLog.Printf("Successfully restarted session '%s'", i.Title)
 	return nil
 }
 
+// ---- Terminal I/O Delegation ------------------------------------------------
+// The following methods delegate to TmuxProcessManager with started/paused
+// guards and stateMutex protection. They preserve the public Instance API
+// while keeping terminal logic in TmuxProcessManager.
+
 // GetPTYReader returns an io.Reader for streaming terminal output.
-// This method provides access to the PTY output for terminal streaming implementations.
-// Returns an error if the session is not started or the tmux session is not initialized.
+// Delegates to tmuxManager.GetPTY.
 func (i *Instance) GetPTYReader() (*os.File, error) {
 	i.stateMutex.RLock()
 	defer i.stateMutex.RUnlock()
@@ -1339,26 +1416,11 @@ func (i *Instance) CapturePaneContentRaw() (string, error) {
 }
 
 // GetCurrentPaneContent captures the current visible tmux pane content.
-// This is what the user would see if they attached to tmux directly.
-// Unlike scrollback, this gives a clean snapshot of the current terminal state,
-// which is ideal for applications that rewrite lines (progress bars, htop, etc.)
+// Delegates to tmuxManager.CaptureViewport.
 func (i *Instance) GetCurrentPaneContent(lines int) (string, error) {
 	i.stateMutex.RLock()
 	defer i.stateMutex.RUnlock()
-
-	// OPTIMIZED: Only capture visible viewport (not all scrollback)
-	// If lines is 0 or negative, capture current viewport height only
-	if lines <= 0 {
-		_, height, err := i.tmuxManager.GetPaneDimensions()
-		if err != nil {
-			lines = 40 // Fallback
-		} else {
-			lines = height
-		}
-	}
-
-	startLine := fmt.Sprintf("-%d", lines)
-	content, err := i.tmuxManager.CapturePaneContentWithOptions(startLine, "-")
+	content, err := i.tmuxManager.CaptureViewport(lines)
 	if err != nil {
 		return "", fmt.Errorf("failed to capture current pane content: %w", err)
 	}
@@ -1391,65 +1453,58 @@ func (i *Instance) GetScrollbackHistory(startLine, endLine string) (string, erro
 	return i.tmuxManager.CapturePaneContentWithOptions(startLine, endLine)
 }
 
-// UpdateDiffStats updates the git diff statistics for this instance
+// ---- VCS/Git Delegation ------------------------------------------------
+// UpdateDiffStats delegates to gitManager.ComputeDiffIfReady for I/O, then
+// updates state under stateMutex. Other VCS methods (RepoName, HasGitWorktree,
+// GetGitWorktree, GetWorkingDirectory, GetEffectiveRootDir, GetDiffStats)
+// are thin delegation wrappers elsewhere in this file.
+
+// UpdateDiffStats updates the git diff statistics for this instance.
+// Performs I/O (git diff) outside the lock, then updates state under the write lock.
 func (i *Instance) UpdateDiffStats() error {
-	// Use read lock for initial state checks, then upgrade to write lock if needed
+	// Read lock for initial state checks
 	i.stateMutex.RLock()
 	if !i.started {
 		i.gitManager.ClearDiffStats()
 		i.stateMutex.RUnlock()
 		return nil
 	}
-
 	if i.Status == Paused {
-		// Keep the previous diff stats if the instance is paused
 		i.stateMutex.RUnlock()
 		return nil
 	}
-
-	// Check if the worktree directory exists before attempting git operations
 	if !i.gitManager.HasWorktree() {
 		i.gitManager.ClearDiffStats()
 		i.stateMutex.RUnlock()
 		return nil
 	}
-
-	worktreePath := i.gitManager.GetWorktreePath()
 	i.stateMutex.RUnlock()
 
-	// Check if worktree path exists (this is an I/O operation, do it outside the lock)
-	if _, err := os.Stat(worktreePath); os.IsNotExist(err) {
-		// Need write lock to modify state
-		i.stateMutex.Lock()
-		defer i.stateMutex.Unlock()
+	// I/O outside lock: check worktree existence and compute diff
+	stats, needsPause := i.gitManager.ComputeDiffIfReady()
 
-		// Double-check state hasn't changed while acquiring lock
+	// Write lock to update state
+	i.stateMutex.Lock()
+	defer i.stateMutex.Unlock()
+
+	if needsPause {
 		if i.Status != Paused {
-			// The worktree directory doesn't exist, mark the instance as paused
-			log.WarningLog.Printf("Worktree directory for '%s' doesn't exist at '%s', marking as paused", i.Title, worktreePath)
-			i.Status = Paused
+			log.WarningLog.Printf("Worktree directory for '%s' doesn't exist, marking as paused", i.Title)
+			if err := i.transitionTo(Paused); err != nil {
+				log.WarningLog.Printf("Failed to transition '%s' to Paused: %v", i.Title, err)
+			}
 		}
 		i.gitManager.ClearDiffStats()
 		return nil
 	}
-
-	// Perform git diff operation (I/O operation, outside lock)
-	stats := i.gitManager.ComputeDiff()
-	if stats.Error != nil {
+	if stats != nil && stats.Error != nil {
 		if strings.Contains(stats.Error.Error(), "base commit SHA not set") {
-			// Worktree is not fully set up yet, not an error
-			i.stateMutex.Lock()
 			i.gitManager.ClearDiffStats()
-			i.stateMutex.Unlock()
 			return nil
 		}
 		return fmt.Errorf("failed to get diff stats: %w", stats.Error)
 	}
-
-	// Update diff stats with write lock
-	i.stateMutex.Lock()
 	i.gitManager.SetDiffStats(stats)
-	i.stateMutex.Unlock()
 	return nil
 }
 
@@ -1460,25 +1515,12 @@ func (i *Instance) GetDiffStats() *git.DiffStats {
 	return i.gitManager.GetDiffStats()
 }
 
-// SendPrompt sends a prompt to the tmux session
+// SendPrompt sends a prompt to the tmux session. Delegates to tmuxManager.SendPromptWithEnter.
 func (i *Instance) SendPrompt(prompt string) error {
 	if !i.started {
 		return fmt.Errorf("instance not started")
 	}
-	if i.tmuxManager.session == nil {
-		return fmt.Errorf("tmux session not initialized")
-	}
-	if _, err := i.tmuxManager.SendKeys(prompt); err != nil {
-		return fmt.Errorf("error sending keys to tmux session: %w", err)
-	}
-
-	// Brief pause to prevent carriage return from being interpreted as newline
-	time.Sleep(100 * time.Millisecond)
-	if err := i.tmuxManager.TapEnter(); err != nil {
-		return fmt.Errorf("error tapping enter: %w", err)
-	}
-
-	return nil
+	return i.tmuxManager.SendPromptWithEnter(prompt)
 }
 
 // PreviewFullHistory captures the entire tmux pane output including full scrollback history
@@ -1550,7 +1592,8 @@ func (i *Instance) SendKeys(keys string) error {
 	return err
 }
 
-// Claude Code session management methods
+// ==== Claude Session Management ====
+// handleClaudeSessionReattachment and related helpers for Claude Code session persistence.
 
 // handleClaudeSessionReattachment attempts to re-attach to stored Claude Code session
 func (i *Instance) handleClaudeSessionReattachment() error {
@@ -1758,7 +1801,10 @@ func (i *Instance) GetReviewItem() (*ReviewItem, bool) {
 	return i.reviewQueue.Get(i.Title)
 }
 
-// SetStatusManager sets the status manager for idle detection
+// ---- Controller Delegation ------------------------------------------------
+// Delegates to ControllerManager for ClaudeController lifecycle.
+
+// SetStatusManager sets the status manager for idle detection.
 func (i *Instance) SetStatusManager(manager *InstanceStatusManager) {
 	i.controllerManager.SetStatusManager(manager)
 }
@@ -1884,9 +1930,17 @@ func (i *Instance) GetStatusIconForType() string {
 	}
 }
 
-// UpdateTerminalTimestamps updates the terminal activity timestamps based on captured output.
-// Pre-processes content via TmuxProcessManager (banner filtering, meaningful-content detection),
-// then delegates timestamp recording to ReviewState.UpdateTimestamps.
+// ---- Review State Delegation ------------------------------------------------
+// Coordinator methods that bridge TmuxProcessManager with ReviewState,
+// plus thin wrappers for ReviewState query methods.
+
+// UpdateTerminalTimestamps is a coordinator method that bridges TmuxProcessManager (I/O)
+// with ReviewState (timestamp recording). It:
+//   1. Calls tmuxManager.FilterBanners/HasMeaningfulContent (no lock needed, read-only tmux ops)
+//   2. Acquires stateMutex
+//   3. Delegates to ReviewState.UpdateTimestamps
+//
+// This method intentionally stays on Instance because it coordinates two sub-managers.
 // The forceUpdate parameter bypasses meaningful content checking for user-initiated interactions.
 func (i *Instance) UpdateTerminalTimestamps(content string, forceUpdate bool) {
 	filteredContent := content
@@ -1911,7 +1965,7 @@ func (i *Instance) UpdateTerminalTimestamps(content string, forceUpdate bool) {
 	i.ReviewState.UpdateTimestamps(content, filteredContent, shouldUpdateMeaningful, i.Title)
 }
 
-// GetTimeSinceLastMeaningfulOutput returns the duration since the last meaningful terminal output.
+// GetTimeSinceLastMeaningfulOutput delegates to ReviewState.TimeSinceLastMeaningfulOutput.
 // Falls back to time since creation if no meaningful output has been recorded.
 func (i *Instance) GetTimeSinceLastMeaningfulOutput() time.Duration {
 	i.stateMutex.RLock()
@@ -1919,7 +1973,7 @@ func (i *Instance) GetTimeSinceLastMeaningfulOutput() time.Duration {
 	return i.ReviewState.TimeSinceLastMeaningfulOutput(i.CreatedAt)
 }
 
-// GetTimeSinceLastTerminalUpdate returns the duration since any terminal activity.
+// GetTimeSinceLastTerminalUpdate delegates to ReviewState.TimeSinceLastTerminalUpdate.
 // Falls back to time since creation if no terminal output has been recorded.
 func (i *Instance) GetTimeSinceLastTerminalUpdate() time.Duration {
 	i.stateMutex.RLock()
@@ -1927,102 +1981,133 @@ func (i *Instance) GetTimeSinceLastTerminalUpdate() time.Duration {
 	return i.ReviewState.TimeSinceLastTerminalUpdate(i.CreatedAt)
 }
 
-// Tag management methods
-
-// AddTag adds a tag to the instance if it doesn't already exist
-func (i *Instance) AddTag(tag string) {
+// Approve transitions the instance from NeedsApproval to Running.
+// Returns an error if the current state does not allow this transition.
+func (i *Instance) Approve() error {
 	i.stateMutex.Lock()
 	defer i.stateMutex.Unlock()
-	
-	// Check if tag already exists
-	for _, existingTag := range i.Tags {
-		if existingTag == tag {
-			return // Tag already exists
-		}
+	if err := i.transitionTo(Running); err != nil {
+		return fmt.Errorf("approve: %w", err)
 	}
-	
-	i.Tags = append(i.Tags, tag)
+	return nil
 }
 
-// RemoveTag removes a tag from the instance
+// Deny transitions the instance from NeedsApproval to Paused.
+// Returns an error if the current state does not allow this transition.
+func (i *Instance) Deny() error {
+	i.stateMutex.Lock()
+	defer i.stateMutex.Unlock()
+	if err := i.transitionTo(Paused); err != nil {
+		return fmt.Errorf("deny: %w", err)
+	}
+	return nil
+}
+
+// ---- Tag Management Delegation ------------------------------------------------
+// The following methods delegate to TagManager with stateMutex protection.
+// They preserve the public Instance API while keeping tag logic in TagManager.
+
+// ensureTagManager lazily initializes the tagManager if it was not set up
+// (e.g., when Instance is created via struct literal in tests).
+// Must be called with stateMutex held.
+func (i *Instance) ensureTagManager() {
+	if i.tagManager.tags == nil {
+		i.tagManager = NewTagManager(&i.Tags)
+	}
+}
+
+// AddTag adds a tag to the instance. Delegates to TagManager.Add.
+// Returns ErrTagTooLong if the tag exceeds MaxTagLength, or ErrDuplicateTag if it already exists.
+func (i *Instance) AddTag(tag string) error {
+	i.stateMutex.Lock()
+	defer i.stateMutex.Unlock()
+	i.ensureTagManager()
+	return i.tagManager.Add(tag)
+}
+
+// RemoveTag removes a tag from the instance. Delegates to TagManager.Remove.
 func (i *Instance) RemoveTag(tag string) {
 	i.stateMutex.Lock()
 	defer i.stateMutex.Unlock()
-	
-	newTags := make([]string, 0, len(i.Tags))
-	for _, existingTag := range i.Tags {
-		if existingTag != tag {
-			newTags = append(newTags, existingTag)
-		}
-	}
-	
-	i.Tags = newTags
+	i.ensureTagManager()
+	i.tagManager.Remove(tag)
 }
 
-// HasTag returns true if the instance has the specified tag
+// HasTag returns true if the instance has the specified tag. Delegates to TagManager.Has.
 func (i *Instance) HasTag(tag string) bool {
 	i.stateMutex.RLock()
 	defer i.stateMutex.RUnlock()
-	
-	for _, existingTag := range i.Tags {
-		if existingTag == tag {
-			return true
+	if i.tagManager.tags == nil {
+		// Fallback for struct-literal created instances (read-only path, no init needed)
+		for _, t := range i.Tags {
+			if t == tag {
+				return true
+			}
 		}
+		return false
 	}
-	
-	return false
+	return i.tagManager.Has(tag)
 }
 
-// GetTags returns a copy of the instance's tags
+// GetTags returns a copy of the instance's tags. Delegates to TagManager.All.
 func (i *Instance) GetTags() []string {
 	i.stateMutex.RLock()
 	defer i.stateMutex.RUnlock()
-	
-	tags := make([]string, len(i.Tags))
-	copy(tags, i.Tags)
-	return tags
+	if i.tagManager.tags == nil {
+		// Fallback for struct-literal created instances (read-only path)
+		result := make([]string, len(i.Tags))
+		copy(result, i.Tags)
+		return result
+	}
+	return i.tagManager.All()
 }
 
-// SetTags replaces all tags with a new set
-func (i *Instance) SetTags(tags []string) {
+// SetTags replaces all tags with a new deduplicated set. Delegates to TagManager.Set.
+// Returns ErrTagTooLong on the first tag that exceeds MaxTagLength.
+func (i *Instance) SetTags(tags []string) error {
 	i.stateMutex.Lock()
 	defer i.stateMutex.Unlock()
-
-	i.Tags = make([]string, len(tags))
-	copy(i.Tags, tags)
+	i.ensureTagManager()
+	return i.tagManager.Set(tags)
 }
 
-// GitHub integration helper methods
+// ---- GitHub Metadata Delegation ------------------------------------------------
+// The following methods delegate to GitHubMetadataView value object.
+// The 6 GitHub fields remain on Instance for backward compatibility with
+// instance_adapter.go and serialization (ToInstanceData/FromInstanceData).
 
-// IsPRSession returns true if this session was created from a GitHub PR URL
-func (i *Instance) IsPRSession() bool {
-	return i.GitHubPRNumber > 0
-}
-
-// GetGitHubRepoFullName returns "owner/repo" format, or empty string if not a GitHub session
-func (i *Instance) GetGitHubRepoFullName() string {
-	if i.GitHubOwner == "" || i.GitHubRepo == "" {
-		return ""
+// GitHub returns a read-only view of the GitHub metadata for this instance.
+func (i *Instance) GitHub() GitHubMetadataView {
+	return GitHubMetadataView{
+		PRNumber:       i.GitHubPRNumber,
+		PRURL:          i.GitHubPRURL,
+		Owner:          i.GitHubOwner,
+		Repo:           i.GitHubRepo,
+		SourceRef:      i.GitHubSourceRef,
+		ClonedRepoPath: i.ClonedRepoPath,
 	}
-	return fmt.Sprintf("%s/%s", i.GitHubOwner, i.GitHubRepo)
 }
 
-// GetPRDisplayInfo returns a human-readable string describing the PR for display in UI
-// Returns empty string if not a PR session
-func (i *Instance) GetPRDisplayInfo() string {
-	if !i.IsPRSession() {
-		return ""
-	}
-	return fmt.Sprintf("PR #%d on %s", i.GitHubPRNumber, i.GetGitHubRepoFullName())
-}
+// IsPRSession returns true if this session was created from a GitHub PR URL.
+// Delegates to GitHubMetadataView.IsPRSession.
+func (i *Instance) IsPRSession() bool { return i.GitHub().IsPRSession() }
 
-// IsGitHubSession returns true if this session has any GitHub metadata
-func (i *Instance) IsGitHubSession() bool {
-	return i.GitHubOwner != "" && i.GitHubRepo != ""
-}
+// GetGitHubRepoFullName returns "owner/repo" format, or empty string.
+// Delegates to GitHubMetadataView.RepoFullName.
+func (i *Instance) GetGitHubRepoFullName() string { return i.GitHub().RepoFullName() }
+
+// GetPRDisplayInfo returns a human-readable PR description for UI display.
+// Delegates to GitHubMetadataView.PRDisplayInfo.
+func (i *Instance) GetPRDisplayInfo() string { return i.GitHub().PRDisplayInfo() }
+
+// IsGitHubSession returns true if this session has GitHub owner and repo set.
+// Delegates to GitHubMetadataView.IsGitHubSession.
+func (i *Instance) IsGitHubSession() bool { return i.GitHub().IsGitHubSession() }
 
 // DetectAndPopulateWorktreeInfo detects if the instance path is a worktree
 // and populates the IsWorktree, MainRepoPath, GitHubOwner, and GitHubRepo fields.
+// NOTE: This method writes to GitHub fields (i.GitHubOwner, i.GitHubRepo) directly.
+// A future pass could route writes through a setter method for encapsulation.
 // This is useful for sessions created from existing worktrees where we want to
 // display the actual repository information in the UI.
 //
