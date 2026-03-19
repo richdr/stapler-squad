@@ -2,6 +2,7 @@ package git
 
 import (
 	"claude-squad/config"
+	"claude-squad/executor"
 	"claude-squad/log"
 	"fmt"
 	"os/exec"
@@ -31,12 +32,24 @@ type GitWorktree struct {
 	branchName string
 	// Base commit hash for the worktree
 	baseCommitSHA string
+	// cmdExec is used to execute commands for this worktree.
+	cmdExec executor.Executor
 }
 
 func NewGitWorktreeFromStorage(repoPath string, worktreePath string, sessionName string, branchName string, baseCommitSHA string) *GitWorktree {
+	return NewGitWorktreeFromStorageWithExecutor(repoPath, worktreePath, sessionName, branchName, baseCommitSHA, nil)
+}
+
+// NewGitWorktreeFromStorageWithExecutor creates a GitWorktree from stored data with an optional executor.
+// If cmdExec is nil, a default executor is used.
+func NewGitWorktreeFromStorageWithExecutor(repoPath string, worktreePath string, sessionName string, branchName string, baseCommitSHA string, cmdExec executor.Executor) *GitWorktree {
 	// Return nil if the worktree has no actual paths (empty/invalid worktree)
 	if repoPath == "" && worktreePath == "" && branchName == "" {
 		return nil
+	}
+
+	if cmdExec == nil {
+		cmdExec = executor.MakeExecutor()
 	}
 
 	return &GitWorktree{
@@ -45,16 +58,27 @@ func NewGitWorktreeFromStorage(repoPath string, worktreePath string, sessionName
 		sessionName:   sessionName,
 		branchName:    branchName,
 		baseCommitSHA: baseCommitSHA,
+		cmdExec:       cmdExec,
 	}
 }
 
 // NewGitWorktree creates a new GitWorktree instance
 func NewGitWorktree(repoPath string, sessionName string) (tree *GitWorktree, branchname string, err error) {
-	return NewGitWorktreeWithBranch(repoPath, sessionName, "")
+	return NewGitWorktreeWithBranchAndExecutor(repoPath, sessionName, "", nil)
 }
 
 // NewGitWorktreeWithBranch creates a new GitWorktree instance with an optional custom branch name
 func NewGitWorktreeWithBranch(repoPath string, sessionName string, customBranch string) (tree *GitWorktree, branchname string, err error) {
+	return NewGitWorktreeWithBranchAndExecutor(repoPath, sessionName, customBranch, nil)
+}
+
+// NewGitWorktreeWithBranchAndExecutor creates a new GitWorktree with optional branch name and executor.
+// If cmdExec is nil, a default executor is used.
+func NewGitWorktreeWithBranchAndExecutor(repoPath string, sessionName string, customBranch string, cmdExec executor.Executor) (tree *GitWorktree, branchname string, err error) {
+	if cmdExec == nil {
+		cmdExec = executor.MakeExecutor()
+	}
+
 	cfg := config.LoadConfig()
 
 	var branchName string
@@ -94,6 +118,7 @@ func NewGitWorktreeWithBranch(repoPath string, sessionName string, customBranch 
 			sessionName:  sessionName,
 			branchName:   branchName,
 			worktreePath: existingWorktreePath,
+			cmdExec:      cmdExec,
 		}, branchName, nil
 	}
 
@@ -107,6 +132,7 @@ func NewGitWorktreeWithBranch(repoPath string, sessionName string, customBranch 
 		sessionName:  sessionName,
 		branchName:   branchName,
 		worktreePath: worktreePath,
+		cmdExec:      cmdExec,
 	}, branchName, nil
 }
 
@@ -138,6 +164,15 @@ func (g *GitWorktree) GetBaseCommitSHA() string {
 // NewGitWorktreeFromExisting creates a GitWorktree from an existing worktree path
 // This is used when connecting to worktrees that were created manually or by deleted sessions
 func NewGitWorktreeFromExisting(existingWorktreePath string, sessionName string) (*GitWorktree, error) {
+	return NewGitWorktreeFromExistingWithExecutor(existingWorktreePath, sessionName, nil)
+}
+
+// NewGitWorktreeFromExistingWithExecutor creates a GitWorktree from an existing worktree path with an optional executor.
+func NewGitWorktreeFromExistingWithExecutor(existingWorktreePath string, sessionName string, cmdExec executor.Executor) (*GitWorktree, error) {
+	if cmdExec == nil {
+		cmdExec = executor.MakeExecutor()
+	}
+
 	// Ensure the path exists and is a valid git worktree
 	if !IsGitRepo(existingWorktreePath) {
 		return nil, fmt.Errorf("path '%s' is not a valid git repository or worktree", existingWorktreePath)
@@ -169,6 +204,7 @@ func NewGitWorktreeFromExisting(existingWorktreePath string, sessionName string)
 		sessionName:   sessionName,
 		branchName:    branchName,
 		baseCommitSHA: baseCommitSHA,
+		cmdExec:       cmdExec,
 	}, nil
 }
 

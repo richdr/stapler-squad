@@ -112,6 +112,37 @@ func (e *TimeoutExecutor) Output(cmd *exec.Cmd) ([]byte, error) {
 	}
 }
 
+// CombinedOutput executes the command and returns combined stdout+stderr with timeout protection.
+func (e *TimeoutExecutor) CombinedOutput(cmd *exec.Cmd) ([]byte, error) {
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), e.timeout)
+	defer cancel()
+
+	// Channel to receive result
+	type result struct {
+		output []byte
+		err    error
+	}
+	done := make(chan result, 1)
+
+	// Run CombinedOutput in goroutine
+	go func() {
+		out, err := cmd.CombinedOutput()
+		done <- result{output: out, err: err}
+	}()
+
+	// Wait for either completion or timeout
+	select {
+	case <-ctx.Done():
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		return nil, fmt.Errorf("command timed out after %v: %s", e.timeout, ToString(cmd))
+	case res := <-done:
+		return res.output, res.err
+	}
+}
+
 // OutputWithPipes is a better implementation of Output that properly captures stdout/stderr
 // This should be used when you need reliable output capture with timeout
 func (e *TimeoutExecutor) OutputWithPipes(cmd *exec.Cmd) ([]byte, error) {

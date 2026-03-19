@@ -9,6 +9,7 @@ import (
 type Executor interface {
 	Run(cmd *exec.Cmd) error
 	Output(cmd *exec.Cmd) ([]byte, error)
+	CombinedOutput(cmd *exec.Cmd) ([]byte, error)
 }
 
 type Exec struct{}
@@ -19,6 +20,10 @@ func (e Exec) Run(cmd *exec.Cmd) error {
 
 func (e Exec) Output(cmd *exec.Cmd) ([]byte, error) {
 	return cmd.Output()
+}
+
+func (e Exec) CombinedOutput(cmd *exec.Cmd) ([]byte, error) {
+	return cmd.CombinedOutput()
 }
 
 func MakeExecutor() Executor {

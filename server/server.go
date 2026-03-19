@@ -93,8 +93,7 @@ func NewServer(addr string) *Server {
 			}
 		}
 
-		// Wire external discovery to SessionService for unified session listing
-		deps.SessionService.SetExternalDiscovery(deps.ExternalDiscovery)
+		// Note: SetExternalDiscovery is now called inside BuildRuntimeDeps.
 
 		// Start external session infrastructure
 		deps.ExternalDiscovery.Start(5 * time.Second)
@@ -147,6 +146,11 @@ func NewServer(addr string) *Server {
 		escapeCodeHandler := services.NewEscapeCodeHandler()
 		escapeCodeHandler.RegisterRoutes(srv.mux)
 		log.InfoLog.Printf("Registered Escape Code Analytics handlers at /api/debug/escape-codes/*")
+
+		// Register Circuit Breaker debug handler for observability
+		cbHandler := services.NewCircuitBreakerHandler()
+		cbHandler.RegisterRoutes(srv.mux)
+		log.InfoLog.Printf("Registered Circuit Breaker debug handler at /api/debug/circuit-breakers")
 	}
 
 	// Serve web UI static files

@@ -119,13 +119,21 @@ func toClaudeSquadTmuxNameWithPrefix(str string, prefix string) string {
 type CleanupFunc func() error
 
 // NewTmuxSession creates a new TmuxSession with the given name and program.
+// The executor is wrapped with a CircuitBreakerExecutor for resilience.
 func NewTmuxSession(name string, program string) *TmuxSession {
-	return newTmuxSession(name, program, MakePtyFactory(), executor.MakeExecutor(), TmuxPrefix)
+	baseExec := executor.MakeExecutor()
+	cbExec := executor.NewCircuitBreakerExecutor(baseExec, executor.DefaultCircuitBreakerConfig())
+	executor.GetGlobalRegistry().Register("tmux-"+name, cbExec)
+	return newTmuxSession(name, program, MakePtyFactory(), cbExec, TmuxPrefix)
 }
 
 // NewTmuxSessionWithPrefix creates a new TmuxSession with a custom prefix for process isolation.
+// The executor is wrapped with a CircuitBreakerExecutor for resilience.
 func NewTmuxSessionWithPrefix(name string, program string, prefix string) *TmuxSession {
-	return newTmuxSession(name, program, MakePtyFactory(), executor.MakeExecutor(), prefix)
+	baseExec := executor.MakeExecutor()
+	cbExec := executor.NewCircuitBreakerExecutor(baseExec, executor.DefaultCircuitBreakerConfig())
+	executor.GetGlobalRegistry().Register("tmux-"+name, cbExec)
+	return newTmuxSession(name, program, MakePtyFactory(), cbExec, prefix)
 }
 
 // NewTmuxSessionWithCleanup creates a new TmuxSession and returns it along with a cleanup function.
@@ -156,7 +164,10 @@ func NewTmuxSessionWithPrefixAndCleanup(name string, program string, prefix stri
 // serverSocket: unique socket name (e.g., "test", "teatest_123", "isolated")
 // prefix: session name prefix (e.g., "claudesquad_test_")
 func NewTmuxSessionWithServerSocket(name string, program string, prefix string, serverSocket string) *TmuxSession {
-	return newTmuxSessionWithSocket(name, program, MakePtyFactory(), executor.MakeExecutor(), prefix, serverSocket)
+	baseExec := executor.MakeExecutor()
+	cbExec := executor.NewCircuitBreakerExecutor(baseExec, executor.DefaultCircuitBreakerConfig())
+	executor.GetGlobalRegistry().Register("tmux-"+name, cbExec)
+	return newTmuxSessionWithSocket(name, program, MakePtyFactory(), cbExec, prefix, serverSocket)
 }
 
 // NewTmuxSessionWithServerSocketAndCleanup creates a TmuxSession with server isolation and cleanup.
@@ -198,12 +209,15 @@ func newTmuxSessionWithSocket(name string, program string, ptyFactory PtyFactory
 //
 // The session must already exist in tmux. Call AttachToExisting() after creation to establish the PTY connection.
 func NewTmuxSessionFromExisting(exactSessionName string) *TmuxSession {
+	baseExec := executor.MakeExecutor()
+	cbExec := executor.NewCircuitBreakerExecutor(baseExec, executor.DefaultCircuitBreakerConfig())
+	executor.GetGlobalRegistry().Register("tmux-ext-"+exactSessionName, cbExec)
 	return &TmuxSession{
 		sanitizedName:    exactSessionName, // Use exact name - no prefix transformation
 		program:          "",               // Unknown - external session
 		serverSocket:     "",               // Use default server
 		ptyFactory:       MakePtyFactory(),
-		cmdExec:          executor.MakeExecutor(),
+		cmdExec:          cbExec,
 		bannerFilter:     NewBannerFilter(),
 		externalResizeCh: make(chan windowSize, 10),
 		existsCacheTTL:   500 * time.Millisecond,

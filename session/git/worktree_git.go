@@ -7,12 +7,19 @@ import (
 	"strings"
 )
 
-// runGitCommand executes a git command and returns any error
+// runGitCommand executes a git command and returns any error.
+// Uses the executor for circuit breaker support when available.
 func (g *GitWorktree) runGitCommand(path string, args ...string) (string, error) {
 	baseArgs := []string{"-C", path}
 	cmd := exec.Command("git", append(baseArgs, args...)...)
 
-	output, err := cmd.CombinedOutput()
+	var output []byte
+	var err error
+	if g.cmdExec != nil {
+		output, err = g.cmdExec.CombinedOutput(cmd)
+	} else {
+		output, err = cmd.CombinedOutput()
+	}
 	if err != nil {
 		return "", fmt.Errorf("git command failed: %s (%w)", output, err)
 	}
@@ -49,11 +56,11 @@ func (g *GitWorktree) PushChanges(commitMessage string, open bool) error {
 	// First push the branch to remote to ensure it exists
 	pushCmd := exec.Command("gh", "repo", "sync", "--source", "-b", g.branchName)
 	pushCmd.Dir = g.worktreePath
-	if err := pushCmd.Run(); err != nil {
+	if err := g.runExec(pushCmd); err != nil {
 		// If sync fails, try creating the branch on remote first
 		gitPushCmd := exec.Command("git", "push", "-u", "origin", g.branchName)
 		gitPushCmd.Dir = g.worktreePath
-		if pushOutput, pushErr := gitPushCmd.CombinedOutput(); pushErr != nil {
+		if pushOutput, pushErr := g.runCombinedOutput(gitPushCmd); pushErr != nil {
 			log.ErrorLog.Print(pushErr)
 			return fmt.Errorf("failed to push branch: %s (%w)", pushOutput, pushErr)
 		}
@@ -62,7 +69,7 @@ func (g *GitWorktree) PushChanges(commitMessage string, open bool) error {
 	// Now sync with remote
 	syncCmd := exec.Command("gh", "repo", "sync", "-b", g.branchName)
 	syncCmd.Dir = g.worktreePath
-	if output, err := syncCmd.CombinedOutput(); err != nil {
+	if output, err := g.runCombinedOutput(syncCmd); err != nil {
 		log.ErrorLog.Print(err)
 		return fmt.Errorf("failed to sync changes: %s (%w)", output, err)
 	}
@@ -130,8 +137,24 @@ func (g *GitWorktree) OpenBranchURL() error {
 
 	cmd := exec.Command("gh", "browse", "--branch", g.branchName)
 	cmd.Dir = g.worktreePath
-	if err := cmd.Run(); err != nil {
+	if err := g.runExec(cmd); err != nil {
 		return fmt.Errorf("failed to open branch URL: %w", err)
 	}
 	return nil
+}
+
+// runExec runs a command through the executor (or directly if no executor is set).
+func (g *GitWorktree) runExec(cmd *exec.Cmd) error {
+	if g.cmdExec != nil {
+		return g.cmdExec.Run(cmd)
+	}
+	return cmd.Run()
+}
+
+// runCombinedOutput runs a command through the executor and returns combined output.
+func (g *GitWorktree) runCombinedOutput(cmd *exec.Cmd) ([]byte, error) {
+	if g.cmdExec != nil {
+		return g.cmdExec.CombinedOutput(cmd)
+	}
+	return cmd.CombinedOutput()
 }
