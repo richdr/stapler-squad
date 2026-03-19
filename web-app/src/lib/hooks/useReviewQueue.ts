@@ -101,7 +101,7 @@ export function useReviewQueue(
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
-  const clientRef = useRef<any>(null);
+  const clientRef = useRef<ReturnType<typeof createPromiseClient<typeof SessionService>> | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const lastUpdateRef = useRef<number>(Date.now());

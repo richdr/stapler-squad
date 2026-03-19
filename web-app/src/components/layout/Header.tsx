@@ -8,11 +8,12 @@ import { ApprovalNavBadge } from "@/components/sessions/ApprovalNavBadge";
 import { DebugMenu } from "@/components/ui/DebugMenu";
 import { useNotifications } from "@/lib/contexts/NotificationContext";
 import { useOmnibar } from "@/lib/contexts/OmnibarContext";
+import { routes } from "@/lib/routes";
 import styles from "./Header.module.css";
 
 export function Header() {
   const pathname = usePathname();
-  const [isDebugMenuOpen, setIsDebugMenuOpen] = useState(false);
+  const [isDebugOpen, setIsDebugOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { togglePanel, getUnreadCount } = useNotifications();
   const { open: openOmnibar } = useOmnibar();
@@ -61,33 +62,33 @@ export function Header() {
           className={`${styles.nav} ${isMobileMenuOpen ? styles.navOpen : ""}`}
         >
           <AppLink
-            href="/"
-            className={`${styles.navLink} ${pathname === "/" ? styles.active : ""}`}
+            href={routes.home}
+            className={`${styles.navLink} ${pathname === routes.home ? styles.active : ""}`}
           >
             Sessions
           </AppLink>
           <AppLink
-            href="/review-queue"
-            className={`${styles.navLink} ${pathname === "/review-queue" ? styles.active : ""}`}
+            href={routes.reviewQueue}
+            className={`${styles.navLink} ${pathname === routes.reviewQueue ? styles.active : ""}`}
           >
             <span className={styles.navLinkText}>Review Queue</span>
             <ReviewQueueNavBadge inline={true} />
           </AppLink>
           <AppLink
-            href="/logs"
-            className={`${styles.navLink} ${pathname === "/logs" ? styles.active : ""}`}
+            href={routes.logs}
+            className={`${styles.navLink} ${pathname === routes.logs ? styles.active : ""}`}
           >
             Logs
           </AppLink>
           <AppLink
-            href="/history"
-            className={`${styles.navLink} ${pathname === "/history" ? styles.active : ""}`}
+            href={routes.history}
+            className={`${styles.navLink} ${pathname === routes.history ? styles.active : ""}`}
           >
             History
           </AppLink>
           <AppLink
-            href="/config"
-            className={`${styles.navLink} ${pathname === "/config" ? styles.active : ""}`}
+            href={routes.config}
+            className={`${styles.navLink} ${pathname === routes.config ? styles.active : ""}`}
           >
             Config
           </AppLink>
@@ -120,7 +121,7 @@ export function Header() {
           </button>
           <button
             className={styles.debugButton}
-            onClick={() => setIsDebugMenuOpen(true)}
+            onClick={() => setIsDebugOpen(true)}
             aria-label="Open debug menu"
             title="Debug menu"
           >
@@ -143,8 +144,8 @@ export function Header() {
     </header>
 
       <DebugMenu
-        isOpen={isDebugMenuOpen}
-        onClose={() => setIsDebugMenuOpen(false)}
+        isOpen={isDebugOpen}
+        onClose={() => setIsDebugOpen(false)}
       />
     </>
   );

@@ -59,7 +59,7 @@ export function useSessionService(
   const [error, setError] = useState<Error | null>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
-  const clientRef = useRef<any>(null);
+  const clientRef = useRef<ReturnType<typeof createPromiseClient<typeof SessionService>> | null>(null);
 
   // Initialize ConnectRPC client
   useEffect(() => {
@@ -240,17 +240,17 @@ export function useSessionService(
       try {
         const response = await clientRef.current.renameSession({
           id,
-          title: newTitle
+          newTitle
         });
 
         // Update local state
-        if (response.success && response.session) {
+        if (response.session) {
           setSessions((prev) =>
             prev.map((s) => (s.id === id ? response.session! : s))
           );
         }
 
-        return response.success;
+        return !!response.session;
       } catch (err) {
         setError(err instanceof Error ? err : new Error("Failed to rename session"));
         return false;

@@ -21,7 +21,7 @@ function HomeContent() {
   const { authEnabled, authenticated, loading: authLoading } = useAuth();
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
   const [activeTab, setActiveTab] = useState<SessionDetailTab>("info");
-  const [showHelp, setShowHelp] = useState(false);
+  const [isHelpOpen, setShowHelp] = useState(false);
   const [isSessionFullscreen, setIsSessionFullscreen] = useState(false);
   const [pendingSessionId, setPendingSessionId] = useState<string | null>(null);
 
@@ -226,7 +226,7 @@ function HomeContent() {
   useKeyboard({
     "?": () => setShowHelp(true),
     Escape: () => {
-      if (showHelp) {
+      if (isHelpOpen) {
         setShowHelp(false);
       } else if (selectedSession) {
         closeSession();
@@ -281,7 +281,7 @@ function HomeContent() {
       )}
 
       {/* Keyboard shortcuts help modal */}
-      {showHelp && (
+      {isHelpOpen && (
         <div className={styles.modal} onClick={() => setShowHelp(false)}>
           <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
             <div className={styles.modalHeader}>

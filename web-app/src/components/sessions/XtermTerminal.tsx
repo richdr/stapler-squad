@@ -8,7 +8,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { SearchAddon } from "@xterm/addon-search";
 import "@xterm/xterm/css/xterm.css";
 import styles from "./XtermTerminal.module.css";
-import { loadTerminalConfig, type TerminalConfig } from "@/lib/config/terminalConfig";
+import { loadTerminalConfig, darkTerminalTheme, lightTerminalTheme, type TerminalConfig } from "@/lib/config/terminalConfig";
 
 export interface XtermTerminalProps {
   /**
@@ -294,8 +294,27 @@ export const XtermTerminal = forwardRef<XtermTerminalHandle, XtermTerminalProps>
   useEffect(() => {
     if (terminalRef.current) {
       terminalRef.current.options.theme = getTheme(theme);
+      terminalRef.current.refresh(0, terminalRef.current.rows - 1);
     }
   }, [theme]);
+
+  // Detect system color scheme changes and update terminal theme accordingly
+  // This provides automatic theme switching when no explicit theme prop is given
+  useEffect(() => {
+    if (typeof window === "undefined" || themeProp !== undefined) return;
+
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const handleChange = (e: MediaQueryListEvent) => {
+      const newTheme = e.matches ? "dark" : "light";
+      if (terminalRef.current) {
+        terminalRef.current.options.theme = getTheme(newTheme);
+        terminalRef.current.refresh(0, terminalRef.current.rows - 1);
+      }
+    };
+
+    mediaQuery.addEventListener("change", handleChange);
+    return () => mediaQuery.removeEventListener("change", handleChange);
+  }, [themeProp]);
 
   // Update font size dynamically (no terminal recreation needed)
   useEffect(() => {
@@ -368,59 +387,10 @@ export const XtermTerminal = forwardRef<XtermTerminalHandle, XtermTerminalProps>
 XtermTerminal.displayName = "XtermTerminal";
 
 /**
- * Get xterm.js theme configuration
+ * Get xterm.js theme configuration using named theme exports
  */
 function getTheme(theme: "light" | "dark") {
-  if (theme === "light") {
-    return {
-      background: "#ffffff",
-      foreground: "#333333",
-      cursor: "#333333",
-      cursorAccent: "#ffffff",
-      selection: "rgba(0, 0, 0, 0.3)",
-      black: "#000000",
-      red: "#cd3131",
-      green: "#00bc00",
-      yellow: "#949800",
-      blue: "#0451a5",
-      magenta: "#bc05bc",
-      cyan: "#0598bc",
-      white: "#555555",
-      brightBlack: "#666666",
-      brightRed: "#cd3131",
-      brightGreen: "#14ce14",
-      brightYellow: "#b5ba00",
-      brightBlue: "#0451a5",
-      brightMagenta: "#bc05bc",
-      brightCyan: "#0598bc",
-      brightWhite: "#a5a5a5",
-    };
-  }
-
-  // Dark theme (default)
-  return {
-    background: "#1e1e1e",
-    foreground: "#cccccc",
-    cursor: "#cccccc",
-    cursorAccent: "#1e1e1e",
-    selection: "rgba(255, 255, 255, 0.3)",
-    black: "#000000",
-    red: "#cd3131",
-    green: "#0dbc79",
-    yellow: "#e5e510",
-    blue: "#2472c8",
-    magenta: "#bc3fbc",
-    cyan: "#11a8cd",
-    white: "#e5e5e5",
-    brightBlack: "#666666",
-    brightRed: "#f14c4c",
-    brightGreen: "#23d18b",
-    brightYellow: "#f5f543",
-    brightBlue: "#3b8eea",
-    brightMagenta: "#d670d6",
-    brightCyan: "#29b8db",
-    brightWhite: "#ffffff",
-  };
+  return theme === "light" ? lightTerminalTheme : darkTerminalTheme;
 }
 
 /**

@@ -38,11 +38,11 @@ export function SessionCard({
   onToggleSelect,
   reviewItem,
 }: SessionCardProps) {
-  const [showTagEditor, setShowTagEditor] = useState(false);
-  const [showRenameDialog, setShowRenameDialog] = useState(false);
+  const [isTagEditorOpen, setIsTagEditorOpen] = useState(false);
+  const [isRenameOpen, setIsRenameOpen] = useState(false);
   const [showActions, setShowActions] = useState(false);
   const [newTitle, setNewTitle] = useState(session.title);
-  const [showRestartConfirm, setShowRestartConfirm] = useState(false);
+  const [isRestartConfirmOpen, setIsRestartConfirmOpen] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [isRestarting, setIsRestarting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -134,25 +134,25 @@ export function SessionCard({
 
   const handleEditTags = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setShowTagEditor(true);
+    setIsTagEditorOpen(true);
   };
 
   const handleSaveTags = (newTags: string[]) => {
     if (onUpdateTags) {
       onUpdateTags(session.id, newTags);
     }
-    setShowTagEditor(false);
+    setIsTagEditorOpen(false);
   };
 
   const handleCancelTagEdit = () => {
-    setShowTagEditor(false);
+    setIsTagEditorOpen(false);
   };
 
   const handleRenameClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     setNewTitle(session.title);
     setRenameError("");
-    setShowRenameDialog(true);
+    setIsRenameOpen(true);
   };
 
   const handleRenameSubmit = async (e: React.MouseEvent) => {
@@ -165,7 +165,7 @@ export function SessionCard({
     }
 
     if (newTitle === session.title) {
-      setShowRenameDialog(false);
+      setIsRenameOpen(false);
       return;
     }
 
@@ -175,7 +175,7 @@ export function SessionCard({
     try {
       const success = await onRename?.(session.id, newTitle.trim());
       if (success) {
-        setShowRenameDialog(false);
+        setIsRenameOpen(false);
       } else {
         setRenameError("Failed to rename session");
       }
@@ -188,14 +188,14 @@ export function SessionCard({
 
   const handleRenameCancel = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setShowRenameDialog(false);
+    setIsRenameOpen(false);
     setNewTitle(session.title);
     setRenameError("");
   };
 
   const handleRestartClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setShowRestartConfirm(true);
+    setIsRestartConfirmOpen(true);
   };
 
   const handleRestartConfirm = async (e: React.MouseEvent) => {
@@ -204,7 +204,7 @@ export function SessionCard({
 
     try {
       await onRestart?.(session.id);
-      setShowRestartConfirm(false);
+      setIsRestartConfirmOpen(false);
     } catch (error) {
       console.error("Failed to restart session:", error);
     } finally {
@@ -214,12 +214,12 @@ export function SessionCard({
 
   const handleRestartCancel = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setShowRestartConfirm(false);
+    setIsRestartConfirmOpen(false);
   };
 
   return (
     <>
-      {showTagEditor && (
+      {isTagEditorOpen && (
         <TagEditor
           tags={session.tags || []}
           onSave={handleSaveTags}
@@ -227,7 +227,7 @@ export function SessionCard({
           sessionTitle={session.title}
         />
       )}
-      {showRenameDialog && (
+      {isRenameOpen && (
         <div className={styles.renameDialog} onClick={(e) => e.stopPropagation()}>
           <div className={styles.dialogContent}>
             <h3>Rename Session</h3>
@@ -263,7 +263,7 @@ export function SessionCard({
           </div>
         </div>
       )}
-      {showRestartConfirm && (
+      {isRestartConfirmOpen && (
         <div className={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
           <div className={styles.dialogContent}>
             <h3>Restart Session</h3>

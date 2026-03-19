@@ -4,10 +4,13 @@
 
 export const routes = {
   home: "/",
-  sessionDetail: (id: string) => `/sessions/${id}`,
   sessionCreate: "/sessions/new",
-  dashboard: "/dashboard",
-  settings: "/settings",
+  reviewQueue: "/review-queue",
+  history: "/history",
+  logs: "/logs",
+  config: "/config",
+  login: "/login",
+  sessionDetail: (id: string) => `/sessions/${id}`,
 } as const;
 
 export type Route = typeof routes;

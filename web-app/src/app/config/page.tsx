@@ -55,7 +55,7 @@ export default function ConfigEditorPage() {
   // Per-file state tracking for multi-file navigation
   const [fileStates, setFileStates] = useState<Record<string, FileState>>({});
 
-  const clientRef = useRef<any>(null);
+  const clientRef = useRef<ReturnType<typeof createPromiseClient<typeof SessionService>> | null>(null);
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<typeof import("monaco-editor") | null>(null);
 

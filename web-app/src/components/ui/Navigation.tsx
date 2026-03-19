@@ -10,7 +10,7 @@ export function Navigation() {
 
   const navItems = [
     { href: routes.home, label: "Sessions" },
-    { href: routes.dashboard, label: "Dashboard" },
+    { href: routes.reviewQueue, label: "Review Queue" },
   ];
 
   return (

@@ -24,7 +24,7 @@ interface AuditLogEntry {
 export function useAuditLog(options: UseAuditLogOptions = {}) {
   const { baseUrl = getApiBaseUrl(), enabled = true } = options;
 
-  const clientRef = useRef<any>(null);
+  const clientRef = useRef<ReturnType<typeof createPromiseClient<typeof SessionService>> | null>(null);
 
   // Initialize gRPC client on first use
   const getClient = useCallback(() => {

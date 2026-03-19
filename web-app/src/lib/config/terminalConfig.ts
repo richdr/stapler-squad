@@ -77,6 +77,59 @@ export const TERMINAL_CONFIG_PRESETS: Record<string, Partial<TerminalConfig>> = 
   },
 };
 
+/**
+ * Named dark terminal theme for xterm.js
+ */
+export const darkTerminalTheme: import("@xterm/xterm").ITheme = {
+  background: '#1e1e1e',
+  foreground: '#cccccc',
+  cursor: '#cccccc',
+  cursorAccent: '#1e1e1e',
+  selectionBackground: 'rgba(255, 255, 255, 0.3)',
+  black: '#000000',
+  red: '#cd3131',
+  green: '#0dbc79',
+  yellow: '#e5e510',
+  blue: '#2472c8',
+  magenta: '#bc3fbc',
+  cyan: '#11a8cd',
+  white: '#e5e5e5',
+  brightBlack: '#666666',
+  brightRed: '#f14c4c',
+  brightGreen: '#23d18b',
+  brightYellow: '#f5f543',
+  brightBlue: '#3b8eea',
+  brightMagenta: '#d670d6',
+  brightCyan: '#29b8db',
+  brightWhite: '#ffffff',
+};
+
+/**
+ * Named light terminal theme for xterm.js
+ */
+export const lightTerminalTheme: import("@xterm/xterm").ITheme = {
+  background: '#ffffff',
+  foreground: '#1a1a1a',
+  cursor: '#333333',
+  selectionBackground: 'rgba(0, 112, 243, 0.3)',
+  black: '#000000',
+  red: '#c0392b',
+  green: '#27ae60',
+  yellow: '#e67e22',
+  blue: '#2980b9',
+  magenta: '#8e44ad',
+  cyan: '#16a085',
+  white: '#bdc3c7',
+  brightBlack: '#7f8c8d',
+  brightRed: '#e74c3c',
+  brightGreen: '#2ecc71',
+  brightYellow: '#f39c12',
+  brightBlue: '#3498db',
+  brightMagenta: '#9b59b6',
+  brightCyan: '#1abc9c',
+  brightWhite: '#ecf0f1',
+};
+
 const STORAGE_KEY = "claude-squad-terminal-config";
 
 /**
