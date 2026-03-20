@@ -75,7 +75,7 @@ Replace `/path/to/claude-squad` with your actual installation path.
 | `CS_SESSION_ID` | Override session ID detection | Auto-detected |
 | `CS_HOOKS_DISABLED` | Set to "true" to disable all notifications | false |
 | `CS_HOOKS_QUIET` | Set to "true" to suppress output | false |
-| `CS_SERVER_PORT` | Claude Squad server port | 8484 |
+| `CS_SERVER_PORT` | Claude Squad server port | 8543 |
 
 ### Customizing Individual Hooks
 
@@ -160,7 +160,7 @@ The hook handler maps Claude Code events to notification priorities:
 
 1. **Check Claude Squad is running:**
    ```bash
-   curl -s http://localhost:8484/health
+   curl -s http://localhost:8543/health
    ```
 
 2. **Verify hook handler is executable:**

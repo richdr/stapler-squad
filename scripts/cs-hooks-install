@@ -151,6 +151,12 @@ create_hooks_config() {
         "command": "$HOOK_HANDLER stop"
       }]
     }],
+    "SubagentStop": [{
+      "hooks": [{
+        "type": "command",
+        "command": "$HOOK_HANDLER subagent-stop"
+      }]
+    }],
     "PermissionRequest": [{
       "hooks": [{
         "type": "command",
@@ -271,6 +277,7 @@ install_hooks() {
         info "Hooks will trigger notifications for:"
         echo "    • Notification events (when Claude sends notifications)"
         echo "    • Stop events (when Claude finishes tasks)"
+        echo "    • SubagentStop events (when Task subagents finish)"
         echo "    • PermissionRequest events (when Claude needs approval)"
         echo "    • PostToolUse errors (when tools fail)"
         echo ""

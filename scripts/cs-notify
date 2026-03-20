@@ -159,14 +159,13 @@ if [[ -z "$TITLE" ]]; then
     error "Title is required. Use --title."
 fi
 
-# Build metadata JSON object
+# Build metadata JSON object using jq for safe encoding
 metadata_json="{}"
 if [[ ${#METADATA[@]} -gt 0 ]]; then
     for item in "${METADATA[@]}"; do
         key="${item%%=*}"
         value="${item#*=}"
-        value=$(echo "$value" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\t/\\t/g; s/\n/\\n/g')
-        metadata_json=$(echo "$metadata_json" | jq --arg k "$key" --arg v "$value" '. + {($k): $v}')
+        metadata_json=$(jq --null-input --argjson base "$metadata_json" --arg k "$key" --arg v "$value" '$base + {($k): $v}')
     done
 fi
 
@@ -174,21 +173,15 @@ fi
 priority_enum=$(priority_to_enum "$PRIORITY")
 type_enum=$(type_to_enum "$TYPE")
 
-# Escape special JSON characters in title and message
-TITLE_ESCAPED=$(echo "$TITLE" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\t/\\t/g')
-MESSAGE_ESCAPED=$(echo "$MESSAGE" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\t/\\t/g')
-
-# Build request JSON
-request_json=$(cat <<EOF
-{
-    "sessionId": "$SESSION_ID",
-    "notificationType": $type_enum,
-    "priority": $priority_enum,
-    "title": "$TITLE_ESCAPED",
-    "message": "$MESSAGE_ESCAPED",
-    "metadata": $metadata_json
-}
-EOF
+# Build request JSON safely using jq (handles newlines, tabs, control chars, etc.)
+request_json=$(jq --null-input \
+    --arg sessionId "$SESSION_ID" \
+    --argjson notificationType "$type_enum" \
+    --argjson priority "$priority_enum" \
+    --arg title "$TITLE" \
+    --arg message "$MESSAGE" \
+    --argjson metadata "$metadata_json" \
+    '{sessionId: $sessionId, notificationType: $notificationType, priority: $priority, title: $title, message: $message, metadata: $metadata}'
 )
 
 # Send request to server using ConnectRPC JSON format

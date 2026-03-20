@@ -9,10 +9,11 @@
 #   echo '{"session_id": "...", ...}' | cs-hook-handler <hook-type>
 #
 # Hook Types:
-#   notification  - Handle Notification hook events
-#   stop          - Handle Stop hook events (task completion)
-#   permission    - Handle PermissionRequest hook events
-#   post-tool     - Handle PostToolUse hook events (errors only)
+#   notification   - Handle Notification hook events
+#   stop           - Handle Stop hook events (task completion)
+#   subagent-stop  - Handle SubagentStop hook events (Task subagent completion)
+#   permission     - Handle PermissionRequest hook events
+#   post-tool      - Handle PostToolUse hook events (errors only)
 #
 # Environment Variables:
 #   CS_SESSION_ID      - Override session ID detection
@@ -60,6 +61,12 @@ if [[ ! -x "$CS_NOTIFY" ]]; then
     exit 0  # Don't block Claude on hook errors
 fi
 
+# Check jq is available (required for JSON parsing)
+if ! command -v jq &>/dev/null; then
+    echo "Error: jq is required but not installed. Install with: brew install jq" >&2
+    exit 0  # Don't block Claude on hook errors
+fi
+
 # Read JSON input from stdin
 INPUT=$(cat)
 
@@ -78,10 +85,14 @@ json_get() {
 }
 
 # Try to determine session ID
-# Priority: CS_SESSION_ID env var > CS_MUX_TMUX_SESSION > tmux session name > project name > cwd basename
+# Priority: CS_SESSION_ID env var > CS_MUX_TMUX_SESSION > tmux session name > project+tty > cwd+tty
 # NOTE: We do NOT use the .session_id from hook input because Claude sends its internal
 # session UUID which doesn't match Claude Squad session titles. Instead we prefer
 # identifiers that will match session titles/paths.
+#
+# For external sessions that fall back to directory name, we append the TTY device
+# (e.g. "ttys003") so that multiple Claude instances in the same directory are treated
+# as distinct sessions rather than being collapsed into one notification group.
 get_session_id() {
     # Check environment variable first (explicit override from claude-mux)
     if [[ -n "${CS_SESSION_ID:-}" ]]; then
@@ -104,16 +115,24 @@ get_session_id() {
         fi
     fi
 
-    # For IDE sessions, try to get meaningful project name
+    # Get TTY for per-terminal disambiguation (used in IDE/fallback cases below)
+    local tty_suffix=""
+    local tty_dev=$(tty 2>/dev/null | sed 's/\/dev\///' || echo "")
+    if [[ -n "$tty_dev" ]]; then
+        tty_suffix="-$tty_dev"
+    fi
+
+    # For IDE sessions, try to get meaningful project name.
+    # Append TTY so multiple IDE windows on the same project get distinct IDs.
     # IntelliJ sets IDEA_INITIAL_DIRECTORY
     if [[ -n "${IDEA_INITIAL_DIRECTORY:-}" ]]; then
-        basename "$IDEA_INITIAL_DIRECTORY"
+        echo "$(basename "$IDEA_INITIAL_DIRECTORY")${tty_suffix}"
         return
     fi
 
-    # Fallback: use current directory name
-    # This matches how sessions are typically named/identified
-    basename "$(pwd)"
+    # Fallback: use current directory name + TTY.
+    # This ensures multiple external terminals in the same directory don't collapse.
+    echo "$(basename "$(pwd)")${tty_suffix}"
 }
 
 SESSION_ID=$(get_session_id)
@@ -419,28 +438,66 @@ case "$HOOK_TYPE" in
         # Stop hook - Claude finished a task
         REASON=$(json_get '.stop_reason // .reason // "Task completed"')
 
-        # Check if it was an error stop
-        if echo "$REASON" | grep -qi "error\|fail\|abort"; then
-            send_notification -s "$SESSION_ID" -t "Task Failed" -m "$REASON" -p high --type task_failed -q
-        else
-            send_notification -s "$SESSION_ID" -t "Task Complete" -m "$REASON" -p low --type task_complete -q
-        fi
+        # Classify stop reason explicitly
+        case "$REASON" in
+            max_tokens)
+                send_notification -s "$SESSION_ID" -t "Context Limit Reached" -m "Claude stopped because the context window was full" -p high --type task_failed -q
+                ;;
+            error*|*fail*|*abort*)
+                send_notification -s "$SESSION_ID" -t "Task Failed" -m "$REASON" -p high --type task_failed -q
+                ;;
+            *)
+                send_notification -s "$SESSION_ID" -t "Task Complete" -m "$REASON" -p low --type task_complete -q
+                ;;
+        esac
+        ;;
+
+    subagent-stop)
+        # SubagentStop hook - a Task subagent finished
+        REASON=$(json_get '.stop_reason // .reason // ""')
+
+        case "$REASON" in
+            max_tokens)
+                send_notification -s "$SESSION_ID" -t "Subagent: Context Limit" -m "A subagent stopped because the context window was full" -p medium --type task_failed -q
+                ;;
+            error*|*fail*|*abort*)
+                send_notification -s "$SESSION_ID" -t "Subagent Failed" -m "$REASON" -p medium --type task_failed -q
+                ;;
+            *)
+                send_notification -s "$SESSION_ID" -t "Subagent Complete" -m "$REASON" -p low --type task_complete -q
+                ;;
+        esac
         ;;
 
     permission)
-        # PermissionRequest hook - Claude needs user approval
-        TOOL=$(json_get '.tool_name // .tool // "unknown"')
-        COMMAND=$(json_get '.tool_input.command // .command // ""')
+        # PermissionRequest hook - Claude needs user approval.
+        # POST the raw hook payload to the blocking approval endpoint.
+        # The server registers the pending approval, broadcasts a notification with
+        # Approve/Deny buttons in the UI, and blocks until the user decides or
+        # the 4-minute server timeout elapses.
+        # exit 0 = allow, exit 1 = deny.
+        PORT="${CS_SERVER_PORT:-8543}"
+        RESPONSE=$(echo "$INPUT" | curl -s --max-time 300 \
+            -X POST "http://localhost:$PORT/api/hooks/permission-request" \
+            -H "Content-Type: application/json" \
+            -H "X-CS-Session-ID: $SESSION_ID" \
+            -d @- 2>/dev/null) || {
+            # Server not running or request failed — allow by default (don't block Claude).
+            exit 0
+        }
 
-        if [[ -n "$COMMAND" ]]; then
-            TITLE="Permission Required: $TOOL"
-            MESSAGE="Command: $COMMAND"
+        # Parse the decision from the server's JSON response.
+        BEHAVIOR=$(echo "$RESPONSE" | jq -r '.hookSpecificOutput.decision.behavior // "allow"' 2>/dev/null || echo "allow")
+
+        if [[ "$BEHAVIOR" == "allow" ]]; then
+            exit 0
         else
-            TITLE="Permission Required"
-            MESSAGE="Claude needs approval for: $TOOL"
+            DENY_MSG=$(echo "$RESPONSE" | jq -r '.hookSpecificOutput.decision.message // ""' 2>/dev/null || echo "")
+            if [[ -n "$DENY_MSG" ]]; then
+                echo "$DENY_MSG" >&2
+            fi
+            exit 1
         fi
-
-        send_notification -s "$SESSION_ID" -t "$TITLE" -m "$MESSAGE" -p high --type approval_needed -q
         ;;
 
     post-tool)
