@@ -1794,24 +1794,24 @@ Implement WebAuthn/FIDO2 passkey authentication with QR-code-based enrollment to
 
 ### Notification De-Duplication and Aggregation
 
-**Status**: Planned (Feature Plan Complete)
-**Priority**: P1 -- User-facing annoyance; 58 duplicate notifications visible
+**Status**: COMPLETE (commits b1ec1a3, 8e9d5da)
+**Priority**: P1 -- DONE
 **Epic ID**: EPIC-NOTIF-DEDUP-001
 **Feature Plan**: [docs/tasks/notification-deduplication.md](docs/tasks/notification-deduplication.md)
-**Stories**: 3 (server-side dedup, frontend aggregation, toast coalescing)
 
-**Key Changes**:
-- Server-side dedup in `NotificationHistoryStore.Append()` by `(sessionId, notificationType)` key
-- Client-side grouping with "xN" count badge in NotificationPanel
-- Toast suppression for duplicate real-time events within 10s window
-- Proto: add `occurrence_count` and `last_occurred_at` fields to `NotificationHistoryRecord`
-- Startup migration to consolidate existing duplicates in JSON file
-
-**Next Action**: Task 1.1 -- Add dedup fields to NotificationRecord and proto
+**Implemented**:
+- Server-side dedup in `NotificationHistoryStore.Append()` by `(sessionId, notificationType)` key (commit b1ec1a3)
+- Client-side grouping with "xN" count badge in NotificationPanel (commit 8e9d5da)
+- Toast suppression for duplicate real-time events (commit 8e9d5da)
+- Proto `occurrence_count` and `last_occurred_at` fields added and regenerated
 
 ---
 
 ## Future Priorities
+
+### New Strategic Plans:
+- [ ] **Conductor Feature Parity** - Per-turn checkpoints, run scripts, built-in diff, MCP integration; [docs/tasks/conductor-feature-parity.md](docs/tasks/conductor-feature-parity.md)
+- [ ] **Stapler Squad Rebrand** - Hard fork rename from claude-squad to stapler-squad; [docs/tasks/stapler-squad-rebrand.md](docs/tasks/stapler-squad-rebrand.md)
 
 ### Medium Term (After Search & Sort):
 - [ ] **External Claude PTY Interception** - Discover and monitor external Claude processes
@@ -1888,9 +1888,9 @@ Do an end-to-end smoke test. If the UI renders and approve/deny work, the core f
 
 ## Context Notes
 
-**Last Updated**: 2026-03-18
-**Current Phase**: Mobile/Lighthouse improvements active (commit 76bce00 added mobile filter panel); Approval Stories 5-6 pending
-**Next Milestone**: Mobile Lighthouse Phase 1 completion; Approval Story 5 (Review Queue Integration)
+**Last Updated**: 2026-03-20
+**Current Phase**: Architecture refactoring wave complete; tmux user options metadata implemented (uncommitted); Approval Stories 5-6 pending
+**Next Milestone**: Wire ScanFromUserOptions() into server startup (2h); Approval Story 5 smoke test then Review Queue Integration
 
 **Completed Projects**:
 1. **Web UI Implementation** - Complete (all 5 stories)
@@ -1909,11 +1909,26 @@ Do an end-to-end smoke test. If the UI renders and approve/deny work, the core f
 14. **Notification History Persistence** - Complete (commit 1cc2c6c); server-side storage, GetNotificationHistory RPC, NotificationPanel surfaces history
 15. **Review Queue Persistence and Background Monitoring** - Complete (commit 4b55b66); startup scan for pre-existing approval prompts
 16. **Session Sort Web UI (EPIC-SEARCH-001 Story 3)** - Complete (commit 76bce00); SortField/SortDir with localStorage persistence in SessionList.tsx
+17. **Mobile/Lighthouse Phase 2-4 (partial)** - Complete (commits 6f51ce5, 4a49e82); modal focus trapping, header hidden on login, rem fonts, design tokens, SVG icons, page metadata
+18. **History Page Decomposition** - Complete (commit 70700c7); page.tsx decomposed into hooks and components
+19. **Terminal Module Decomposition** - Complete (commit 6027479); TerminalOutput and useTerminalStream decomposed
+20. **Architecture Refactoring Wave** - Complete (commits 506faf5, 41a0038, 6f03128, 78c6e76, 5b49221); dep hardening, SessionService split, domain invariants, circuit breaker, frontend quick wins
+21. **Notification Deduplication (EPIC-NOTIF-DEDUP-001)** - Complete (commits b1ec1a3, 8e9d5da); server-side dedup, client grouping, toast coalescing
+
+**Uncommitted Work (This Session)**:
+- `session/mux/tmux_options.go` (new): WriteSessionUserOptions(), ScanByUserOptions() -- stores session metadata as tmux user options
+- `session/mux/tmux_options_test.go` (new): 4 tests passing
+- `session/mux/multiplexer.go` (modified): calls WriteSessionUserOptions() after session creation
+- `session/mux/discovery.go` (modified): adds ScanFromUserOptions() method
+- PENDING: Wire ScanFromUserOptions() into server startup (currently implemented but never called) -- 2h
 
 **Current Status**:
 - Approval feature: Stories 1-4 + proto regen + hook migration complete; Stories 5-6 pending (smoke test recommended before starting Story 5)
-- Mobile/Lighthouse: Feature plan at docs/tasks/mobile-lighthouse-improvements.md; Phase 1 partially done (mobile filter panel); Task 1.1 (viewport meta tag) still pending
+- Mobile/Lighthouse: Task 1.1 (viewport meta tag, SEO +10) still pending; most Phase 2-4 tasks complete
 - Search/Sort: Web UI sort complete; backend sort infrastructure (Story 1) still pending
+- tmux user options: Implemented but ScanFromUserOptions() not yet wired into server startup
+- ExternalTmuxStreamer: Still uses 150ms polling; control mode infrastructure exists but not integrated
+- New plans: Conductor Feature Parity (docs/tasks/conductor-feature-parity.md), Stapler Squad Rebrand (docs/tasks/stapler-squad-rebrand.md)
 - 7 bugs fixed total (BUG-001 through BUG-007)
 - 1 CRITICAL bug blocking test development (BUG-008 - sessions don't render in tests)
 - 4 additional bugs require investigation (BUG-009 through BUG-012)
