@@ -144,6 +144,45 @@ func (d *Discovery) GetClaudeSessions() []*DiscoveredSession {
 	return claudeSessions
 }
 
+// ScanFromUserOptions performs a fast discovery pass using tmux user options
+// written by WriteSessionUserOptions. Unlike Scan(), this issues a single
+// `tmux list-sessions` call instead of probing N sockets, making it ideal for
+// initial discovery on server startup or after a restart.
+//
+// Results are merged into d.sessions and callbacks are fired for new sessions,
+// matching the behaviour of Scan(). Existing sessions are not removed — call
+// Scan() afterward to reconcile against the live socket set if needed.
+func (d *Discovery) ScanFromUserOptions() ([]*DiscoveredSession, error) {
+	discovered, err := ScanByUserOptions()
+	if err != nil {
+		return nil, err
+	}
+
+	var newSessions []*DiscoveredSession
+
+	d.mu.Lock()
+	for _, session := range discovered {
+		key := session.SocketPath
+		if existing, exists := d.sessions[key]; exists {
+			existing.LastSeen = time.Now()
+		} else {
+			session.LastSeen = time.Now()
+			d.sessions[key] = session
+			newSessions = append(newSessions, session)
+		}
+	}
+	callbacks := d.callbacks
+	d.mu.Unlock()
+
+	for _, session := range newSessions {
+		for _, cb := range callbacks {
+			cb(session, true)
+		}
+	}
+
+	return discovered, nil
+}
+
 // StartPolling starts periodic scanning for sessions.
 // Returns a channel that will be closed when polling stops.
 func (d *Discovery) StartPolling(ctx context.Context, interval time.Duration) <-chan struct{} {

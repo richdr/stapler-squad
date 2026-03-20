@@ -63,6 +63,12 @@ func (e *ExternalSessionDiscovery) Start(interval time.Duration) {
 		}
 	})
 
+	// Fast initial discovery via tmux user options (single tmux list-sessions call).
+	// Run before polling so sessions are available immediately at startup.
+	if _, err := e.discovery.ScanFromUserOptions(); err != nil {
+		log.WarningLog.Printf("ScanFromUserOptions: %v", err)
+	}
+
 	// Start polling
 	e.discovery.StartPolling(e.ctx, interval)
 

@@ -273,15 +273,23 @@ func (m *Multiplexer) Start() error {
 	if m.attachOnly {
 		command = "(reattached)"
 	}
+	startTime := time.Now().Unix()
 	m.metadata = &SessionMetadata{
 		Command:     command,
 		Args:        m.args,
 		PID:         m.cmd.Process.Pid,
 		Cwd:         cwd,
 		SocketPath:  m.socketPath,
-		StartTime:   time.Now().Unix(),
+		StartTime:   startTime,
 		Env:         getRelevantEnv(),
 		TmuxSession: m.tmuxSession, // Include tmux session name for claude-squad adoption
+	}
+
+	// Write metadata to tmux user options so the server can discover this session
+	// without probing the socket (single list-sessions call, survives restarts).
+	// Non-fatal: socket-based discovery remains a fallback.
+	if err := WriteSessionUserOptions(m.tmuxSession, m.socketPath, cwd, command, os.Getpid(), startTime); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to write tmux user options: %v\n", err)
 	}
 
 	// Start goroutines
