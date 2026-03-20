@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 import { createPromiseClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 import { SessionService } from "@/gen/session/v1/session_connect";
@@ -46,13 +46,24 @@ export function NotificationPanel() {
     return clientRef.current;
   }, []);
 
+  // Track per-approval resolution state so buttons update after the user decides.
+  // "allow" / "deny" = user resolved it; "expired" = already resolved or timed out.
+  const [resolvedApprovals, setResolvedApprovals] = useState<Record<string, "allow" | "deny" | "expired">>({});
+  // Track which approval IDs have an in-flight RPC so we can disable buttons while waiting.
+  const [pendingApprovals, setPendingApprovals] = useState<Record<string, boolean>>({});
+
   const resolveApproval = useCallback(async (approvalId: string, decision: "allow" | "deny", notificationIds: string | string[]) => {
+    setPendingApprovals(prev => ({ ...prev, [approvalId]: true }));
     try {
       await getClient().resolveApproval(new ResolveApprovalRequest({ approvalId, decision }));
+      setResolvedApprovals(prev => ({ ...prev, [approvalId]: decision }));
       markAsRead(notificationIds);
     } catch (err) {
       console.error("Failed to resolve approval:", err);
-      alert("Could not resolve approval — it may have already timed out or been superseded. Check the session for the latest request.");
+      // Approval already timed out or was resolved elsewhere — mark as expired.
+      setResolvedApprovals(prev => ({ ...prev, [approvalId]: "expired" }));
+    } finally {
+      setPendingApprovals(prev => { const next = { ...prev }; delete next[approvalId]; return next; });
     }
   }, [getClient, markAsRead]);
   const unreadCount = getUnreadCount();
@@ -331,24 +342,41 @@ export function NotificationPanel() {
                       </span>
                       <div className={styles.itemActions}>
                         {/* Approve/Deny for approval notifications that have a live approval_id */}
-                        {notification.notificationType === "approval_needed" && notification.metadata?.approval_id && (
-                          <>
-                            <button
-                              className={styles.approveButton}
-                              onClick={() => resolveApproval(notification.metadata!.approval_id, "allow", group.allIds)}
-                              title="Approve this tool use"
-                            >
-                              ✓ Approve
-                            </button>
-                            <button
-                              className={styles.denyButton}
-                              onClick={() => resolveApproval(notification.metadata!.approval_id, "deny", group.allIds)}
-                              title="Deny this tool use"
-                            >
-                              ✗ Deny
-                            </button>
-                          </>
-                        )}
+                        {notification.notificationType === "approval_needed" && notification.metadata?.approval_id && (() => {
+                          const approvalId = notification.metadata!.approval_id;
+                          const resolved = resolvedApprovals[approvalId];
+                          const isPending = !!pendingApprovals[approvalId];
+
+                          if (resolved === "allow") {
+                            return <span className={styles.resolvedBadge} data-decision="allow">✓ Approved</span>;
+                          }
+                          if (resolved === "deny") {
+                            return <span className={styles.resolvedBadge} data-decision="deny">✗ Denied</span>;
+                          }
+                          if (resolved === "expired") {
+                            return <span className={styles.resolvedBadge} data-decision="expired">Expired</span>;
+                          }
+                          return (
+                            <>
+                              <button
+                                className={styles.approveButton}
+                                onClick={() => resolveApproval(approvalId, "allow", group.allIds)}
+                                disabled={isPending}
+                                title="Approve this tool use"
+                              >
+                                {isPending ? "…" : "✓ Approve"}
+                              </button>
+                              <button
+                                className={styles.denyButton}
+                                onClick={() => resolveApproval(approvalId, "deny", group.allIds)}
+                                disabled={isPending}
+                                title="Deny this tool use"
+                              >
+                                {isPending ? "…" : "✗ Deny"}
+                              </button>
+                            </>
+                          );
+                        })()}
                         {hasSourceApp && notification.onFocusWindow && (
                           <button
                             className={styles.focusButton}

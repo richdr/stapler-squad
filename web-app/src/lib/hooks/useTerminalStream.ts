@@ -287,8 +287,12 @@ export function useTerminalStream({
       streamingMode, flowControl, metrics, handleError]);
 
   // ---- Disconnect ----
+  // Use stable method reference to avoid disconnect being recreated on every render.
+  // flowControl returns a new object literal each render, but getIsResyncingRef is a
+  // stable useCallback(() => isResyncingRef, []) so depending on it keeps disconnect stable.
+  const getIsResyncingRef = flowControl.getIsResyncingRef;
   const disconnect = useCallback(async () => {
-    const isResyncingRef = flowControl.getIsResyncingRef();
+    const isResyncingRef = getIsResyncingRef();
     if (isDisconnectingRef.current || isResyncingRef.current) {
       if (isResyncingRef.current) {
         console.log("[useTerminalStream] Delaying disconnect - resync in progress");
@@ -322,7 +326,7 @@ export function useTerminalStream({
 
     setIsConnected(false);
     isDisconnectingRef.current = false;
-  }, [flowControl]);
+  }, [getIsResyncingRef]);
 
   // ---- Auto-connect / cleanup ----
   useEffect(() => {

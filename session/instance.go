@@ -1814,6 +1814,22 @@ func (i *Instance) GetStatusManager() *InstanceStatusManager {
 	return i.controllerManager.GetStatusManager()
 }
 
+// GetEffectiveStatus returns the most accurate status for this instance,
+// combining the lifecycle status with real-time terminal detection when available.
+// Unlike Status (which only reflects lifecycle transitions), this consults the
+// ClaudeController's detected terminal state to surface NeedsApproval, Idle, etc.
+func (i *Instance) GetEffectiveStatus() Status {
+	mgr := i.GetStatusManager()
+	if mgr == nil {
+		return i.Status
+	}
+	statusInfo := mgr.GetStatus(i)
+	if !statusInfo.IsControllerActive || statusInfo.ClaudeStatus == 0 { // 0 = StatusUnknown
+		return i.Status
+	}
+	return StatusFromDetected(statusInfo.ClaudeStatus)
+}
+
 // StartController creates and starts a ClaudeController for this instance.
 // The controller enables automated idle detection and queue management.
 func (i *Instance) StartController() error {

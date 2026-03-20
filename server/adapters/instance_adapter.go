@@ -18,7 +18,7 @@ func InstanceToProto(inst *session.Instance) *sessionv1.Session {
 		Path:        inst.Path,
 		WorkingDir:  inst.WorkingDir,
 		Branch:      inst.Branch,
-		Status:      statusToProto(inst.Status),
+		Status:      statusToProto(inst.GetEffectiveStatus()),
 		Program:     inst.Program,
 		Height:      int32(inst.Height),
 		Width:       int32(inst.Width),
