@@ -1,0 +1,653 @@
+# Stapler Squad Rebrand Plan
+
+Hard fork rebrand of `claude-squad` to `stapler-squad` / `Stapler Squad`.
+
+## Critical Distinction
+
+References to `claude` as the **Anthropic AI tool** (e.g., `ProgramClaude = "claude"`, `claude-mux`, `claudesession`, `claudemetadata`, `which claude`) MUST NOT be renamed. Only rename references to the **project name** `claude-squad` / `Claude Squad`.
+
+---
+
+## Phase 1: Core Identity Files
+
+These files define the project identity and must be changed first since everything else depends on them.
+
+### Task 1.1: Go Module Path
+
+**File:** `go.mod`
+- Change `module claude-squad` to `module stapler-squad`
+- This is the most impactful change: every Go file that imports internal packages uses this module name.
+
+### Task 1.2: buf.gen.yaml (Protobuf Code Generation Config)
+
+**File:** `buf.gen.yaml`
+- Change `claude-squad/gen/proto/go` to `stapler-squad/gen/proto/go` in the `go_package_prefix` override.
+
+### Task 1.3: GoReleaser Config
+
+**File:** `.goreleaser.yaml`
+- Change `binary: claude-squad` to `binary: stapler-squad`.
+
+### Task 1.4: Makefile
+
+**File:** `Makefile`
+- Line 1 comment: `Claude Squad Makefile` -> `Stapler Squad Makefile`
+- Line 13: `"Claude Squad Development Makefile"` -> `"Stapler Squad Development Makefile"`
+- Line 19: `go build -o claude-squad .` -> `go build -o stapler-squad .`
+- Lines 41-42: `pkill -f "^\./claude-squad"` -> `pkill -f "^\./stapler-squad"`
+- Lines 44-45: `./claude-squad` -> `./stapler-squad`
+- Line 60: `claude-squad-trace-*.out` -> `stapler-squad-trace-*.out`
+- Line 61: `claude-squad-trace-*.out` -> `stapler-squad-trace-*.out`
+- Lines 65-68: Same `./claude-squad` -> `./stapler-squad` pattern
+- Line 141: `nilaway -include-pkgs="claude-squad"` -> `nilaway -include-pkgs="stapler-squad"`
+- Line 154: Same nilaway include-pkgs change
+- Line 183: `rm -f claude-squad` -> `rm -f stapler-squad`
+
+### Task 1.5: .gitignore
+
+**File:** `.gitignore`
+- Line 4: `claude-squad` -> `stapler-squad`
+- Line 8: `claude-squad-test` -> `stapler-squad-test`
+
+### Task 1.6: GitHub Actions Workflows
+
+**File:** `.github/workflows/build.yml`
+- `BINARY_NAME=claude-squad` -> `BINARY_NAME=stapler-squad`
+- `name: claude-squad-*` -> `name: stapler-squad-*`
+
+**File:** `.github/workflows/cla.yml`
+- Update all `smtg-ai/claude-squad` GitHub URLs to the new fork URL (e.g., `tylerstapler/stapler-squad` or whatever the target org/repo is).
+- `remote-repository-name: 'claude-squad-clas'` -> update to new repo name.
+
+---
+
+## Phase 2: Go Source Code (Import Paths)
+
+Every `.go` file that has `import "claude-squad/..."` must be updated to `import "stapler-squad/..."`. This is a mechanical find-and-replace across **197 Go files**.
+
+### Task 2.1: Bulk Import Path Replacement
+
+**Scope:** All `.go` files in the repository.
+**Operation:** Replace all occurrences of `"claude-squad/` with `"stapler-squad/` in import statements.
+
+This affects files across every package:
+- `main.go` (8 imports)
+- `config/` (2 files)
+- `cmd/` (12 files)
+- `server/` (25+ files)
+- `session/` (60+ files)
+- `daemon/` (1 file)
+- `log/` (1 file)
+- `telemetry/` (2 files)
+- `profiling/` (1 file)
+- `terminal/` (2 files)
+- `testutil/` (5 files)
+- `github/` (2 files)
+- `session/ent/` (36 generated files -- see Task 2.3)
+
+### Task 2.2: Go Source String Literals
+
+Beyond import paths, several Go files contain `"claude-squad"` in string literals (NOT import paths). These must also be renamed.
+
+| File | String | New Value |
+|------|--------|-----------|
+| `telemetry/telemetry.go:22` | `ServiceName = "claude-squad"` | `ServiceName = "stapler-squad"` |
+| `server/server.go:204` | `"claude-squad-web"` | `"stapler-squad-web"` |
+| `server/server.go:215` | `"claude-squad-http"` | `"stapler-squad-http"` |
+| `server/server.go:287` | `"claude-squad-remote"` | `"stapler-squad-remote"` |
+| `profiling/profiling.go:57` | `"/tmp/claude-squad-trace-%d.out"` | `"/tmp/stapler-squad-trace-%d.out"` |
+| `log/log.go:276` | `".claude-squad"` | `".stapler-squad"` |
+| `log/log.go:291` | Comment: `~/.claude-squad/logs/` | `~/.stapler-squad/logs/` |
+| `log/log.go:576` | `"claude-squad-test"` | `"stapler-squad-test"` |
+| `config/config.go:127` | `".claude-squad"` | `".stapler-squad"` |
+| `config/config.go:191` | Comment: `~/.claude-squad/logs` | `~/.stapler-squad/logs` |
+| `session/repo_path.go:16,29,131` | `".claude-squad"` paths | `".stapler-squad"` paths |
+| `session/scrollback/manager.go:16` | Comment: `~/.claude-squad/sessions` | `~/.stapler-squad/sessions` |
+| `session/ent_repository.go:36` | `"~/.claude-squad/sessions.db"` | `"~/.stapler-squad/sessions.db"` |
+| `session/claude_controller.go:678` | `"/.claude-squad"` | `"/.stapler-squad"` |
+| `github/clone.go:12,31` | `"~/.claude-squad/repos"` | `"~/.stapler-squad/repos"` |
+| `server/dependencies.go:433` | `".claude-squad", "sessions"` | `".stapler-squad", "sessions"` |
+| `server/services/session_service.go:410` | Comment: `~/.claude-squad/repos/` | `~/.stapler-squad/repos/` |
+| `cmd/migrate_global.go:22` | `".claude-squad"` | `".stapler-squad"` |
+| `session/instance.go:2120` | Comment: `~/.claude-squad/worktrees/` | `~/.stapler-squad/worktrees/` |
+| `main.go:58` | `"CLAUDE_SQUAD_TEST_DIR"` env var | See Phase 6 |
+| `main.go:310` | `"smtg-ai/claude-squad"` URL | Update to fork URL |
+| `main.go:494` | Comment: `/tmp/claude-squad-trace-` | `/tmp/stapler-squad-trace-` |
+
+### Task 2.3: Generated Ent Code
+
+The `session/ent/` directory contains **36 files** generated by the `ent` ORM framework. Every file has `import "claude-squad/..."` paths.
+
+**Strategy:** After updating `go.mod` (Task 1.1), regenerate ent code:
+```bash
+go generate ./session/ent/...
+```
+
+If regeneration is not feasible (e.g., ent version mismatch), do a bulk find-and-replace of `"claude-squad/` with `"stapler-squad/` in all `session/ent/*.go` files. The `session/ent/schema/` files do NOT contain project name references.
+
+### Task 2.4: Generated Protobuf Go Code
+
+The `gen/proto/go/` directory contains **4 generated files** with `claude-squad` references in:
+- Import paths (e.g., `"claude-squad/gen/proto/go/session/v1"`)
+- Embedded proto descriptor bytes (binary strings containing `claude-squad`)
+
+**Strategy:** After updating `buf.gen.yaml` (Task 1.2) and proto files (Task 5.1), regenerate:
+```bash
+make proto-gen
+```
+
+### Task 2.5: Tmux Prefix Constant
+
+**File:** `session/tmux/tmux.go:97`
+- `const TmuxPrefix = "claudesquad_"` -> `const TmuxPrefix = "staplersquad_"`
+
+**WARNING -- BREAKING CHANGE:** This changes how tmux sessions are named on disk. Existing running sessions with the `claudesquad_` prefix will be invisible to the renamed application. This requires a migration strategy (see Known Issues section).
+
+Related function names to rename:
+- `ToClaudeSquadTmuxName` -> `ToStaplerSquadTmuxName`
+- `toClaudeSquadTmuxName` -> `toStaplerSquadTmuxName`
+- `toClaudeSquadTmuxNameWithPrefix` -> `toStaplerSquadTmuxNameWithPrefix`
+- `ListClaudeSquadSessions` -> `ListStaplerSquadSessions`
+- `ListClaudeSquadSessionsWithInfo` -> `ListStaplerSquadSessionsWithInfo`
+
+Files affected by function renames:
+- `session/tmux/tmux.go` (definitions + usages)
+- `session/mux/multiplexer.go` (calls `ListClaudeSquadSessions`)
+- `session/mux/picker.go` (calls `ListClaudeSquadSessionsWithInfo`)
+- `session/pty_discovery.go` (calls `ToClaudeSquadTmuxName`)
+
+### Task 2.6: Environment Variables
+
+**Files:** `config/config.go`, `main.go`
+
+Rename all environment variables:
+- `CLAUDE_SQUAD_TEST_DIR` -> `STAPLER_SQUAD_TEST_DIR`
+- `CLAUDE_SQUAD_INSTANCE` -> `STAPLER_SQUAD_INSTANCE`
+- `CLAUDE_SQUAD_WORKSPACE_MODE` -> `STAPLER_SQUAD_WORKSPACE_MODE`
+
+Also update `CLAUDE_SQUAD_USE_CONTROL_MODE` references if they exist (check `server/services/connectrpc_websocket.go`).
+
+### Task 2.7: Test String Assertions
+
+**File:** `config/config_test.go`
+- Update all `.claude-squad` path assertions to `.stapler-squad` (lines 284-455, approximately 10 occurrences).
+
+**File:** `log/log_test.go`
+- Update `.claude-squad` path assertions (line 57-58).
+
+**Files:** Various `*_test.go` files
+- Update any test helpers or assertions that reference `claude-squad` by name.
+
+---
+
+## Phase 3: Frontend (React/TypeScript)
+
+### Task 3.1: web-app Page Titles and Metadata
+
+| File | Change |
+|------|--------|
+| `web-app/src/app/layout.tsx:11` | `"Claude Squad Sessions"` -> `"Stapler Squad Sessions"` |
+| `web-app/src/app/login/page.tsx:69` | `"Claude Squad"` -> `"Stapler Squad"` |
+| `web-app/src/app/login/layout.tsx:4-5` | `"Sign In - Claude Squad"` etc. -> `"Sign In - Stapler Squad"` |
+| `web-app/src/app/config/layout.tsx:4-5` | `"Configuration - Claude Squad"` -> `"Configuration - Stapler Squad"` |
+| `web-app/src/app/review-queue/layout.tsx:4-5` | `"Review Queue - Claude Squad"` -> `"Review Queue - Stapler Squad"` |
+| `web-app/src/app/history/layout.tsx:4-5` | `"History - Claude Squad"` -> `"History - Stapler Squad"` |
+
+### Task 3.2: web-app Header and Navigation
+
+| File | Change |
+|------|--------|
+| `web-app/src/components/layout/Header.tsx:43` | `"Claude Squad"` -> `"Stapler Squad"` |
+| `web-app/src/components/ui/Navigation.tsx:20-21` | `"Claude Squad home"` / `"Claude Squad"` -> `"Stapler Squad home"` / `"Stapler Squad"` |
+
+### Task 3.3: web-app localStorage Keys
+
+**File:** `web-app/src/components/sessions/SessionList.tsx` (lines 28-35)
+
+All localStorage keys use `claude-squad-*` prefix. Rename to `stapler-squad-*`:
+- `claude-squad-search-query` -> `stapler-squad-search-query`
+- `claude-squad-selected-status` -> `stapler-squad-selected-status`
+- `claude-squad-selected-category` -> `stapler-squad-selected-category`
+- `claude-squad-selected-tag` -> `stapler-squad-selected-tag`
+- `claude-squad-hide-paused` -> `stapler-squad-hide-paused`
+- `claude-squad-grouping-strategy` -> `stapler-squad-grouping-strategy`
+- `claude-squad-sort-field` -> `stapler-squad-sort-field`
+- `claude-squad-sort-dir` -> `stapler-squad-sort-dir`
+
+**Other localStorage keys:**
+- `web-app/src/lib/hooks/useSearchHistory.ts:5` -- `'claude-squad-logs-search-history'`
+- `web-app/src/lib/config/terminalConfig.ts:133` -- `"claude-squad-terminal-config"`
+- `web-app/src/lib/utils/notificationStorage.ts:22` -- `"claude-squad-notifications"`
+- `web-app/src/components/history/HistorySearchInput.tsx:44` -- `"claude-squad-history-search"`
+
+### Task 3.4: web-app URL Parser Tests
+
+**File:** `web-app/src/lib/github/urlParser.test.ts`
+
+Lines 146-157 contain test cases using `claude-squad` as test data for GitHub URL parsing. These are test fixture data -- rename them:
+- `'claude-squad repo'` test case name
+- `'https://github.com/anthropics/claude-squad'` test URL
+- `wantRepo: 'claude-squad'` expected result
+- PR test case similarly
+
+### Task 3.5: web-app Terminal README
+
+**File:** `web-app/src/lib/terminal/README.md:3`
+- `"claude-squad web UI"` -> `"stapler-squad web UI"`
+
+### Task 3.6: Generated TypeScript (Protobuf)
+
+**Files:** `web-app/src/gen/session/v1/types_pb.ts`, `web-app/src/gen/session/v1/session_connect.ts`
+
+These contain `claude-squad` references in generated comments. They will be updated automatically when protos are regenerated (Task 5.1 + `make proto-gen`).
+
+### Task 3.7: web/ (Old Frontend -- if still maintained)
+
+**Files in `web/`:**
+- `web/package.json:2` -- `"name": "claude-squad"`
+- `web/package-lock.json` -- same
+- `web/src/app/page.tsx` -- multiple `smtg-ai/claude-squad` URLs, `Claude Squad` text, `brew install claude-squad`
+- `web/src/app/layout.tsx` -- `smtg-ai/claude-squad` URL
+- `web/next.config.ts` -- `basePath: "/claude-squad"`
+
+**Decision needed:** If the `web/` directory is a legacy frontend superseded by `web-app/`, consider whether to update it or remove it.
+
+### Task 3.8: E2E Tests
+
+**File:** `tests/e2e/package.json`
+- `"name": "claude-squad-e2e-tests"` -> `"stapler-squad-e2e-tests"`
+- `"description": "...claude-squad..."` -> `"...stapler-squad..."`
+
+**File:** `tests/e2e/package-lock.json` -- regenerate after package.json change.
+
+**File:** `tests/e2e/helpers/test-server.ts`
+- `/tmp/claude-squad-test-${pid}` -> `/tmp/stapler-squad-test-${pid}`
+- `'../../../claude-squad'` build path -> `'../../../stapler-squad'`
+- `'go build -o claude-squad .'` -> `'go build -o stapler-squad .'`
+
+**File:** `tests/e2e/smoke.spec.ts`
+- `toHaveTitle(/Claude Squad/)` -> `toHaveTitle(/Stapler Squad/)`
+
+**File:** `tests/test-results.json` -- this is a snapshot artifact. Either delete it or update the paths. Probably best to delete and regenerate.
+
+---
+
+## Phase 4: Shell Scripts
+
+### Task 4.1: install.sh
+
+**File:** `install.sh`
+- `smtg-ai/claude-squad` API URL -> new fork URL
+- `claude-squad${extension}` binary name -> `stapler-squad${extension}`
+- `claude-squad_${VERSION}` archive name -> `stapler-squad_${VERSION}`
+
+### Task 4.2: clean.sh and clean_hard.sh
+
+**File:** `clean.sh`
+- `rm -rf ~/.claude-squad` -> `rm -rf ~/.stapler-squad`
+
+**File:** `clean_hard.sh`
+- `rm -rf ~/.claude-squad` -> `rm -rf ~/.stapler-squad`
+
+### Task 4.3: scripts/install-mux.sh
+
+**File:** `scripts/install-mux.sh`
+- Comment references to `claude-squad` as project name. Update to `stapler-squad`.
+- DO NOT rename `claude-mux` binary -- that refers to the Claude AI tool.
+
+### Task 4.4: scripts/cs-hook-handler, cs-hooks-install, cs-notify
+
+These scripts use `cs-` prefix (short for "claude-squad"). Decision needed:
+- **Option A:** Rename to `ss-hook-handler`, `ss-hooks-install`, `ss-notify`
+- **Option B:** Keep `cs-` prefix for backward compatibility
+
+Comments in these files reference "Claude Squad" -- update to "Stapler Squad":
+- `cs-hook-handler:3` -- `"Claude Squad notifications"` -> `"Stapler Squad notifications"`
+- `cs-notify:3` -- `"Send notifications from tmux sessions to Claude Squad"` -> `"...Stapler Squad"`
+- `cs-hooks-install:3` -- `"Install Claude Code hooks for Claude Squad notifications"` -> `"...Stapler Squad notifications"`
+
+---
+
+## Phase 5: Protobuf Definitions
+
+### Task 5.1: Proto Source Files
+
+**File:** `proto/session/v1/session.proto`
+- `~/.claude-squad/logs/` in comment -> `~/.stapler-squad/logs/`
+
+**File:** `proto/session/v1/types.proto`
+- `"managed by claude-squad"` -> `"managed by stapler-squad"` (4 occurrences in comments)
+
+After changes, regenerate all code:
+```bash
+make proto-gen
+```
+
+This will update:
+- `gen/proto/go/session/v1/*.go`
+- `web-app/src/gen/session/v1/*.ts`
+
+---
+
+## Phase 6: Configuration and Data Directory
+
+### Task 6.1: Data Directory Path
+
+The application stores data in `~/.claude-squad/`. This path is hardcoded in:
+- `config/config.go:127`
+- `log/log.go:276`
+- `session/repo_path.go:29`
+- `session/claude_controller.go:678`
+- `session/ent_repository.go:36`
+- `github/clone.go:12`
+- `server/dependencies.go:433`
+- `cmd/migrate_global.go:22`
+
+All should change to `~/.stapler-squad/`.
+
+**WARNING -- BREAKING CHANGE:** Existing users will have data in `~/.claude-squad/`. Requires migration (see Known Issues).
+
+### Task 6.2: Environment Variables
+
+Environment variables with `CLAUDE_SQUAD_` prefix (used in `config/config.go` and `main.go`):
+- `CLAUDE_SQUAD_TEST_DIR` -> `STAPLER_SQUAD_TEST_DIR`
+- `CLAUDE_SQUAD_INSTANCE` -> `STAPLER_SQUAD_INSTANCE`
+- `CLAUDE_SQUAD_WORKSPACE_MODE` -> `STAPLER_SQUAD_WORKSPACE_MODE`
+- `CLAUDE_SQUAD_USE_CONTROL_MODE` -> `STAPLER_SQUAD_USE_CONTROL_MODE`
+
+### Task 6.3: Tmux Session Prefix
+
+**File:** `session/tmux/tmux.go:97`
+- `claudesquad_` -> `staplersquad_`
+
+This is a runtime-visible identifier. See Known Issues for migration concerns.
+
+---
+
+## Phase 7: Documentation
+
+### Task 7.1: CLAUDE.md (Project Instructions)
+
+**File:** `CLAUDE.md`
+- Approximately 38 occurrences of `claude-squad` and 10 of `Claude Squad`.
+- Rename project references throughout. Preserve references to `claude` the AI tool.
+- Update paths: `~/.claude-squad/` -> `~/.stapler-squad/`
+- Update env vars: `CLAUDE_SQUAD_*` -> `STAPLER_SQUAD_*`
+- Update binary name: `./claude-squad` -> `./stapler-squad`
+- Update trace paths: `/tmp/claude-squad-trace-` -> `/tmp/stapler-squad-trace-`
+
+### Task 7.2: README.md
+
+**File:** `README.md`
+- Update all project name references (21 occurrences of `claude-squad`).
+- Update `smtg-ai/claude-squad` GitHub URLs to new fork URL.
+- Update installation instructions (binary name, brew formula if applicable).
+
+### Task 7.3: Other Top-Level Docs
+
+| File | Action |
+|------|--------|
+| `CONTRIBUTING.md` | Update `smtg-ai/claude-squad` URLs |
+| `CLA.md` | Update `smtg-ai/claude-squad` URLs |
+| `TODO.md` | Update project name references |
+| `TODO.md.bak` | Update or delete |
+| `PERFORMANCE_OPTIMIZATIONS.md` | Update project name reference |
+| `SQLITE_MIGRATION_STRATEGY.md` | Update `Claude Squad` references |
+
+### Task 7.4: docs/ Directory
+
+Large number of documentation files reference `claude-squad` or `Claude Squad`. Update all `.md` files in:
+- `docs/tasks/` (20+ files)
+- `docs/archive/` (15+ files)
+- `docs/bugs/` (6+ files)
+- `docs/architecture/` (3+ files)
+- `docs/upstream/` (6 files -- these reference the upstream project and may need special handling)
+- `docs/tui-test-project/` (4+ files)
+- Root docs files (15+ files)
+
+**Special case -- `docs/upstream/`:** These files analyze the upstream `claude-squad` project and its forks. References to the upstream project should remain as `claude-squad` since they refer to the original project. Only references to "this project" or "our fork" should be updated.
+
+### Task 7.5: cmd/README.md and log/README.md
+
+**File:** `cmd/README.md` -- Update project name references.
+**File:** `log/README.md` -- Update `~/.claude-squad/` paths and project name.
+
+### Task 7.6: tuitest/README.md
+
+**File:** `tuitest/README.md`
+- Update `claude-squad` / `ClaudeSquad` references.
+
+---
+
+## Phase 8: Submodule and Auxiliary Go Modules
+
+### Task 8.1: tuitest/go.mod
+
+**File:** `tuitest/go.mod`
+- `module github.com/claude-squad/tuitest` -> decide on new module path (e.g., `github.com/tylerstapler/stapler-squad/tuitest` or keep as-is if it is an upstream dependency).
+
+### Task 8.2: tuitest/Makefile
+
+**File:** `tuitest/Makefile`
+- Update any `claude-squad` / `ClaudeSquad` references.
+
+---
+
+## Phase 9: Upstream References (smtg-ai GitHub URLs)
+
+All references to `github.com/smtg-ai/claude-squad` need to be updated to the fork's new URL. Affected files:
+
+| File | Context |
+|------|---------|
+| `main.go:310` | Release URL in version check |
+| `install.sh:62,299-300` | API and download URLs |
+| `web/src/app/page.tsx` | Multiple URLs |
+| `web/src/app/layout.tsx:30` | Metadata URL |
+| `.github/workflows/cla.yml:26,30,36` | CLA references |
+| `README.md` | Multiple URLs |
+| `CONTRIBUTING.md` | Contributor URLs |
+| `CLA.md` | CLA text |
+| `docs/upstream/` | Upstream analysis docs (may keep as historical reference) |
+
+**Decision needed:** What is the new GitHub URL? Options:
+- `github.com/tylerstapler/stapler-squad`
+- Other org/repo combination
+
+---
+
+## Phase 10: Verification and Regeneration
+
+### Task 10.1: Regenerate All Generated Code
+
+After all source changes:
+```bash
+# Regenerate protobuf code
+make proto-gen
+
+# Regenerate ent ORM code
+go generate ./session/ent/...
+
+# Rebuild everything
+make build
+```
+
+### Task 10.2: Run Full Test Suite
+
+```bash
+go test ./...
+```
+
+### Task 10.3: Verify No Remaining References
+
+```bash
+# Should return zero results (excluding docs/upstream/ if keeping historical references)
+grep -r "claude-squad" --include="*.go" --include="*.ts" --include="*.tsx" --include="*.proto" --include="*.yaml" --include="*.yml" --include="*.json" --include="*.sh" .
+
+# Check for remaining ClaudeSquad function names (excluding claude-the-tool references)
+grep -r "ClaudeSquad" --include="*.go" .
+
+# Check for remaining environment variables
+grep -r "CLAUDE_SQUAD" --include="*.go" .
+```
+
+### Task 10.4: Update package-lock.json Files
+
+```bash
+cd web-app && npm install
+cd tests/e2e && npm install
+cd web && npm install  # If keeping old frontend
+```
+
+### Task 10.5: Build and Smoke Test
+
+```bash
+make build
+./stapler-squad --help
+make restart-web
+# Verify http://localhost:8543 shows "Stapler Squad" in title
+```
+
+---
+
+## Execution Order
+
+The tasks MUST be executed in this dependency order:
+
+1. **Phase 1** (Core Identity) -- Everything else depends on these.
+2. **Phase 2** (Go Imports + Strings) -- Bulk mechanical replacement.
+3. **Phase 5** (Proto Sources) -- Before regeneration.
+4. **Phase 6** (Config/Data paths) -- Overlaps with Phase 2 but called out separately for clarity.
+5. **Phase 10.1** (Regenerate) -- `make proto-gen` + `go generate` after source changes.
+6. **Phase 3** (Frontend) -- Independent of Go changes.
+7. **Phase 4** (Shell Scripts) -- Independent.
+8. **Phase 7** (Documentation) -- Independent, can be done last.
+9. **Phase 8** (Submodule) -- Small scope.
+10. **Phase 9** (URLs) -- Requires decision on new GitHub URL.
+11. **Phase 10.2-10.5** (Verification) -- Final validation.
+
+---
+
+## File Count Summary
+
+| Category | Files Affected | Complexity |
+|----------|---------------|------------|
+| Go source (imports only) | ~197 | Mechanical (sed/find-replace) |
+| Go source (string literals) | ~25 | Manual review needed |
+| Go generated (ent) | ~36 | Regenerate after go.mod change |
+| Go generated (proto) | 4 | Regenerate after proto changes |
+| TypeScript/React (web-app) | ~12 | Manual |
+| TypeScript generated (proto) | 2 | Regenerate |
+| TypeScript/React (web/ old) | ~5 | Manual or skip |
+| E2E tests | ~5 | Manual |
+| Shell scripts | ~6 | Manual |
+| Proto definitions | 2 | Manual |
+| Config files (yaml, json, mod) | ~8 | Manual |
+| Documentation (md) | ~80+ | Bulk replace with manual review |
+| **Total** | **~380+ files** | |
+
+---
+
+## Known Issues
+
+### Issue 1: Data Directory Migration (SEVERITY: High)
+
+**Description:** Changing `~/.claude-squad/` to `~/.stapler-squad/` means existing session data, configuration, logs, worktrees, and SQLite databases will be orphaned in the old directory.
+
+**Mitigation:**
+- Add a one-time migration on first startup that checks for `~/.claude-squad/` and moves/copies contents to `~/.stapler-squad/`.
+- Alternatively, add a symlink `~/.stapler-squad -> ~/.claude-squad` for backward compatibility.
+- Document the migration in release notes.
+
+**Files Likely Affected:** `config/config.go`, `cmd/migration.go`, `main.go`
+
+**Prevention Strategy:**
+- Implement migration before the rename ships.
+- Add a startup check: if `~/.stapler-squad` does not exist but `~/.claude-squad` does, offer to migrate.
+
+### Issue 2: Tmux Session Prefix Change (SEVERITY: High)
+
+**Description:** Changing `TmuxPrefix` from `claudesquad_` to `staplersquad_` means any currently running tmux sessions will become invisible to the application. The session discovery logic searches by prefix.
+
+**Mitigation:**
+- On startup, search for both `claudesquad_` and `staplersquad_` prefixed sessions.
+- Provide a migration command that renames running tmux sessions.
+- Or keep `claudesquad_` as a fallback in the discovery logic.
+
+**Files Likely Affected:** `session/tmux/tmux.go`, `session/mux/multiplexer.go`, `session/mux/picker.go`
+
+**Prevention Strategy:**
+- Add dual-prefix support in session discovery for one version cycle.
+- Log a deprecation warning when old-prefix sessions are found.
+
+### Issue 3: Environment Variable Backward Compatibility (SEVERITY: Medium)
+
+**Description:** Renaming `CLAUDE_SQUAD_*` environment variables breaks existing user configurations, CI scripts, and shell profiles.
+
+**Mitigation:**
+- Check both old and new environment variable names, with new name taking priority.
+- Log a deprecation warning when old variable names are detected.
+
+**Files Likely Affected:** `config/config.go`, `main.go`
+
+**Prevention Strategy:**
+- Implement fallback logic: `os.Getenv("STAPLER_SQUAD_X")` || `os.Getenv("CLAUDE_SQUAD_X")`
+- Add deprecation warnings to logs.
+
+### Issue 4: localStorage Key Migration (SEVERITY: Low)
+
+**Description:** Renaming localStorage keys in the web UI means users lose their saved preferences (search queries, filter settings, sort preferences).
+
+**Mitigation:**
+- Add a one-time migration in the frontend that copies old keys to new keys on page load.
+- Or keep old keys and only write new keys going forward.
+
+**Files Likely Affected:** `web-app/src/components/sessions/SessionList.tsx`, various hooks/utils.
+
+**Prevention Strategy:**
+- Add a `migrateLocalStorage()` function called once on app init.
+
+### Issue 5: Generated Code Drift (SEVERITY: Medium)
+
+**Description:** If `ent` or `buf` tool versions differ from what generated the current code, regeneration may produce unexpected diffs beyond the rename.
+
+**Mitigation:**
+- Pin tool versions before regeneration.
+- Review generated code diffs carefully -- only accept the rename changes.
+- If regeneration causes problems, fall back to mechanical find-and-replace on generated files.
+
+**Prevention Strategy:**
+- Record current tool versions before starting.
+- Use `git diff` to verify only rename-related changes in generated code.
+
+### Issue 6: Upstream Merge Conflicts (SEVERITY: Medium)
+
+**Description:** After the rebrand, pulling changes from the upstream `smtg-ai/claude-squad` repository will create massive merge conflicts since every file has been modified.
+
+**Mitigation:**
+- Use `git merge -X theirs` or cherry-pick individual commits from upstream.
+- Maintain a script that re-applies the rename after merging upstream changes.
+- Consider using `sed`-based rename scripts that can be re-run after each upstream merge.
+
+**Prevention Strategy:**
+- Create a `scripts/rebrand.sh` that automates the rename. After merging upstream, re-run the script.
+- Document the upstream merge process.
+
+### Issue 7: Binary Name in User PATH (SEVERITY: Low)
+
+**Description:** Users who have `claude-squad` in their PATH (via `go install`, brew, or manual install) will need to update their references.
+
+**Mitigation:**
+- Document in release notes.
+- Optionally provide a `claude-squad` -> `stapler-squad` symlink during transition.
+
+---
+
+## Decisions Required Before Execution
+
+1. **New GitHub URL:** What will the fork's GitHub URL be? (e.g., `github.com/tylerstapler/stapler-squad`)
+2. **New Go module path:** Should it be `stapler-squad` (bare, like current) or `github.com/tylerstapler/stapler-squad` (fully qualified)?
+3. **Old frontend (`web/` directory):** Update or remove?
+4. **Script prefix (`cs-`):** Rename to `ss-` or keep `cs-`?
+5. **Data directory migration:** Implement automatic migration, manual migration instructions, or clean break?
+6. **Tmux prefix migration:** Dual-prefix support or clean break?
+7. **Upstream sync strategy:** Do you intend to continue pulling from upstream? If so, prioritize creating a rebrand automation script.
