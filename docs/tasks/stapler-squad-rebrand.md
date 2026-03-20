@@ -15,8 +15,9 @@ These files define the project identity and must be changed first since everythi
 ### Task 1.1: Go Module Path
 
 **File:** `go.mod`
-- Change `module claude-squad` to `module stapler-squad`
+- Change `module claude-squad` to `module github.com/tstapler/stapler-squad`
 - This is the most impactful change: every Go file that imports internal packages uses this module name.
+- All import paths change from `"claude-squad/..."` to `"github.com/tstapler/stapler-squad/..."`
 
 ### Task 1.2: buf.gen.yaml (Protobuf Code Generation Config)
 
@@ -68,7 +69,7 @@ Every `.go` file that has `import "claude-squad/..."` must be updated to `import
 ### Task 2.1: Bulk Import Path Replacement
 
 **Scope:** All `.go` files in the repository.
-**Operation:** Replace all occurrences of `"claude-squad/` with `"stapler-squad/` in import statements.
+**Operation:** Replace all occurrences of `"claude-squad/` with `"github.com/tstapler/stapler-squad/` in import statements.
 
 This affects files across every package:
 - `main.go` (8 imports)
@@ -241,16 +242,15 @@ Lines 146-157 contain test cases using `claude-squad` as test data for GitHub UR
 
 These contain `claude-squad` references in generated comments. They will be updated automatically when protos are regenerated (Task 5.1 + `make proto-gen`).
 
-### Task 3.7: web/ (Old Frontend -- if still maintained)
+### Task 3.7: web/ (Old Frontend -- REMOVE)
 
-**Files in `web/`:**
-- `web/package.json:2` -- `"name": "claude-squad"`
-- `web/package-lock.json` -- same
-- `web/src/app/page.tsx` -- multiple `smtg-ai/claude-squad` URLs, `Claude Squad` text, `brew install claude-squad`
-- `web/src/app/layout.tsx` -- `smtg-ai/claude-squad` URL
-- `web/next.config.ts` -- `basePath: "/claude-squad"`
+**Decision:** The `web/` directory is a legacy frontend superseded by `web-app/`. **Delete it entirely.**
 
-**Decision needed:** If the `web/` directory is a legacy frontend superseded by `web-app/`, consider whether to update it or remove it.
+```bash
+git rm -r web/
+```
+
+No updates needed — just remove.
 
 ### Task 3.8: E2E Tests
 
@@ -297,14 +297,19 @@ These contain `claude-squad` references in generated comments. They will be upda
 
 ### Task 4.4: scripts/cs-hook-handler, cs-hooks-install, cs-notify
 
-These scripts use `cs-` prefix (short for "claude-squad"). Decision needed:
-- **Option A:** Rename to `ss-hook-handler`, `ss-hooks-install`, `ss-notify`
-- **Option B:** Keep `cs-` prefix for backward compatibility
+**Decision:** Rename `cs-` prefix to `ssq-` (avoids `ss-` which has Nazi SS connotation).
 
-Comments in these files reference "Claude Squad" -- update to "Stapler Squad":
-- `cs-hook-handler:3` -- `"Claude Squad notifications"` -> `"Stapler Squad notifications"`
-- `cs-notify:3` -- `"Send notifications from tmux sessions to Claude Squad"` -> `"...Stapler Squad"`
-- `cs-hooks-install:3` -- `"Install Claude Code hooks for Claude Squad notifications"` -> `"...Stapler Squad notifications"`
+Rename files:
+- `scripts/cs-hook-handler` -> `scripts/ssq-hook-handler`
+- `scripts/cs-hooks-install` -> `scripts/ssq-hooks-install`
+- `scripts/cs-notify` -> `scripts/ssq-notify`
+
+Update comments in renamed files:
+- `ssq-hook-handler:3` -- `"Claude Squad notifications"` -> `"Stapler Squad notifications"`
+- `ssq-notify:3` -- `"Send notifications from tmux sessions to Claude Squad"` -> `"...Stapler Squad"`
+- `ssq-hooks-install:3` -- `"Install Claude Code hooks for Claude Squad notifications"` -> `"...Stapler Squad notifications"`
+
+Also update any references to these script names in `docs/claude-hooks-integration.md` and CLAUDE.md.
 
 ---
 
@@ -449,9 +454,7 @@ All references to `github.com/smtg-ai/claude-squad` need to be updated to the fo
 | `CLA.md` | CLA text |
 | `docs/upstream/` | Upstream analysis docs (may keep as historical reference) |
 
-**Decision needed:** What is the new GitHub URL? Options:
-- `github.com/tylerstapler/stapler-squad`
-- Other org/repo combination
+**New GitHub URL:** `github.com/tstapler/stapler-squad`
 
 ---
 
@@ -553,31 +556,27 @@ The tasks MUST be executed in this dependency order:
 
 **Description:** Changing `~/.claude-squad/` to `~/.stapler-squad/` means existing session data, configuration, logs, worktrees, and SQLite databases will be orphaned in the old directory.
 
-**Mitigation:**
-- Add a one-time migration on first startup that checks for `~/.claude-squad/` and moves/copies contents to `~/.stapler-squad/`.
-- Alternatively, add a symlink `~/.stapler-squad -> ~/.claude-squad` for backward compatibility.
-- Document the migration in release notes.
+**Resolution:** Implement automatic migration on first startup.
 
-**Files Likely Affected:** `config/config.go`, `cmd/migration.go`, `main.go`
+**Implementation:**
+- On startup, if `~/.stapler-squad` does not exist but `~/.claude-squad` does, automatically migrate (move/copy) the directory.
+- Log a message: `"Migrating data directory from ~/.claude-squad to ~/.stapler-squad"`
+- Best location: `config/config.go` during config initialization, or `main.go` early startup.
 
-**Prevention Strategy:**
-- Implement migration before the rename ships.
-- Add a startup check: if `~/.stapler-squad` does not exist but `~/.claude-squad` does, offer to migrate.
+**Files Likely Affected:** `config/config.go`, `main.go`
 
 ### Issue 2: Tmux Session Prefix Change (SEVERITY: High)
 
 **Description:** Changing `TmuxPrefix` from `claudesquad_` to `staplersquad_` means any currently running tmux sessions will become invisible to the application. The session discovery logic searches by prefix.
 
-**Mitigation:**
-- On startup, search for both `claudesquad_` and `staplersquad_` prefixed sessions.
-- Provide a migration command that renames running tmux sessions.
-- Or keep `claudesquad_` as a fallback in the discovery logic.
+**Resolution:** Implement dual-prefix discovery — find sessions with either `claudesquad_` or `staplersquad_` prefix.
+
+**Implementation:**
+- Update session listing/discovery to search for both prefixes.
+- Log a notice when `claudesquad_` sessions are found: `"Found legacy session with old prefix, consider restarting it"`
+- New sessions are always created with `staplersquad_` prefix.
 
 **Files Likely Affected:** `session/tmux/tmux.go`, `session/mux/multiplexer.go`, `session/mux/picker.go`
-
-**Prevention Strategy:**
-- Add dual-prefix support in session discovery for one version cycle.
-- Log a deprecation warning when old-prefix sessions are found.
 
 ### Issue 3: Environment Variable Backward Compatibility (SEVERITY: Medium)
 
@@ -642,12 +641,28 @@ The tasks MUST be executed in this dependency order:
 
 ---
 
-## Decisions Required Before Execution
+## Decisions Made
 
-1. **New GitHub URL:** What will the fork's GitHub URL be? (e.g., `github.com/tylerstapler/stapler-squad`)
-2. **New Go module path:** Should it be `stapler-squad` (bare, like current) or `github.com/tylerstapler/stapler-squad` (fully qualified)?
-3. **Old frontend (`web/` directory):** Update or remove?
-4. **Script prefix (`cs-`):** Rename to `ss-` or keep `cs-`?
-5. **Data directory migration:** Implement automatic migration, manual migration instructions, or clean break?
-6. **Tmux prefix migration:** Dual-prefix support or clean break?
-7. **Upstream sync strategy:** Do you intend to continue pulling from upstream? If so, prioritize creating a rebrand automation script.
+All decisions confirmed by project owner. No further input needed before execution.
+
+| # | Decision | Resolution |
+|---|----------|------------|
+| 1 | New GitHub URL | `github.com/tstapler/stapler-squad` |
+| 2 | Go module path | `github.com/tstapler/stapler-squad` (fully qualified) |
+| 3 | Old `web/` frontend | **Remove entirely** — `web-app/` is the canonical frontend |
+| 4 | Script prefix (`cs-`) | Rename to **`ssq-`** (not `ss-` — avoids SS/Nazi connotation) |
+| 5 | Data directory migration | **Implement automatic migration** — detect `~/.claude-squad/`, migrate to `~/.stapler-squad/` on first startup |
+| 6 | Tmux prefix migration | **Dual-prefix support** — discover both `claudesquad_` and `staplersquad_` sessions during transition |
+| 7 | Upstream sync strategy | **Clean fork, no upstream sync** — complete separation from `smtg-ai/claude-squad` |
+
+### Critical Naming Rule
+
+> **`claude` (the Anthropic AI tool) is NEVER renamed.**
+> Only `claude-squad` / `Claude Squad` (the project name) is renamed.
+>
+> Examples of what to preserve unchanged:
+> - `ProgramClaude = "claude"` — the AI tool name
+> - `claude-mux` — the multiplexer binary that wraps Claude
+> - `claudesession`, `claudemetadata` — tmux session/metadata names for Claude the tool
+> - `which claude` — checking for the Claude binary
+> - Any user-facing references to "Claude" as the AI model
