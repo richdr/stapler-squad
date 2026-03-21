@@ -1,6 +1,6 @@
 # Claude Code Hooks Integration
 
-This guide explains how to integrate Claude Squad notifications with Claude Code using hooks. When configured, you'll receive audio chimes and visual notifications when Claude needs your attention.
+This guide explains how to integrate Stapler Squad notifications with Claude Code using hooks. When configured, you'll receive audio chimes and visual notifications when Claude needs your attention.
 
 ## Quick Start
 
@@ -29,33 +29,33 @@ Add the following to your `~/.claude/settings.json` (global) or `.claude/setting
     "Notification": [{
       "hooks": [{
         "type": "command",
-        "command": "/path/to/claude-squad/scripts/ssq-hook-handler notification"
+        "command": "/path/to/stapler-squad/scripts/ssq-hook-handler notification"
       }]
     }],
     "Stop": [{
       "hooks": [{
         "type": "command",
-        "command": "/path/to/claude-squad/scripts/ssq-hook-handler stop"
+        "command": "/path/to/stapler-squad/scripts/ssq-hook-handler stop"
       }]
     }],
     "PermissionRequest": [{
       "hooks": [{
         "type": "command",
-        "command": "/path/to/claude-squad/scripts/ssq-hook-handler permission"
+        "command": "/path/to/stapler-squad/scripts/ssq-hook-handler permission"
       }]
     }],
     "PostToolUse": [{
       "matcher": ".*",
       "hooks": [{
         "type": "command",
-        "command": "/path/to/claude-squad/scripts/ssq-hook-handler post-tool"
+        "command": "/path/to/stapler-squad/scripts/ssq-hook-handler post-tool"
       }]
     }]
   }
 }
 ```
 
-Replace `/path/to/claude-squad` with your actual installation path.
+Replace `/path/to/stapler-squad` with your actual installation path.
 
 ## Hook Events
 
@@ -75,7 +75,7 @@ Replace `/path/to/claude-squad` with your actual installation path.
 | `CS_SESSION_ID` | Override session ID detection | Auto-detected |
 | `CS_HOOKS_DISABLED` | Set to "true" to disable all notifications | false |
 | `CS_HOOKS_QUIET` | Set to "true" to suppress output | false |
-| `CS_SERVER_PORT` | Claude Squad server port | 8484 |
+| `CS_SERVER_PORT` | Stapler Squad server port | 8484 |
 
 ### Customizing Individual Hooks
 
@@ -158,7 +158,7 @@ The hook handler maps Claude Code events to notification priorities:
 
 ### Notifications not appearing
 
-1. **Check Claude Squad is running:**
+1. **Check Stapler Squad is running:**
    ```bash
    curl -s http://localhost:8484/health
    ```
@@ -236,7 +236,7 @@ case "$HOOK_TYPE" in
     stop)
         # Play custom sound on macOS
         afplay /System/Library/Sounds/Glass.aiff &
-        # Also send to Claude Squad
+        # Also send to Stapler Squad
         echo "$INPUT" | ssq-hook-handler stop
         ;;
     *)
@@ -258,7 +258,7 @@ MESSAGE=$(echo "$INPUT" | jq -r '.notification.message // ""')
 # macOS notification
 osascript -e "display notification \"$MESSAGE\" with title \"$TITLE\""
 
-# Also send to Claude Squad
+# Also send to Stapler Squad
 echo "$INPUT" | ssq-hook-handler notification
 ```
 
