@@ -43,7 +43,7 @@ var (
 	rpIDFlag          string
 	rootCmd           = &cobra.Command{
 		Use:   "stapler-squad",
-		Short: "Claude Squad - Manage multiple AI agents like Claude Code, Aider, Codex, and Amp (Web Mode)",
+		Short: "Stapler Squad - Manage multiple AI agents like Claude Code, Aider, Codex, and Amp (Web Mode)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
 

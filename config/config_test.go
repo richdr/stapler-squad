@@ -290,13 +290,13 @@ func TestGetConfigDir(t *testing.T) {
 	})
 
 	t.Run("uses explicit instance ID when set", func(t *testing.T) {
-		originalInstance := os.Getenv("CLAUDE_SQUAD_INSTANCE")
-		os.Setenv("CLAUDE_SQUAD_INSTANCE", "test-instance")
+		originalInstance := os.Getenv("STAPLER_SQUAD_INSTANCE")
+		os.Setenv("STAPLER_SQUAD_INSTANCE", "test-instance")
 		defer func() {
 			if originalInstance == "" {
-				os.Unsetenv("CLAUDE_SQUAD_INSTANCE")
+				os.Unsetenv("STAPLER_SQUAD_INSTANCE")
 			} else {
-				os.Setenv("CLAUDE_SQUAD_INSTANCE", originalInstance)
+				os.Setenv("STAPLER_SQUAD_INSTANCE", originalInstance)
 			}
 		}()
 
@@ -316,14 +316,14 @@ func TestGetConfigDir(t *testing.T) {
 			"test mode should use test directory: %s", configDir)
 	})
 
-	t.Run("uses shared state when CLAUDE_SQUAD_INSTANCE=shared", func(t *testing.T) {
-		originalInstance := os.Getenv("CLAUDE_SQUAD_INSTANCE")
-		os.Setenv("CLAUDE_SQUAD_INSTANCE", "shared")
+	t.Run("uses shared state when STAPLER_SQUAD_INSTANCE=shared", func(t *testing.T) {
+		originalInstance := os.Getenv("STAPLER_SQUAD_INSTANCE")
+		os.Setenv("STAPLER_SQUAD_INSTANCE", "shared")
 		defer func() {
 			if originalInstance == "" {
-				os.Unsetenv("CLAUDE_SQUAD_INSTANCE")
+				os.Unsetenv("STAPLER_SQUAD_INSTANCE")
 			} else {
-				os.Setenv("CLAUDE_SQUAD_INSTANCE", originalInstance)
+				os.Setenv("STAPLER_SQUAD_INSTANCE", originalInstance)
 			}
 		}()
 
@@ -372,15 +372,15 @@ func TestLoadConfig(t *testing.T) {
 
 		// Override HOME environment and use shared state for this test
 		originalHome := os.Getenv("HOME")
-		originalInstance := os.Getenv("CLAUDE_SQUAD_INSTANCE")
+		originalInstance := os.Getenv("STAPLER_SQUAD_INSTANCE")
 		os.Setenv("HOME", tempHome)
-		os.Setenv("CLAUDE_SQUAD_INSTANCE", "shared") // Use shared state for config tests
+		os.Setenv("STAPLER_SQUAD_INSTANCE", "shared") // Use shared state for config tests
 		defer func() {
 			os.Setenv("HOME", originalHome)
 			if originalInstance == "" {
-				os.Unsetenv("CLAUDE_SQUAD_INSTANCE")
+				os.Unsetenv("STAPLER_SQUAD_INSTANCE")
 			} else {
-				os.Setenv("CLAUDE_SQUAD_INSTANCE", originalInstance)
+				os.Setenv("STAPLER_SQUAD_INSTANCE", originalInstance)
 			}
 		}()
 
@@ -428,15 +428,15 @@ func TestSaveConfig(t *testing.T) {
 
 		// Override HOME environment and use shared state for this test
 		originalHome := os.Getenv("HOME")
-		originalInstance := os.Getenv("CLAUDE_SQUAD_INSTANCE")
+		originalInstance := os.Getenv("STAPLER_SQUAD_INSTANCE")
 		os.Setenv("HOME", tempHome)
-		os.Setenv("CLAUDE_SQUAD_INSTANCE", "shared") // Use shared state for config tests
+		os.Setenv("STAPLER_SQUAD_INSTANCE", "shared") // Use shared state for config tests
 		defer func() {
 			os.Setenv("HOME", originalHome)
 			if originalInstance == "" {
-				os.Unsetenv("CLAUDE_SQUAD_INSTANCE")
+				os.Unsetenv("STAPLER_SQUAD_INSTANCE")
 			} else {
-				os.Setenv("CLAUDE_SQUAD_INSTANCE", originalInstance)
+				os.Setenv("STAPLER_SQUAD_INSTANCE", originalInstance)
 			}
 		}()
 
