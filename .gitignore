@@ -2,6 +2,7 @@
 .aider*
 .claude/settings.local.json
 stapler-squad
+claude-squad
 claude-mux
 **.DS_Store
 cs
