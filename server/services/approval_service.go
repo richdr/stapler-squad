@@ -12,16 +12,27 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// notificationMetadataStore is the narrow interface ApprovalService needs to stamp
+// the approval decision onto the notification record after it is resolved.
+type notificationMetadataStore interface {
+	SetMetadata(id, key, value string) error
+}
+
 // ApprovalService handles Claude Code hook approval RPCs.
-//
-// Single dependency: approvalStore.
 type ApprovalService struct {
-	approvalStore *ApprovalStore
+	approvalStore     *ApprovalStore
+	notificationStore notificationMetadataStore // optional; nil-safe
 }
 
 // NewApprovalService creates an ApprovalService with the given ApprovalStore.
 func NewApprovalService(store *ApprovalStore) *ApprovalService {
 	return &ApprovalService{approvalStore: store}
+}
+
+// SetNotificationStore wires in the notification history store so that resolved
+// approvals are stamped with their decision in the notification metadata.
+func (as *ApprovalService) SetNotificationStore(store notificationMetadataStore) {
+	as.notificationStore = store
 }
 
 // ---------------------------------------------------------------------------
@@ -52,6 +63,15 @@ func (as *ApprovalService) ResolveApproval(
 
 	if err := as.approvalStore.Resolve(req.Msg.ApprovalId, decision); err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, err)
+	}
+
+	// Stamp the decision on the notification record so the panel can render the
+	// correct badge after a page refresh. Approval ID == notification ID by convention
+	// (wired in ApprovalHandler.broadcastApprovalNotification).
+	if as.notificationStore != nil {
+		if err := as.notificationStore.SetMetadata(req.Msg.ApprovalId, "approval_decision", req.Msg.Decision); err != nil {
+			log.WarningLog.Printf("[ApprovalService] Could not persist approval decision in notification: %v", err)
+		}
 	}
 
 	log.InfoLog.Printf("[ApprovalService] Resolved approval %s: %s", req.Msg.ApprovalId, req.Msg.Decision)

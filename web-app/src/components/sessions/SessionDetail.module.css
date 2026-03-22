@@ -316,6 +316,41 @@
   transform: translateY(0);
 }
 
+/* No-terminal placeholder for external sessions without mux socket */
+.noTerminalPlaceholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 200px;
+  gap: 0.75rem;
+  padding: 2rem;
+  text-align: center;
+  color: var(--terminal-text-muted);
+}
+
+.noTerminalIcon {
+  font-size: 2.5rem;
+  opacity: 0.5;
+}
+
+.noTerminalText {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--terminal-foreground);
+  opacity: 0.7;
+}
+
+.noTerminalSubtext {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--terminal-text-muted);
+  max-width: 400px;
+  line-height: 1.5;
+}
+
 /* Mobile responsiveness */
 @media (max-width: 768px) {
   .header {

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPromiseClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 import { SessionService } from "@/gen/session/v1/session_connect";
@@ -51,6 +51,23 @@ export function NotificationPanel() {
   const [resolvedApprovals, setResolvedApprovals] = useState<Record<string, "allow" | "deny" | "expired">>({});
   // Track which approval IDs have an in-flight RPC so we can disable buttons while waiting.
   const [pendingApprovals, setPendingApprovals] = useState<Record<string, boolean>>({});
+
+  // Seed resolvedApprovals from persisted metadata when history loads or updates.
+  // The server stamps "approval_decision" on the notification record when an approval
+  // is resolved, so this survives page refreshes.
+  useEffect(() => {
+    const seeded: Record<string, "allow" | "deny" | "expired"> = {};
+    for (const n of notificationHistory) {
+      const decision = n.metadata?.["approval_decision"];
+      const approvalId = n.metadata?.["approval_id"];
+      if (approvalId && (decision === "allow" || decision === "deny")) {
+        seeded[approvalId] = decision;
+      }
+    }
+    if (Object.keys(seeded).length > 0) {
+      setResolvedApprovals(prev => ({ ...seeded, ...prev }));
+    }
+  }, [notificationHistory]);
 
   const resolveApproval = useCallback(async (approvalId: string, decision: "allow" | "deny", notificationIds: string | string[]) => {
     setPendingApprovals(prev => ({ ...prev, [approvalId]: true }));

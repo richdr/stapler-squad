@@ -119,6 +119,7 @@ export const XtermTerminal = forwardRef<XtermTerminalHandle, XtermTerminalProps>
       theme: getTheme(theme),
       scrollback,
       allowProposedApi: true, // Required for some addons
+      rightClickSelectsWord: true, // Right-click selects the word under cursor
     });
 
     // Create and load addons
@@ -207,6 +208,14 @@ export const XtermTerminal = forwardRef<XtermTerminalHandle, XtermTerminalProps>
       onDataRef.current?.(data);
     });
 
+    // Auto-copy selected text to clipboard on selection change (copyOnSelect behavior)
+    const selectionDisposable = terminal.onSelectionChange(() => {
+      const selection = terminal.getSelection();
+      if (selection) {
+        navigator.clipboard.writeText(selection).catch(() => {});
+      }
+    });
+
     const resizeDisposable = terminal.onResize(({ cols, rows }) => {
       // Only trigger callback if size actually changed
       const lastSize = lastSizeRef.current;
@@ -280,6 +289,7 @@ export const XtermTerminal = forwardRef<XtermTerminalHandle, XtermTerminalProps>
       }
       resizeObserver.disconnect();
       dataDisposable.dispose();
+      selectionDisposable.dispose();
       resizeDisposable.dispose();
       terminal.dispose();
       terminalRef.current = null;

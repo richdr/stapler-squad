@@ -238,6 +238,35 @@
   font-style: italic;
 }
 
+.commandPreview {
+  margin: 0;
+  padding: 8px 10px;
+  background: var(--code-bg, #f3f4f6);
+  border: 1px solid var(--item-border);
+  border-radius: 6px;
+  font-family: monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  max-height: 6em;
+  overflow-y: auto;
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+
+.expiredBadge {
+  display: inline-block;
+  padding: 2px 8px;
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 .itemPattern {
   font-size: 12px;
   color: var(--text-tertiary);
@@ -391,6 +420,16 @@
 
 /* Dark mode support */
 @media (prefers-color-scheme: dark) {
+  .commandPreview {
+    --code-bg: #1f2937;
+  }
+
+  .expiredBadge {
+    background: #374151;
+    border-color: #4b5563;
+    color: #9ca3af;
+  }
+
   .panel {
     --panel-bg: #1f2937;
     --panel-border: #374151;

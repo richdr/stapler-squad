@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { PendingApprovalProto } from "@/gen/session/v1/types_pb";
 import styles from "./ApprovalCard.module.css";
 
@@ -18,6 +18,8 @@ interface ApprovalCardProps {
  */
 export function ApprovalCard({ approval, onApprove, onDeny }: ApprovalCardProps) {
   const [secondsLeft, setSecondsLeft] = useState(approval.secondsRemaining);
+  const [showDetails, setShowDetails] = useState(false);
+  const toggleDetails = useCallback(() => setShowDetails((v) => !v), []);
 
   // Decrement countdown every second
   useEffect(() => {
@@ -115,6 +117,21 @@ export function ApprovalCard({ approval, onApprove, onDeny }: ApprovalCardProps)
         )}
       </div>
 
+      {approval.toolInput && Object.keys(approval.toolInput).length > 0 && (
+        <div className={styles.detailsToggle}>
+          <button className={styles.detailsButton} onClick={toggleDetails}>
+            {showDetails ? "Hide details ▲" : "Show full details ▼"}
+          </button>
+          {showDetails && (
+            <pre className={styles.fullDetails}>
+              {Object.entries(approval.toolInput)
+                .map(([k, v]) => `${k}: ${v}`)
+                .join("\n")}
+            </pre>
+          )}
+        </div>
+      )}
+
       <div className={styles.actions}>
         <button
           className={styles.approveButton}
@@ -134,6 +151,16 @@ export function ApprovalCard({ approval, onApprove, onDeny }: ApprovalCardProps)
         >
           Deny
         </button>
+        {secondsLeft <= 0 && (
+          <button
+            className={styles.dismissButton}
+            onClick={onDeny}
+            title="Remove this expired approval"
+            aria-label="Dismiss expired approval"
+          >
+            Dismiss
+          </button>
+        )}
       </div>
     </div>
   );

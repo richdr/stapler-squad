@@ -366,6 +366,13 @@ export function TerminalOutput({ sessionId, baseUrl, isExternal = false, tmuxSes
     };
   }, [isConnected, resize]);
 
+  // Clear loading overlay when max reconnect attempts reached
+  useEffect(() => {
+    if (connectionAttempts >= 5) {
+      setIsLoadingInitialContent(false);
+    }
+  }, [connectionAttempts]);
+
   // Auto-reconnect with exponential backoff
   useEffect(() => {
     if (!isConnected && error && connectionAttempts > 0 && connectionAttempts < 5) {
@@ -433,7 +440,12 @@ export function TerminalOutput({ sessionId, baseUrl, isExternal = false, tmuxSes
   }, [debugMode]);
 
   const handleCopyOutput = () => {
-    document.execCommand('copy');
+    const selectedText = xtermRef.current?.terminal?.getSelection();
+    if (selectedText) {
+      navigator.clipboard.writeText(selectedText).catch(() => {
+        document.execCommand('copy');
+      });
+    }
   };
 
   const handleScrollToBottom = () => {
@@ -524,10 +536,7 @@ export function TerminalOutput({ sessionId, baseUrl, isExternal = false, tmuxSes
             </span>
           )}
           {!isConnected && connectionAttempts >= 5 && (
-            <span className={styles.errorText}> • Connection failed</span>
-          )}
-          {error && !isConnected && (
-            <span className={styles.errorText}> • {error.message}</span>
+            <span className={styles.errorText}> • Terminal unavailable</span>
           )}
         </div>
         <div className={styles.actions}>
@@ -623,13 +632,20 @@ export function TerminalOutput({ sessionId, baseUrl, isExternal = false, tmuxSes
             </div>
           </div>
         )}
+        {!isLoadingInitialContent && connectionAttempts >= 5 && (
+          <div className={styles.unavailableOverlay}>
+            <div className={styles.unavailableIcon}>⚠</div>
+            <div className={styles.unavailableText}>Terminal unavailable</div>
+            <div className={styles.unavailableSubtext}>Could not connect to terminal session</div>
+          </div>
+        )}
         <XtermTerminal
           ref={xtermRef}
           onData={handleTerminalData}
           onResize={handleTerminalResize}
           theme={theme}
           fontSize={14}
-          scrollback={0}
+          scrollback={5000}
         />
       </div>
       {/* Mobile keyboard toolbar */}

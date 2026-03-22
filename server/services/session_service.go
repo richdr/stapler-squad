@@ -259,9 +259,11 @@ func (s *SessionService) SetExternalDiscovery(discovery *session.ExternalSession
 	s.externalDiscovery = discovery
 }
 
-// SetNotificationStore sets the notification history store for the notification history RPCs.
+// SetNotificationStore sets the notification history store for the notification history RPCs
+// and wires it into the approval service so resolved approvals are stamped with their decision.
 func (s *SessionService) SetNotificationStore(store *notifications.NotificationHistoryStore) {
 	s.notificationSvc.SetNotificationStore(store)
+	s.approvalSvc.SetNotificationStore(store)
 }
 
 // GetNotificationStore returns the notification history store.

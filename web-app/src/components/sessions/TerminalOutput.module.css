@@ -161,6 +161,38 @@
   font-weight: 500;
 }
 
+/* Terminal unavailable overlay - shown after max reconnect attempts */
+.unavailableOverlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(30, 30, 30, 0.92);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  z-index: 10;
+}
+
+.unavailableIcon {
+  font-size: 2rem;
+  color: #6b7280;
+}
+
+.unavailableText {
+  font-size: 1rem;
+  color: #9ca3af;
+  font-weight: 600;
+}
+
+.unavailableSubtext {
+  font-size: 0.8125rem;
+  color: #6b7280;
+}
+
 /* xterm.js scrollbar styling (applied to .xterm-viewport) */
 .terminal :global(.xterm-viewport)::-webkit-scrollbar {
   width: 12px;

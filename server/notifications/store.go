@@ -278,6 +278,24 @@ func (s *NotificationHistoryStore) Clear(before *time.Time) (int, error) {
 	return cleared, nil
 }
 
+// SetMetadata updates a single metadata key on the notification record with the given ID.
+// A no-op (not an error) if the record does not exist, since the notification may have
+// been pruned or the approval pre-dates history tracking.
+func (s *NotificationHistoryStore) SetMetadata(id, key, value string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, r := range s.records {
+		if r.ID == id {
+			if r.Metadata == nil {
+				r.Metadata = make(map[string]string)
+			}
+			r.Metadata[key] = value
+			return s.saveToDisk()
+		}
+	}
+	return nil // record not found — silently ignored
+}
+
 // GetUnreadCount returns the number of unread notifications. After server-side
 // deduplication (Task 1.2), each unread record represents a distinct
 // (sessionID, notificationType) group, so this count reflects the number of
