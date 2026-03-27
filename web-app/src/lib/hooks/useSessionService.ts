@@ -11,7 +11,7 @@ import {
 } from "@/gen/session/v1/session_pb";
 import { SessionEvent, NotificationEvent } from "@/gen/session/v1/events_pb";
 import { getApiBaseUrl, createAuthInterceptor } from "@/lib/config";
-import { useAppDispatch, useAppSelector } from "@/lib/store/store";
+import { useAppDispatch, useAppSelector } from "@/lib/store";
 import {
   setSessions,
   upsertSession,

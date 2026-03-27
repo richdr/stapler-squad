@@ -1,4 +1,6 @@
 import { configureStore } from "@reduxjs/toolkit";
+import approvalsReducer from "../approvalsSlice";
+import reviewQueueReducer from "../reviewQueueSlice";
 import sessionsReducer, {
   setSessions,
   upsertSession,
@@ -16,7 +18,7 @@ import { Session } from "@/gen/session/v1/types_pb";
 
 function makeStore() {
   return configureStore({
-    reducer: { sessions: sessionsReducer },
+    reducer: { approvals: approvalsReducer, reviewQueue: reviewQueueReducer, sessions: sessionsReducer },
     middleware: (getDefault) => getDefault({ serializableCheck: false }),
   });
 }
@@ -41,7 +43,7 @@ describe("sessionsSlice", () => {
     it("replaces all sessions (setAll semantics)", () => {
       const store = makeStore();
       store.dispatch(setSessions([makeSession("s1"), makeSession("s2")]));
-      expect(selectSessionsTotal(store.getState() as any)).toBe(2);
+      expect(selectSessionsTotal(store.getState())).toBe(2);
     });
 
     it("replaces existing sessions on a subsequent call (no accumulation)", () => {
@@ -57,7 +59,7 @@ describe("sessionsSlice", () => {
       const store = makeStore();
       store.dispatch(setSessions([makeSession("s1")]));
       store.dispatch(setSessions([]));
-      expect(selectSessionsTotal(store.getState() as any)).toBe(0);
+      expect(selectSessionsTotal(store.getState())).toBe(0);
     });
   });
 
@@ -65,7 +67,7 @@ describe("sessionsSlice", () => {
     it("inserts a new session when id is not present", () => {
       const store = makeStore();
       store.dispatch(upsertSession(makeSession("new")));
-      expect(selectSessionsTotal(store.getState() as any)).toBe(1);
+      expect(selectSessionsTotal(store.getState())).toBe(1);
       expect(selectSessionById(store.getState() as any, "new")).toBeDefined();
     });
 
@@ -103,14 +105,14 @@ describe("sessionsSlice", () => {
       const store = makeStore();
       store.dispatch(setSessions([makeSession("s1")]));
       store.dispatch(removeSession("ghost"));
-      expect(selectSessionsTotal(store.getState() as any)).toBe(1);
+      expect(selectSessionsTotal(store.getState())).toBe(1);
     });
 
     it("can remove the last remaining session", () => {
       const store = makeStore();
       store.dispatch(setSessions([makeSession("only")]));
       store.dispatch(removeSession("only"));
-      expect(selectSessionsTotal(store.getState() as any)).toBe(0);
+      expect(selectSessionsTotal(store.getState())).toBe(0);
     });
   });
 
@@ -132,7 +134,7 @@ describe("sessionsSlice", () => {
     it("returns the list of ids in insertion order", () => {
       const store = makeStore();
       store.dispatch(setSessions([makeSession("a"), makeSession("b"), makeSession("c")]));
-      expect(selectSessionIds(store.getState() as any)).toEqual(["a", "b", "c"]);
+      expect(selectSessionIds(store.getState())).toEqual(["a", "b", "c"]);
     });
   });
 
@@ -140,17 +142,17 @@ describe("sessionsSlice", () => {
     it("toggles loading", () => {
       const store = makeStore();
       store.dispatch(setLoading(true));
-      expect(selectSessionsLoading(store.getState() as any)).toBe(true);
+      expect(selectSessionsLoading(store.getState())).toBe(true);
       store.dispatch(setLoading(false));
-      expect(selectSessionsLoading(store.getState() as any)).toBe(false);
+      expect(selectSessionsLoading(store.getState())).toBe(false);
     });
 
     it("sets and clears error", () => {
       const store = makeStore();
       store.dispatch(setError("stream disconnected"));
-      expect(selectSessionsError(store.getState() as any)).toBe("stream disconnected");
+      expect(selectSessionsError(store.getState())).toBe("stream disconnected");
       store.dispatch(setError(null));
-      expect(selectSessionsError(store.getState() as any)).toBeNull();
+      expect(selectSessionsError(store.getState())).toBeNull();
     });
   });
 
@@ -163,7 +165,7 @@ describe("sessionsSlice", () => {
 
       // New session arrives via stream
       store.dispatch(upsertSession(makeSession("s3", "New")));
-      expect(selectSessionsTotal(store.getState() as any)).toBe(3);
+      expect(selectSessionsTotal(store.getState())).toBe(3);
 
       // s2 gets a status update
       store.dispatch(upsertSession(makeSession("s2", "Updated")));
@@ -171,7 +173,7 @@ describe("sessionsSlice", () => {
 
       // s1 is deleted
       store.dispatch(removeSession("s1"));
-      expect(selectSessionsTotal(store.getState() as any)).toBe(2);
+      expect(selectSessionsTotal(store.getState())).toBe(2);
       expect(selectSessionById(store.getState() as any, "s1")).toBeUndefined();
     });
   });

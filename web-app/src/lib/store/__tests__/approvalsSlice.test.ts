@@ -8,11 +8,15 @@ import approvalsReducer, {
   selectApprovalsLoading,
   selectApprovalsError,
 } from "../approvalsSlice";
+import reviewQueueReducer from "../reviewQueueSlice";
+import sessionsReducer from "../sessionsSlice";
 import { PendingApprovalProto } from "@/gen/session/v1/types_pb";
 
+// Mirror the real store shape so selectors receive the correct RootState type
+// without needing `as any` casts. A fresh instance per-test prevents state leakage.
 function makeStore() {
   return configureStore({
-    reducer: { approvals: approvalsReducer },
+    reducer: { approvals: approvalsReducer, reviewQueue: reviewQueueReducer, sessions: sessionsReducer },
     middleware: (getDefault) => getDefault({ serializableCheck: false }),
   });
 }
@@ -26,9 +30,9 @@ describe("approvalsSlice", () => {
     it("starts with empty approvals, not loading, no error", () => {
       const store = makeStore();
       const state = store.getState();
-      expect(selectApprovals(state as any)).toEqual([]);
-      expect(selectApprovalsLoading(state as any)).toBe(false);
-      expect(selectApprovalsError(state as any)).toBeNull();
+      expect(selectApprovals(state)).toEqual([]);
+      expect(selectApprovalsLoading(state)).toBe(false);
+      expect(selectApprovalsError(state)).toBeNull();
     });
   });
 
@@ -37,15 +41,15 @@ describe("approvalsSlice", () => {
       const store = makeStore();
       const approvals = [makeApproval("a1"), makeApproval("a2")];
       store.dispatch(setApprovals(approvals));
-      expect(selectApprovals(store.getState() as any)).toHaveLength(2);
-      expect(selectApprovals(store.getState() as any)[0].id).toBe("a1");
+      expect(selectApprovals(store.getState())).toHaveLength(2);
+      expect(selectApprovals(store.getState())[0].id).toBe("a1");
     });
 
     it("replaces existing approvals on subsequent calls", () => {
       const store = makeStore();
       store.dispatch(setApprovals([makeApproval("old")]));
       store.dispatch(setApprovals([makeApproval("new1"), makeApproval("new2")]));
-      const approvals = selectApprovals(store.getState() as any);
+      const approvals = selectApprovals(store.getState());
       expect(approvals).toHaveLength(2);
       expect(approvals[0].id).toBe("new1");
     });
@@ -54,7 +58,7 @@ describe("approvalsSlice", () => {
       const store = makeStore();
       store.dispatch(setApprovals([makeApproval("a1")]));
       store.dispatch(setApprovals([]));
-      expect(selectApprovals(store.getState() as any)).toHaveLength(0);
+      expect(selectApprovals(store.getState())).toHaveLength(0);
     });
   });
 
@@ -63,7 +67,7 @@ describe("approvalsSlice", () => {
       const store = makeStore();
       store.dispatch(setApprovals([makeApproval("a1"), makeApproval("a2"), makeApproval("a3")]));
       store.dispatch(removeApproval("a2"));
-      const approvals = selectApprovals(store.getState() as any);
+      const approvals = selectApprovals(store.getState());
       expect(approvals).toHaveLength(2);
       expect(approvals.map((a) => a.id)).toEqual(["a1", "a3"]);
     });
@@ -72,14 +76,14 @@ describe("approvalsSlice", () => {
       const store = makeStore();
       store.dispatch(setApprovals([makeApproval("a1")]));
       store.dispatch(removeApproval("nonexistent"));
-      expect(selectApprovals(store.getState() as any)).toHaveLength(1);
+      expect(selectApprovals(store.getState())).toHaveLength(1);
     });
 
     it("correctly removes the last item", () => {
       const store = makeStore();
       store.dispatch(setApprovals([makeApproval("only")]));
       store.dispatch(removeApproval("only"));
-      expect(selectApprovals(store.getState() as any)).toHaveLength(0);
+      expect(selectApprovals(store.getState())).toHaveLength(0);
     });
   });
 
@@ -87,14 +91,14 @@ describe("approvalsSlice", () => {
     it("sets loading to true", () => {
       const store = makeStore();
       store.dispatch(setLoading(true));
-      expect(selectApprovalsLoading(store.getState() as any)).toBe(true);
+      expect(selectApprovalsLoading(store.getState())).toBe(true);
     });
 
     it("sets loading back to false", () => {
       const store = makeStore();
       store.dispatch(setLoading(true));
       store.dispatch(setLoading(false));
-      expect(selectApprovalsLoading(store.getState() as any)).toBe(false);
+      expect(selectApprovalsLoading(store.getState())).toBe(false);
     });
   });
 
@@ -102,14 +106,14 @@ describe("approvalsSlice", () => {
     it("stores an error message", () => {
       const store = makeStore();
       store.dispatch(setError("fetch failed"));
-      expect(selectApprovalsError(store.getState() as any)).toBe("fetch failed");
+      expect(selectApprovalsError(store.getState())).toBe("fetch failed");
     });
 
     it("clears the error with null", () => {
       const store = makeStore();
       store.dispatch(setError("some error"));
       store.dispatch(setError(null));
-      expect(selectApprovalsError(store.getState() as any)).toBeNull();
+      expect(selectApprovalsError(store.getState())).toBeNull();
     });
   });
 
@@ -121,11 +125,11 @@ describe("approvalsSlice", () => {
 
       // Simulate optimistic remove
       store.dispatch(removeApproval("a1"));
-      expect(selectApprovals(store.getState() as any)).toHaveLength(1);
+      expect(selectApprovals(store.getState())).toHaveLength(1);
 
       // Simulate rollback (API failed, re-fetch restored original list)
       store.dispatch(setApprovals(initial));
-      expect(selectApprovals(store.getState() as any)).toHaveLength(2);
+      expect(selectApprovals(store.getState())).toHaveLength(2);
     });
   });
 });

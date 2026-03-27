@@ -10,7 +10,7 @@ import {
   ResolveApprovalRequest,
 } from "@/gen/session/v1/session_pb";
 import { getApiBaseUrl } from "@/lib/config";
-import { useAppDispatch, useAppSelector } from "@/lib/store/store";
+import { useAppDispatch, useAppSelector } from "@/lib/store";
 import {
   setApprovals,
   setLoading,

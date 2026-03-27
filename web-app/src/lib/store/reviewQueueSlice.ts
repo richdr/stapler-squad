@@ -52,16 +52,23 @@ const reviewQueueSlice = createSlice({
       state.error = action.payload;
     },
     removeItem(state, action: PayloadAction<string>) {
-      if (state.reviewQueue) {
-        state.reviewQueue = new ReviewQueue({
+      if (!state.reviewQueue) return;
+      // Explicit return bypasses Immer's proxy so we never ask Immer to draft
+      // a protobuf class instance (which has non-enumerable internal fields).
+      return {
+        ...state,
+        reviewQueue: new ReviewQueue({
           ...state.reviewQueue,
           items: (state.reviewQueue.items ?? []).filter(
             (item) => item.sessionId !== action.payload
           ),
           totalItems: Math.max(0, state.reviewQueue.totalItems - 1),
-        });
-        state.stats.totalItems = Math.max(0, state.stats.totalItems - 1);
-      }
+        }),
+        stats: {
+          ...state.stats,
+          totalItems: Math.max(0, state.stats.totalItems - 1),
+        },
+      };
     },
   },
 });

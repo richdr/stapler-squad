@@ -18,7 +18,7 @@ import {
   AcknowledgeSessionRequest
 } from "@/gen/session/v1/session_pb";
 import { SessionEvent, ReviewQueueEvent } from "@/gen/session/v1/events_pb";
-import { useAppDispatch, useAppSelector } from "@/lib/store/store";
+import { useAppDispatch, useAppSelector } from "@/lib/store";
 import {
   setReviewQueue as setReviewQueueAction,
   removeItem,

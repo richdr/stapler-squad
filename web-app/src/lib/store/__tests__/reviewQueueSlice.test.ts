@@ -1,4 +1,6 @@
 import { configureStore } from "@reduxjs/toolkit";
+import approvalsReducer from "../approvalsSlice";
+import sessionsReducer from "../sessionsSlice";
 import reviewQueueReducer, {
   setReviewQueue,
   setReviewQueueStats,
@@ -15,7 +17,7 @@ import { ReviewQueue, ReviewItem } from "@/gen/session/v1/types_pb";
 
 function makeStore() {
   return configureStore({
-    reducer: { reviewQueue: reviewQueueReducer },
+    reducer: { approvals: approvalsReducer, reviewQueue: reviewQueueReducer, sessions: sessionsReducer },
     middleware: (getDefault) => getDefault({ serializableCheck: false }),
   });
 }
@@ -65,7 +67,7 @@ describe("reviewQueueSlice", () => {
       const store = makeStore();
       store.dispatch(setReviewQueue(makeQueue([makeReviewItem("old")])));
       store.dispatch(setReviewQueue(makeQueue([makeReviewItem("new1"), makeReviewItem("new2")])));
-      expect(selectReviewQueueItems(store.getState() as any)).toHaveLength(2);
+      expect(selectReviewQueueItems(store.getState())).toHaveLength(2);
     });
   });
 
@@ -76,7 +78,7 @@ describe("reviewQueueSlice", () => {
         setReviewQueue(makeQueue([makeReviewItem("s1"), makeReviewItem("s2"), makeReviewItem("s3")]))
       );
       store.dispatch(removeItem("s2"));
-      const items = selectReviewQueueItems(store.getState() as any);
+      const items = selectReviewQueueItems(store.getState());
       expect(items).toHaveLength(2);
       expect(items.map((i) => i.sessionId)).toEqual(["s1", "s3"]);
     });
@@ -106,14 +108,14 @@ describe("reviewQueueSlice", () => {
       const store = makeStore();
       // queue is null, should not throw
       expect(() => store.dispatch(removeItem("s1"))).not.toThrow();
-      expect(selectReviewQueue(store.getState() as any)).toBeNull();
+      expect(selectReviewQueue(store.getState())).toBeNull();
     });
 
     it("is a no-op when sessionId does not match any item", () => {
       const store = makeStore();
       store.dispatch(setReviewQueue(makeQueue([makeReviewItem("s1")])));
       store.dispatch(removeItem("nonexistent"));
-      expect(selectReviewQueueItems(store.getState() as any)).toHaveLength(1);
+      expect(selectReviewQueueItems(store.getState())).toHaveLength(1);
     });
   });
 
@@ -129,7 +131,7 @@ describe("reviewQueueSlice", () => {
         oldestAgeSeconds: "300",
       };
       store.dispatch(setReviewQueueStats(newStats));
-      expect(selectReviewQueueStats(store.getState() as any)).toEqual(newStats);
+      expect(selectReviewQueueStats(store.getState())).toEqual(newStats);
     });
   });
 
@@ -137,17 +139,17 @@ describe("reviewQueueSlice", () => {
     it("toggles loading", () => {
       const store = makeStore();
       store.dispatch(setLoading(true));
-      expect(selectReviewQueueLoading(store.getState() as any)).toBe(true);
+      expect(selectReviewQueueLoading(store.getState())).toBe(true);
       store.dispatch(setLoading(false));
-      expect(selectReviewQueueLoading(store.getState() as any)).toBe(false);
+      expect(selectReviewQueueLoading(store.getState())).toBe(false);
     });
 
     it("sets and clears error", () => {
       const store = makeStore();
       store.dispatch(setError("network error"));
-      expect(selectReviewQueueError(store.getState() as any)).toBe("network error");
+      expect(selectReviewQueueError(store.getState())).toBe("network error");
       store.dispatch(setError(null));
-      expect(selectReviewQueueError(store.getState() as any)).toBeNull();
+      expect(selectReviewQueueError(store.getState())).toBeNull();
     });
   });
 
@@ -158,12 +160,12 @@ describe("reviewQueueSlice", () => {
       store.dispatch(setReviewQueue(original));
 
       store.dispatch(removeItem("s1"));
-      expect(selectReviewQueueItems(store.getState() as any)).toHaveLength(1);
+      expect(selectReviewQueueItems(store.getState())).toHaveLength(1);
 
       // Rollback: re-fetch restored the original
       store.dispatch(setReviewQueue(original));
-      expect(selectReviewQueueItems(store.getState() as any)).toHaveLength(2);
-      expect(selectReviewQueueStats(store.getState() as any).totalItems).toBe(2);
+      expect(selectReviewQueueItems(store.getState())).toHaveLength(2);
+      expect(selectReviewQueueStats(store.getState()).totalItems).toBe(2);
     });
   });
 });
