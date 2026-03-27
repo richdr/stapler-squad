@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useCallback, useRef } from "react";
+import { useEffect, useCallback, useRef, useMemo } from "react";
 import { createPromiseClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 import { SessionService } from "@/gen/session/v1/session_connect";
@@ -21,6 +21,7 @@ import { SessionEvent, ReviewQueueEvent } from "@/gen/session/v1/events_pb";
 import { useAppDispatch, useAppSelector } from "@/lib/store/store";
 import {
   setReviewQueue as setReviewQueueAction,
+  removeItem,
   setLoading,
   setError,
   selectReviewQueue,
@@ -224,41 +225,29 @@ export function useReviewQueue(
   useEffect(() => {
     handleReviewQueueEventRef.current = (event: ReviewQueueEvent) => {
       switch (event.event.case) {
-        case "itemAdded": {
-          const item = event.event.value.item;
-          if (!item) break;
-
-          // Add item to queue immediately (optimistic update), deduplicating by sessionId.
-          // We need to read current state and dispatch the full updated queue since
-          // the review queue is stored as a single object in Redux.
-          // Use a thunk-like pattern via dispatch with the full review queue.
-          dispatch(setReviewQueueAction(null)); // Will be handled by the store getter
-          // Instead, we do a functional update approach through a custom action.
-          // For now, trigger a refresh to keep things simple during the migration.
-          // The WebSocket event handling still works -- it just triggers a full re-fetch
-          // rather than an in-place mutation. This is acceptable for Phase 1.
+        case "itemAdded":
+        case "itemRemoved":
+        case "itemUpdated":
+          // For Phase 1 of the RTK migration, incremental WebSocket events trigger
+          // a full re-fetch rather than in-place mutation. This preserves existing
+          // behaviour (the original code used setState functional updaters to mutate
+          // the queue in place, but those patterns don't map cleanly to a shared
+          // Redux store without a normalised item entity adapter).
+          // The 30-second fallback poll is the safety net if the WS stream fires
+          // between refresh calls.
+          refreshRef.current();
           break;
-        }
 
-        case "itemRemoved": {
-          // Same approach -- events trigger refresh for Phase 1
+        case "statistics":
+          // Statistics events are lightweight — handled by the fallback poll.
           break;
-        }
-
-        case "itemUpdated": {
-          break;
-        }
-
-        case "statistics": {
-          break;
-        }
 
         default:
           break;
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dispatch]);
+  }, []);
 
   // Setup WebSocket push updates with dedicated WatchReviewQueue stream
   useEffect(() => {
@@ -364,18 +353,9 @@ export function useReviewQueue(
     async (sessionId: string) => {
       if (!clientRef.current) return;
 
-      // Optimistic update - remove immediately from UI
-      // We dispatch the full updated queue rather than a partial update
-      if (reviewQueue) {
-        const newItems = (reviewQueue.items ?? []).filter(
-          (item) => item.sessionId !== sessionId
-        );
-        dispatch(setReviewQueueAction(new ReviewQueue({
-          ...reviewQueue,
-          items: newItems,
-          totalItems: Math.max(0, reviewQueue.totalItems - 1),
-        })));
-      }
+      // Optimistic update via slice action — no closure dependency on reviewQueue.
+      // The removeItem reducer handles the filter + totalItems decrement internally.
+      dispatch(removeItem(sessionId));
 
       try {
         const request = new AcknowledgeSessionRequest({ id: sessionId });
@@ -394,7 +374,7 @@ export function useReviewQueue(
         await refresh();
       }
     },
-    [refresh, dispatch, reviewQueue]
+    [refresh, dispatch]
   );
 
   // Extract statistics from review queue
@@ -417,8 +397,9 @@ export function useReviewQueue(
     oldestAgeSeconds: reviewQueue?.oldestAgeSeconds ?? BigInt(0),
   };
 
-  // Convert error string back to Error object for backward compatibility
-  const error = errorStr ? new Error(errorStr) : null;
+  // Convert error string back to Error object for backward compatibility.
+  // Memoised so the Error identity stays stable across renders.
+  const error = useMemo(() => (errorStr ? new Error(errorStr) : null), [errorStr]);
 
   return {
     reviewQueue,

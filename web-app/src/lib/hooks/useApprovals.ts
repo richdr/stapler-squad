@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useCallback, useRef } from "react";
+import { useEffect, useCallback, useRef, useMemo } from "react";
 import { createPromiseClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 import { SessionService } from "@/gen/session/v1/session_connect";
@@ -191,8 +191,9 @@ export function useApprovals(
     [refresh, dispatch]
   );
 
-  // Convert error string back to Error object for backward compatibility
-  const error = errorStr ? new Error(errorStr) : null;
+  // Convert error string back to Error object for backward compatibility.
+  // Memoised so the Error identity stays stable across renders.
+  const error = useMemo(() => (errorStr ? new Error(errorStr) : null), [errorStr]);
 
   return {
     approvals,

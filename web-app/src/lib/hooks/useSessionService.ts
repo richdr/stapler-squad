@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useCallback, useRef } from "react";
+import { useEffect, useCallback, useRef, useMemo } from "react";
 import { createPromiseClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 import { SessionService } from "@/gen/session/v1/session_connect";
@@ -18,6 +18,7 @@ import {
   removeSession,
   setLoading,
   setError,
+  updateSessionStatus,
   selectAllSessions,
   selectSessionsLoading,
   selectSessionsError,
@@ -328,16 +329,10 @@ export function useSessionService(
       }
       case "statusChanged": {
         const { sessionId, newStatus } = event.event.value;
-        // For status changes, we need to find and update the existing session.
-        // We read from the current store state via a ref to avoid stale closures.
-        // The entity adapter's upsertOne with a cloned + mutated session is the
-        // cleanest approach.
-        const existing = sessions.find((s) => s.id === sessionId);
-        if (existing) {
-          const updated = existing.clone();
-          updated.status = newStatus;
-          dispatch(upsertSession(updated));
-        }
+        // Dispatch into the reducer where state is always current.
+        // This avoids capturing `sessions` in the closure, which would force
+        // handleSessionEvent (and watchSessions) to reconnect on every change.
+        dispatch(updateSessionStatus({ sessionId, newStatus }));
         break;
       }
       case "notification": {
@@ -348,7 +343,7 @@ export function useSessionService(
         break;
       }
     }
-  }, [dispatch, sessions]);
+  }, [dispatch]);
 
   // Watch sessions for real-time updates
   const watchSessions = useCallback(
@@ -413,7 +408,7 @@ export function useSessionService(
   }, [enabled, listSessions]);
 
   // Convert error string back to Error object for backward compatibility
-  const error = errorStr ? new Error(errorStr) : null;
+  const error = useMemo(() => (errorStr ? new Error(errorStr) : null), [errorStr]);
 
   return {
     sessions,

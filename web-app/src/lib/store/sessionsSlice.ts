@@ -1,5 +1,5 @@
 import { createSlice, createEntityAdapter, PayloadAction } from "@reduxjs/toolkit";
-import { Session } from "@/gen/session/v1/types_pb";
+import { Session, SessionStatus } from "@/gen/session/v1/types_pb";
 import type { RootState } from "./store";
 
 const sessionsAdapter = createEntityAdapter<Session, string>({
@@ -35,6 +35,20 @@ const sessionsSlice = createSlice({
     setError(state, action: PayloadAction<string | null>) {
       state.error = action.payload;
     },
+    // Handles statusChanged stream events without requiring a sessions closure.
+    // Runs inside the reducer where state is always current — no stale-closure risk.
+    updateSessionStatus(
+      state,
+      action: PayloadAction<{ sessionId: string; newStatus: SessionStatus }>
+    ) {
+      const { sessionId, newStatus } = action.payload;
+      if (state.entities[sessionId]) {
+        sessionsAdapter.updateOne(state, {
+          id: sessionId,
+          changes: { status: newStatus },
+        });
+      }
+    },
   },
 });
 
@@ -44,6 +58,7 @@ export const {
   removeSession,
   setLoading,
   setError,
+  updateSessionStatus,
 } = sessionsSlice.actions;
 
 // Use the adapter's built-in selectors scoped to the sessions slice

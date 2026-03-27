@@ -1,5 +1,5 @@
 import { createSlice, PayloadAction } from "@reduxjs/toolkit";
-import { ReviewQueue, ReviewItem, Priority, AttentionReason } from "@/gen/session/v1/types_pb";
+import { ReviewQueue } from "@/gen/session/v1/types_pb";
 import type { RootState } from "./store";
 
 interface ReviewQueueStats {
