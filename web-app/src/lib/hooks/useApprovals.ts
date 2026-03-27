@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import { createPromiseClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 import { SessionService } from "@/gen/session/v1/session_connect";
@@ -10,6 +10,16 @@ import {
   ResolveApprovalRequest,
 } from "@/gen/session/v1/session_pb";
 import { getApiBaseUrl } from "@/lib/config";
+import { useAppDispatch, useAppSelector } from "@/lib/store/store";
+import {
+  setApprovals,
+  setLoading,
+  setError,
+  removeApproval,
+  selectApprovals,
+  selectApprovalsLoading,
+  selectApprovalsError,
+} from "@/lib/store/approvalsSlice";
 
 interface UseApprovalsOptions {
   sessionId?: string;
@@ -56,9 +66,10 @@ export function useApprovals(
 ): UseApprovalsReturn {
   const { sessionId, pollInterval = 30000, notificationTrigger } = options;
 
-  const [approvals, setApprovals] = useState<PendingApprovalProto[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
+  const dispatch = useAppDispatch();
+  const approvals = useAppSelector(selectApprovals);
+  const loading = useAppSelector(selectApprovalsLoading);
+  const errorStr = useAppSelector(selectApprovalsError);
 
   const clientRef = useRef<ReturnType<typeof createPromiseClient<typeof SessionService>> | null>(null);
 
@@ -74,8 +85,8 @@ export function useApprovals(
   const fetchApprovals = useCallback(async () => {
     if (!clientRef.current) return;
 
-    setLoading(true);
-    setError(null);
+    dispatch(setLoading(true));
+    dispatch(setError(null));
 
     try {
       const request = new ListPendingApprovalsRequest();
@@ -84,19 +95,19 @@ export function useApprovals(
       }
 
       const response = await clientRef.current.listPendingApprovals(request);
-      setApprovals(response.approvals ?? []);
-      setError(null);
+      dispatch(setApprovals(response.approvals ?? []));
+      dispatch(setError(null));
     } catch (err) {
       const error =
         err instanceof Error
           ? err
           : new Error("Failed to fetch pending approvals");
-      setError(error);
+      dispatch(setError(error.message));
       console.error("Failed to fetch pending approvals:", error);
     } finally {
-      setLoading(false);
+      dispatch(setLoading(false));
     }
-  }, [sessionId]);
+  }, [sessionId, dispatch]);
 
   // Refresh alias
   const refresh = useCallback(async () => {
@@ -129,7 +140,7 @@ export function useApprovals(
       if (!clientRef.current) return;
 
       // Optimistic update - remove from list immediately
-      setApprovals((prev) => prev.filter((a) => a.id !== approvalId));
+      dispatch(removeApproval(approvalId));
 
       try {
         const request = new ResolveApprovalRequest({
@@ -139,14 +150,16 @@ export function useApprovals(
         await clientRef.current.resolveApproval(request);
       } catch (err) {
         console.error("Failed to approve:", err);
-        setError(
-          err instanceof Error ? err : new Error("Failed to approve request")
+        dispatch(
+          setError(
+            err instanceof Error ? err.message : "Failed to approve request"
+          )
         );
         // Rollback - refetch to get correct state
         await refresh();
       }
     },
-    [refresh]
+    [refresh, dispatch]
   );
 
   // Deny a pending approval
@@ -155,7 +168,7 @@ export function useApprovals(
       if (!clientRef.current) return;
 
       // Optimistic update - remove from list immediately
-      setApprovals((prev) => prev.filter((a) => a.id !== approvalId));
+      dispatch(removeApproval(approvalId));
 
       try {
         const request = new ResolveApprovalRequest({
@@ -166,15 +179,20 @@ export function useApprovals(
         await clientRef.current.resolveApproval(request);
       } catch (err) {
         console.error("Failed to deny:", err);
-        setError(
-          err instanceof Error ? err : new Error("Failed to deny request")
+        dispatch(
+          setError(
+            err instanceof Error ? err.message : "Failed to deny request"
+          )
         );
         // Rollback - refetch to get correct state
         await refresh();
       }
     },
-    [refresh]
+    [refresh, dispatch]
   );
+
+  // Convert error string back to Error object for backward compatibility
+  const error = errorStr ? new Error(errorStr) : null;
 
   return {
     approvals,
