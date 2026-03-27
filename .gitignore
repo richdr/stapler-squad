@@ -15,6 +15,9 @@ web/src/gen/
 /web-app/node_modules/
 /.playwright-mcp
 
+# worktrees
+worktrees/
+
 # outputs
 test-results/
 tests/playwright-report/
