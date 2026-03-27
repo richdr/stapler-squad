@@ -12,11 +12,31 @@ export const store = configureStore({
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({
-      // Protobuf message objects (Session, ReviewQueue, PendingApprovalProto)
-      // are class instances with non-serializable internal fields. Disabling
-      // the serializable check is the pragmatic choice here since we are
-      // migrating from useState which had the same objects in state.
-      serializableCheck: false,
+      // @bufbuild/protobuf v1 generates class instances (Session, ReviewQueue,
+      // PendingApprovalProto) with non-enumerable internal fields that fail
+      // Redux's serializable check. Rather than disabling the check globally,
+      // we suppress it only for the specific state paths and actions that hold
+      // protobuf objects. All other state paths retain full serialization
+      // protection.
+      //
+      // Long-term fix: upgrade to @bufbuild/protobuf v2 (+ @connectrpc/connect
+      // v2), where generated messages are plain TypeScript objects with no
+      // prototype chain — fully compatible with Immer and Redux DevTools.
+      serializableCheck: {
+        ignoredPaths: [
+          "sessions.entities",       // Session class instances (entity adapter map)
+          "approvals.approvals",     // PendingApprovalProto[]
+          "reviewQueue.reviewQueue", // ReviewQueue class instance
+        ],
+        ignoredActions: [
+          "sessions/setSessions",
+          "sessions/upsertSession",
+          "sessions/updateSessionStatus",
+          "approvals/setApprovals",
+          "reviewQueue/setReviewQueue",
+          "reviewQueue/removeItem",
+        ],
+      },
     }),
 });
 
