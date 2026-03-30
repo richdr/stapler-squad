@@ -1,5 +1,0 @@
-{
-  "devDependencies": {
-    "@bufbuild/protoc-gen-es": "^2.11.0"
-  }
-}
