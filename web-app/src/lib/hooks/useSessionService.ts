@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useCallback, useRef, useMemo } from "react";
-import { createPromiseClient } from "@connectrpc/connect";
+import { createClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
-import { SessionService } from "@/gen/session/v1/session_connect";
+import { SessionService } from "@/gen/session/v1/session_pb";
 import { Session, SessionStatus, NotificationPriority } from "@/gen/session/v1/types_pb";
 import {
   CreateSessionRequest,
@@ -72,7 +72,7 @@ export function useSessionService(
   const errorStr = useAppSelector(selectSessionsError);
 
   const abortControllerRef = useRef<AbortController | null>(null);
-  const clientRef = useRef<ReturnType<typeof createPromiseClient<typeof SessionService>> | null>(null);
+  const clientRef = useRef<ReturnType<typeof createClient<typeof SessionService>> | null>(null);
 
   // Initialize ConnectRPC client
   useEffect(() => {
@@ -81,7 +81,7 @@ export function useSessionService(
       interceptors: [createAuthInterceptor()],
     });
 
-    clientRef.current = createPromiseClient(SessionService, transport);
+    clientRef.current = createClient(SessionService, transport);
   }, [baseUrl]);
 
   // List sessions with retry logic

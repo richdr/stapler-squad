@@ -1,5 +1,5 @@
 import { createSlice, PayloadAction } from "@reduxjs/toolkit";
-import { ReviewQueue } from "@/gen/session/v1/types_pb";
+import type { ReviewQueue } from "@/gen/session/v1/types_pb";
 import type { RootState } from "./store";
 
 interface ReviewQueueStats {
@@ -53,22 +53,12 @@ const reviewQueueSlice = createSlice({
     },
     removeItem(state, action: PayloadAction<string>) {
       if (!state.reviewQueue) return;
-      // Explicit return bypasses Immer's proxy so we never ask Immer to draft
-      // a protobuf class instance (which has non-enumerable internal fields).
-      return {
-        ...state,
-        reviewQueue: new ReviewQueue({
-          ...state.reviewQueue,
-          items: (state.reviewQueue.items ?? []).filter(
-            (item) => item.sessionId !== action.payload
-          ),
-          totalItems: Math.max(0, state.reviewQueue.totalItems - 1),
-        }),
-        stats: {
-          ...state.stats,
-          totalItems: Math.max(0, state.stats.totalItems - 1),
-        },
-      };
+      state.reviewQueue.items = (state.reviewQueue.items ?? []).filter(
+        (item) => item.sessionId !== action.payload
+      );
+      const newTotal = Math.max(0, state.reviewQueue.totalItems - 1);
+      state.reviewQueue.totalItems = newTotal;
+      state.stats.totalItems = Math.max(0, state.stats.totalItems - 1);
     },
   },
 });

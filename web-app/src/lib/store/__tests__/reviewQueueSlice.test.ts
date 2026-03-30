@@ -13,7 +13,8 @@ import reviewQueueReducer, {
   selectReviewQueueLoading,
   selectReviewQueueError,
 } from "../reviewQueueSlice";
-import { ReviewQueue, ReviewItem } from "@/gen/session/v1/types_pb";
+import { ReviewQueue, ReviewItem, ReviewItemSchema, ReviewQueueSchema } from "@/gen/session/v1/types_pb";
+import { create } from "@bufbuild/protobuf";
 
 function makeStore() {
   return configureStore({
@@ -23,11 +24,11 @@ function makeStore() {
 }
 
 function makeReviewItem(sessionId: string): ReviewItem {
-  return new ReviewItem({ sessionId });
+  return create(ReviewItemSchema, { sessionId });
 }
 
 function makeQueue(items: ReviewItem[]): ReviewQueue {
-  return new ReviewQueue({ items, totalItems: items.length });
+  return create(ReviewQueueSchema, { items, totalItems: items.length });
 }
 
 describe("reviewQueueSlice", () => {

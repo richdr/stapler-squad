@@ -10,7 +10,8 @@ import approvalsReducer, {
 } from "../approvalsSlice";
 import reviewQueueReducer from "../reviewQueueSlice";
 import sessionsReducer from "../sessionsSlice";
-import { PendingApprovalProto } from "@/gen/session/v1/types_pb";
+import { PendingApprovalProto, PendingApprovalProtoSchema } from "@/gen/session/v1/types_pb";
+import { create } from "@bufbuild/protobuf";
 
 // Mirror the real store shape so selectors receive the correct RootState type
 // without needing `as any` casts. A fresh instance per-test prevents state leakage.
@@ -22,7 +23,7 @@ function makeStore() {
 }
 
 function makeApproval(id: string): PendingApprovalProto {
-  return new PendingApprovalProto({ id, sessionId: `session-${id}` });
+  return create(PendingApprovalProtoSchema, { id, sessionId: `session-${id}` });
 }
 
 describe("approvalsSlice", () => {

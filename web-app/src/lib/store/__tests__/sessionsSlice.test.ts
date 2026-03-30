@@ -14,7 +14,8 @@ import sessionsReducer, {
   selectSessionsLoading,
   selectSessionsError,
 } from "../sessionsSlice";
-import { Session } from "@/gen/session/v1/types_pb";
+import { Session, SessionSchema } from "@/gen/session/v1/types_pb";
+import { create } from "@bufbuild/protobuf";
 
 function makeStore() {
   return configureStore({
@@ -24,7 +25,7 @@ function makeStore() {
 }
 
 function makeSession(id: string, title = `Session ${id}`): Session {
-  return new Session({ id, title });
+  return create(SessionSchema, { id, title });
 }
 
 describe("sessionsSlice", () => {

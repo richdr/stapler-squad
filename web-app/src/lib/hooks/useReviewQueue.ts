@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useCallback, useRef, useMemo } from "react";
-import { createPromiseClient } from "@connectrpc/connect";
+import { createClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
-import { SessionService } from "@/gen/session/v1/session_connect";
+import { SessionService } from "@/gen/session/v1/session_pb";
 import { getApiBaseUrl, createAuthInterceptor } from "@/lib/config";
 import {
   ReviewQueue,
@@ -14,9 +14,13 @@ import {
 } from "@/gen/session/v1/types_pb";
 import {
   GetReviewQueueRequest,
+  GetReviewQueueRequestSchema,
   WatchReviewQueueRequest,
-  AcknowledgeSessionRequest
+  WatchReviewQueueRequestSchema,
+  AcknowledgeSessionRequest,
+  AcknowledgeSessionRequestSchema,
 } from "@/gen/session/v1/session_pb";
+import { create } from "@bufbuild/protobuf";
 import { SessionEvent, ReviewQueueEvent } from "@/gen/session/v1/events_pb";
 import { useAppDispatch, useAppSelector } from "@/lib/store";
 import {
@@ -112,7 +116,7 @@ export function useReviewQueue(
   const loading = useAppSelector(selectReviewQueueLoading);
   const errorStr = useAppSelector(selectReviewQueueError);
 
-  const clientRef = useRef<ReturnType<typeof createPromiseClient<typeof SessionService>> | null>(null);
+  const clientRef = useRef<ReturnType<typeof createClient<typeof SessionService>> | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const lastUpdateRef = useRef<number>(Date.now());
@@ -124,7 +128,7 @@ export function useReviewQueue(
       interceptors: [createAuthInterceptor()],
     });
 
-    clientRef.current = createPromiseClient(SessionService, transport);
+    clientRef.current = createClient(SessionService, transport);
   }, [baseUrl]);
 
   // Fetch review queue with optional filters
@@ -139,7 +143,7 @@ export function useReviewQueue(
       dispatch(setError(null));
 
       try {
-        const request = new GetReviewQueueRequest();
+        const request = create(GetReviewQueueRequestSchema, {});
 
         // Apply filters if provided
         if (filters?.priorityFilter !== undefined) {
@@ -262,7 +266,7 @@ export function useReviewQueue(
 
     (async () => {
       try {
-        const request = new WatchReviewQueueRequest({
+        const request = create(WatchReviewQueueRequestSchema, {
           // Apply current filters
           priorityFilter: priorityFilter !== undefined ? [priorityFilter] : [],
           reasonFilter: reasonFilter !== undefined ? [reasonFilter] : [],
@@ -358,7 +362,7 @@ export function useReviewQueue(
       dispatch(removeItem(sessionId));
 
       try {
-        const request = new AcknowledgeSessionRequest({ id: sessionId });
+        const request = create(AcknowledgeSessionRequestSchema, { id: sessionId });
         await clientRef.current.acknowledgeSession(request);
         // Success - optimistic update was correct
       } catch (err) {

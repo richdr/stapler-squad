@@ -1,14 +1,17 @@
 "use client";
 
 import { useEffect, useCallback, useRef, useMemo } from "react";
-import { createPromiseClient } from "@connectrpc/connect";
+import { createClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
-import { SessionService } from "@/gen/session/v1/session_connect";
+import { SessionService } from "@/gen/session/v1/session_pb";
 import { PendingApprovalProto } from "@/gen/session/v1/types_pb";
 import {
   ListPendingApprovalsRequest,
+  ListPendingApprovalsRequestSchema,
   ResolveApprovalRequest,
+  ResolveApprovalRequestSchema,
 } from "@/gen/session/v1/session_pb";
+import { create } from "@bufbuild/protobuf";
 import { getApiBaseUrl } from "@/lib/config";
 import { useAppDispatch, useAppSelector } from "@/lib/store";
 import {
@@ -71,14 +74,14 @@ export function useApprovals(
   const loading = useAppSelector(selectApprovalsLoading);
   const errorStr = useAppSelector(selectApprovalsError);
 
-  const clientRef = useRef<ReturnType<typeof createPromiseClient<typeof SessionService>> | null>(null);
+  const clientRef = useRef<ReturnType<typeof createClient<typeof SessionService>> | null>(null);
 
   // Initialize ConnectRPC client
   useEffect(() => {
     const transport = createConnectTransport({
       baseUrl: getApiBaseUrl(),
     });
-    clientRef.current = createPromiseClient(SessionService, transport);
+    clientRef.current = createClient(SessionService, transport);
   }, []);
 
   // Fetch pending approvals
@@ -89,7 +92,7 @@ export function useApprovals(
     dispatch(setError(null));
 
     try {
-      const request = new ListPendingApprovalsRequest();
+      const request = create(ListPendingApprovalsRequestSchema, {});
       if (sessionId !== undefined) {
         request.sessionId = sessionId;
       }
@@ -143,7 +146,7 @@ export function useApprovals(
       dispatch(removeApproval(approvalId));
 
       try {
-        const request = new ResolveApprovalRequest({
+        const request = create(ResolveApprovalRequestSchema, {
           approvalId,
           decision: "allow",
         });
@@ -171,7 +174,7 @@ export function useApprovals(
       dispatch(removeApproval(approvalId));
 
       try {
-        const request = new ResolveApprovalRequest({
+        const request = create(ResolveApprovalRequestSchema, {
           approvalId,
           decision: "deny",
           message,
