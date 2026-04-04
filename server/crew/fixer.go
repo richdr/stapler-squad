@@ -140,8 +140,8 @@ func (f *Fixer) spawnLookout(item *session.ReviewItem) {
 
 	cfg := LookoutConfig{
 		SessionID:  item.SessionID,
-		GoingDark:  autonomousMode,
-		MaxRetries: 3,
+		GoingDark:  autonomousMode, // mirrors session.Instance.AutonomousMode
+		MaxRetries: defaultMaxRetries,
 		WorkingDir: workingDir,
 		Program:    item.Program,
 	}

@@ -58,11 +58,17 @@ type LookoutResult struct {
 	Error      error
 }
 
+// defaultMaxRetries is the default number of correction attempts before escalating.
+const defaultMaxRetries = 3
+
 // LookoutConfig holds the configuration needed to create a Lookout.
 type LookoutConfig struct {
-	SessionID  string
-	GoingDark  bool   // true = Earpiece enabled; false = Supervised mode
-	MaxRetries int    // Default 3
+	SessionID string
+	// GoingDark mirrors session.Instance.AutonomousMode — set true to enable
+	// automatic Earpiece correction prompt injection. When false (supervised
+	// mode), sweep failures are surfaced for human review without injection.
+	GoingDark  bool
+	MaxRetries int    // Default defaultMaxRetries
 	WorkingDir string // Session working directory for Sweep
 	Program    string // Program name (for logging)
 }
@@ -81,7 +87,7 @@ type Lookout struct {
 	failureHashes map[string]bool // for oscillation detection
 
 	// Channels for event/sweep delivery
-	taskCompleteCh chan string       // receives session ID on TaskComplete event
+	taskCompleteCh chan struct{}     // signalled on TaskComplete event
 	sweepResultCh  chan *SweepResult // receives async sweep results
 	earpieceCh     chan *SweepResult // signals Fixer to inject earpiece correction prompt
 
@@ -101,14 +107,14 @@ type Lookout struct {
 // Lookout uses to report its final result to the Fixer.
 func NewLookout(parentCtx context.Context, cfg LookoutConfig, doneCh chan<- LookoutResult) *Lookout {
 	if cfg.MaxRetries <= 0 {
-		cfg.MaxRetries = 3
+		cfg.MaxRetries = defaultMaxRetries
 	}
 	ctx, cancel := context.WithCancel(parentCtx)
 	return &Lookout{
 		cfg:            cfg,
 		state:          LookoutIdle,
 		failureHashes:  make(map[string]bool),
-		taskCompleteCh: make(chan string, 1),
+		taskCompleteCh: make(chan struct{}, 1),
 		sweepResultCh:  make(chan *SweepResult, 1),
 		earpieceCh:     make(chan *SweepResult, 1),
 		doneCh:         doneCh,
@@ -135,7 +141,7 @@ func (l *Lookout) setState(s LookoutState) {
 // Called by the Fixer's ReviewQueueObserver. Non-blocking (buffered channel).
 func (l *Lookout) OnTaskComplete() {
 	select {
-	case l.taskCompleteCh <- l.cfg.SessionID:
+	case l.taskCompleteCh <- struct{}{}:
 	default:
 		// Already queued, ignore duplicate
 	}
@@ -164,12 +170,16 @@ func (l *Lookout) EarpieceCh() <-chan *SweepResult {
 
 // run is the Lookout's main goroutine implementing the state machine:
 //
-//	Idle -> Sweeping          (on taskCompleteCh signal)
-//	Sweeping -> Idle          (sweep passed; sends LookoutResult to doneCh)
-//	Sweeping -> AwaitingRetry (sweep failed, retryCount < maxRetries)
-//	Sweeping -> Fallen        (sweep failed, retryCount >= maxRetries OR oscillation)
-//	AwaitingRetry -> Idle     (after backoff; increments retryCount)
+//	Idle -> Sweeping           (on taskCompleteCh signal)
+//	Sweeping -> Idle           (sweep passed; sends LookoutResult to doneCh)
+//	Sweeping -> AwaitingRetry  (sweep failed, retryCount < maxRetries)
+//	Sweeping -> Fallen         (sweep failed, retryCount >= maxRetries OR oscillation)
+//	AwaitingRetry -> Sweeping  (after backoff; increments retryCount)
 //	Fallen -> (stays until ctx.Done)
+//
+// Note: LookoutActive is declared but not used in the current retry loop.
+// AwaitingRetry transitions directly to Sweeping (not through Active) because
+// a new TaskComplete signal is not required to re-run the sweep after a correction.
 func (l *Lookout) run() {
 	defer func() {
 		if r := recover(); r != nil {
@@ -184,14 +194,18 @@ func (l *Lookout) run() {
 			select {
 			case <-l.ctx.Done():
 				return
-			case sessionID := <-l.taskCompleteCh:
-				_ = sessionID
+			case <-l.taskCompleteCh:
 				l.handleTaskComplete()
 			}
 
 		case LookoutSweeping:
 			// Launch sweep as a sub-goroutine; result delivered to sweepResultCh.
-			go l.runSweepAsync()
+			// Track it in l.wg so Stop() waits for any in-flight sweep to finish.
+			l.wg.Add(1)
+			go func() {
+				defer l.wg.Done()
+				l.runSweepAsync()
+			}()
 			select {
 			case <-l.ctx.Done():
 				return
@@ -255,7 +269,7 @@ func (l *Lookout) runSweepAsync() {
 
 	runner, err := DetectTestRunner(l.cfg.WorkingDir)
 	if err != nil || runner == nil {
-		log.InfoLog.Printf("[Lookout:%s] No test runner detected (err=%v)", l.cfg.SessionID, err)
+		log.WarningLog.Printf("[Lookout:%s] No test runner detected in %s (err=%v)", l.cfg.SessionID, l.cfg.WorkingDir, err)
 		select {
 		case l.sweepResultCh <- &SweepResult{Status: SweepStatusNoTestsFound}:
 		default:
@@ -274,7 +288,7 @@ func (l *Lookout) runSweepAsync() {
 		return
 	}
 
-	diffSummary, _ := CollectDiffSummary(l.cfg.WorkingDir)
+	diffSummary, _ := CollectDiffSummary(l.ctx, l.cfg.WorkingDir)
 	result.DiffSummary = diffSummary
 	select {
 	case l.sweepResultCh <- result:
@@ -302,7 +316,7 @@ func (l *Lookout) handleSweepResult(result *SweepResult) {
 		l.retryCount = 0
 		l.mu.Unlock()
 
-		log.InfoLog.Printf("[Lookout:%s] Sweep passed (status=%d), delivering score to Fixer",
+		log.InfoLog.Printf("[Lookout:%s] Sweep passed (status=%s), delivering score to Fixer",
 			l.cfg.SessionID, result.Status)
 
 		// Non-blocking send to doneCh so the run loop does not deadlock if nobody
@@ -326,7 +340,7 @@ func (l *Lookout) handleSweepResult(result *SweepResult) {
 		maxRetries := l.cfg.MaxRetries
 		l.mu.RUnlock()
 
-		log.InfoLog.Printf("[Lookout:%s] Sweep failed (status=%d, attempt=%d/%d)",
+		log.InfoLog.Printf("[Lookout:%s] Sweep failed (status=%s, attempt=%d/%d)",
 			l.cfg.SessionID, result.Status, retries, maxRetries)
 
 		if retries >= maxRetries {
@@ -389,7 +403,7 @@ func (l *Lookout) handleSweepResult(result *SweepResult) {
 			select {
 			case l.earpieceCh <- result:
 			default:
-				// Channel full -- Fixer will pick it up on next read.
+				// Channel full -- correction prompt dropped for this attempt.
 			}
 		} else {
 			log.DebugLog.Printf("[Lookout:%s] Supervised mode: skip earpiece injection (GoingDark=false)", l.cfg.SessionID)

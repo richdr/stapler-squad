@@ -101,12 +101,14 @@ export function ReviewQueuePanel({
     }
   }, [items, onItemsChange]);
 
-  // Track if queue ever had items (for "all done" vs generic empty state)
+  // Track if queue ever had items (for "all done" vs generic empty state).
+  // Uses totalItems (unfiltered) so an active filter showing 0 results doesn't
+  // falsely trigger the completion state while items still exist in the queue.
   useEffect(() => {
-    if (items.length > 0) {
+    if (totalItems > 0) {
       setHadItems(true);
     }
-  }, [items.length]);
+  }, [totalItems]);
 
   // Update live announcement for screen readers when queue changes
   useEffect(() => {
@@ -179,6 +181,10 @@ export function ReviewQueuePanel({
         return "Stale";
       case AttentionReason.TESTS_FAILING:
         return "Tests Failing";
+      case AttentionReason.UNCOMMITTED_CHANGES:
+        return "Uncommitted";
+      case AttentionReason.WAITING_FOR_USER:
+        return "Waiting";
       default:
         return "All";
     }
@@ -297,6 +303,8 @@ export function ReviewQueuePanel({
               AttentionReason.STALE,
               AttentionReason.TASK_COMPLETE,
               AttentionReason.TESTS_FAILING,
+              AttentionReason.UNCOMMITTED_CHANGES,
+              AttentionReason.WAITING_FOR_USER,
             ].map((reason) => {
               const count = byReason.get(reason) ?? 0;
               return (
@@ -319,7 +327,7 @@ export function ReviewQueuePanel({
         {loading && items.length === 0 ? (
           <div className={styles.loading}>Loading review queue...</div>
         ) : items.length === 0 ? (
-          hadItems ? (
+          hadItems && totalItems === 0 ? (
             <div className={`${styles.empty} ${styles.completionState}`}>
               <p className={styles.completionIcon}>[✓]</p>
               <p>All done! 0 items remaining.</p>

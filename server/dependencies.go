@@ -2,6 +2,7 @@ package server
 
 import (
 	"github.com/tstapler/stapler-squad/log"
+	"github.com/tstapler/stapler-squad/server/crew"
 	"github.com/tstapler/stapler-squad/server/events"
 	"github.com/tstapler/stapler-squad/server/services"
 	"github.com/tstapler/stapler-squad/session"
@@ -28,6 +29,7 @@ type ServerDependencies struct {
 	TmuxStreamerManager     *session.ExternalTmuxStreamerManager
 	ExternalDiscovery       *session.ExternalSessionDiscovery
 	ExternalApprovalMonitor *session.ExternalApprovalMonitor
+	Fixer                   *crew.Fixer // Crew Autonomy supervisor
 }
 
 // BuildDependencies constructs and wires all server dependencies in the correct order.
@@ -71,6 +73,7 @@ func BuildDependencies() (*ServerDependencies, error) {
 		TmuxStreamerManager:     rt.TmuxStreamerManager,
 		ExternalDiscovery:       rt.ExternalDiscovery,
 		ExternalApprovalMonitor: rt.ExternalApprovalMonitor,
+		Fixer:                   rt.Fixer,
 	}, nil
 }
 
@@ -337,6 +340,7 @@ type RuntimeDeps struct {
 	TmuxStreamerManager     *session.ExternalTmuxStreamerManager
 	ExternalDiscovery       *session.ExternalSessionDiscovery
 	ExternalApprovalMonitor *session.ExternalApprovalMonitor
+	Fixer                   *crew.Fixer // Crew Autonomy supervisor
 }
 
 // BuildRuntimeDeps constructs Phase 3 dependencies using Phase 2 outputs.
@@ -511,6 +515,10 @@ func BuildRuntimeDeps(svc *ServiceDeps) (*RuntimeDeps, error) {
 	// (moved from server.go to keep all dependency wiring in BuildRuntimeDeps)
 	sessionService.SetExternalDiscovery(externalDiscovery)
 
+	// Crew Autonomy supervisor: subscribes to ReviewQueue and manages Lookout goroutines.
+	// Start() is deferred to NewServer so it receives a cancellable context.
+	fixer := crew.NewFixer(reviewQueue, reviewQueuePoller, nil)
+
 	return &RuntimeDeps{
 		ServiceDeps:             svc,
 		Instances:               instances,
@@ -519,5 +527,6 @@ func BuildRuntimeDeps(svc *ServiceDeps) (*RuntimeDeps, error) {
 		TmuxStreamerManager:     tmuxStreamerManager,
 		ExternalDiscovery:       externalDiscovery,
 		ExternalApprovalMonitor: externalApprovalMonitor,
+		Fixer:                   fixer,
 	}, nil
 }

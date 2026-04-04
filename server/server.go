@@ -81,6 +81,10 @@ func NewServer(addr string) *Server {
 		go deps.ReactiveQueueMgr.Start(serverCtx)
 		log.InfoLog.Printf("ReactiveQueueManager started")
 
+		// Start Crew Autonomy supervisor (Fixer subscribes to ReviewQueue).
+		deps.Fixer.Start(serverCtx)
+		log.InfoLog.Printf("[Fixer] started")
+
 		// Initialize notification history store and EventBus subscriber.
 		// notifStore is declared here so it can be wired into the approval handler below.
 		var notifStore *notifications.NotificationHistoryStore

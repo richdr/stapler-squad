@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tstapler/stapler-squad/log"
 	"github.com/tstapler/stapler-squad/session/queue"
 )
 
@@ -206,6 +207,10 @@ func RunSweep(ctx context.Context, dir string, runner *TestRunner) (*SweepResult
 	timeoutCtx, cancel := context.WithTimeout(ctx, runner.Timeout)
 	defer cancel()
 
+	// Run via sh so multi-word commands ("go test ./...", "npm test") and
+	// shell builtins used in tests work without special-casing. The command
+	// string always comes from DetectTestRunner (our own code), never from
+	// user-controlled input, so sh injection is not a risk here.
 	cmd := exec.CommandContext(timeoutCtx, "sh", "-c", runner.Command)
 	cmd.Dir = dir
 
@@ -291,7 +296,11 @@ func parseFailingTests(output, ecosystem string) []string {
 			line = strings.TrimSpace(line)
 			if strings.HasPrefix(line, "✕ ") || strings.HasPrefix(line, "× ") ||
 				strings.HasPrefix(line, "FAIL ") || strings.Contains(line, "● ") {
-				failing = append(failing, strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(line, "✕ "), "× "), "FAIL ")))
+				name := line
+				for _, pfx := range []string{"✕ ", "× ", "FAIL "} {
+					name = strings.TrimPrefix(name, pfx)
+				}
+				failing = append(failing, strings.TrimSpace(name))
 			}
 		}
 	case "python":
@@ -334,9 +343,10 @@ func computeFailureHash(tests []string) string {
 }
 
 // CollectDiffSummary runs git diff to collect change statistics.
-func CollectDiffSummary(dir string) (*queue.DiffSummary, error) {
+// ctx is used to cancel the underlying git process if the caller is shut down.
+func CollectDiffSummary(ctx context.Context, dir string) (*queue.DiffSummary, error) {
 	// Get stats (lines added/deleted)
-	statCmd := exec.Command("git", "diff", "--stat", "HEAD")
+	statCmd := exec.CommandContext(ctx, "git", "diff", "--stat", "HEAD")
 	statCmd.Dir = dir
 	statOut, err := statCmd.Output()
 	if err != nil {
@@ -345,9 +355,12 @@ func CollectDiffSummary(dir string) (*queue.DiffSummary, error) {
 	}
 
 	// Get changed file names
-	namesCmd := exec.Command("git", "diff", "--name-only", "HEAD")
+	namesCmd := exec.CommandContext(ctx, "git", "diff", "--name-only", "HEAD")
 	namesCmd.Dir = dir
-	namesOut, _ := namesCmd.Output()
+	namesOut, namesErr := namesCmd.Output()
+	if namesErr != nil {
+		log.DebugLog.Printf("[Sweep] git diff --name-only failed for %s: %v", dir, namesErr)
+	}
 
 	summary := parseDiffStat(string(statOut))
 	if len(namesOut) > 0 {

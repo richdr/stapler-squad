@@ -17,6 +17,24 @@ const (
 	SweepStatusError                           // Internal sweep error
 )
 
+// String returns a human-readable name for the SweepStatus.
+func (s SweepStatus) String() string {
+	switch s {
+	case SweepStatusPass:
+		return "Pass"
+	case SweepStatusFail:
+		return "Fail"
+	case SweepStatusNoTestsFound:
+		return "NoTestsFound"
+	case SweepStatusTimeout:
+		return "Timeout"
+	case SweepStatusError:
+		return "Error"
+	default:
+		return "Unknown"
+	}
+}
+
 // SweepResult holds the structured output of a Sweep run.
 type SweepResult struct {
 	Status        SweepStatus
