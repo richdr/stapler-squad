@@ -44,6 +44,8 @@ type InstanceData struct {
 	// Worktree detection fields
 	MainRepoPath string `json:"main_repo_path,omitempty"` // Path to main repo when this is a worktree
 	IsWorktree   bool   `json:"is_worktree,omitempty"`    // True if path is a git worktree
+	// Crew autonomy mode
+	AutonomousMode bool `json:"autonomous_mode,omitempty"` // When true, Fixer injects correction prompts automatically
 
 	// Claude Code session persistence
 	ClaudeSession ClaudeSessionData `json:"claude_session,omitempty"`
