@@ -105,6 +105,15 @@ message Session {
 
   // External instance metadata (only populated for external sessions)
   ExternalInstanceMetadata external_metadata = 32;
+
+  // Lookout supervisor state for this session (crew autonomy).
+  // LOOKOUT_STATE_UNSPECIFIED means no Lookout is active.
+  LookoutState lookout_state = 33;
+
+  // Whether Going Dark mode is enabled for this session.
+  // When true, the Fixer injects correction prompts automatically without human review.
+  // Mirrors session.Instance.AutonomousMode.
+  bool going_dark = 34;
 }
 
 // SessionStatus represents the current state of a session.
@@ -298,6 +307,10 @@ message ReviewItem {
   // This is the actual last activity time, used for sorting and display.
   // Used instead of detected_at for showing when the session was last active.
   google.protobuf.Timestamp last_activity = 17;
+
+  // Quality gate results assembled by the Fixer after a successful Lookout run.
+  // Null if no Sweep has completed yet.
+  Score score = 18;
 }
 
 // Priority levels for review queue items (highest to lowest urgency).
@@ -336,6 +349,86 @@ enum AttentionReason {
   ATTENTION_REASON_WAITING_FOR_USER = 9;
   // Session has failing tests that need attention.
   ATTENTION_REASON_TESTS_FAILING = 10;
+}
+
+// LookoutState represents the supervisor state of a session's Lookout goroutine.
+// Maps to crew.LookoutState in Go.
+enum LookoutState {
+  LOOKOUT_STATE_UNSPECIFIED = 0;
+  // Waiting for a TaskComplete event.
+  LOOKOUT_STATE_IDLE = 1;
+  // Session is working; seen at least one tool use (unused in current implementation).
+  LOOKOUT_STATE_ACTIVE = 2;
+  // TaskComplete received; quality gate pipeline executing.
+  LOOKOUT_STATE_SWEEPING = 3;
+  // Sweep failed; Earpiece injected; waiting for session to resume.
+  LOOKOUT_STATE_AWAITING_RETRY = 4;
+  // maxRetries exhausted or oscillation detected; escalated to Mastermind.
+  LOOKOUT_STATE_FALLEN = 5;
+  // Context cancelled; goroutine exited cleanly.
+  LOOKOUT_STATE_STOPPED = 6;
+}
+
+// ScoreTestResults holds a Sweep's test run outcome.
+message ScoreTestResults {
+  // Whether all tests passed.
+  bool passed = 1;
+  // Tail of test output (capped at 2000 chars).
+  string output_excerpt = 2;
+  // How long the test run took (milliseconds).
+  int64 duration_ms = 3;
+  // Total number of tests executed.
+  int32 tests_run = 4;
+  // Number of tests that failed.
+  int32 tests_failed = 5;
+  // Names of failing tests.
+  repeated string failing_test_names = 6;
+}
+
+// ScoreDiffSummary summarises the git diff at the time of the sweep.
+message ScoreDiffSummary {
+  // Number of files changed.
+  int32 files_changed = 1;
+  // List of changed file paths.
+  repeated string changed_files = 2;
+  // Lines added.
+  int32 lines_added = 3;
+  // Lines deleted.
+  int32 lines_deleted = 4;
+  // Short diff excerpt for display.
+  string excerpt = 5;
+}
+
+// ScoreRetryAttempt captures one correction iteration.
+message ScoreRetryAttempt {
+  // Attempt number (1-based).
+  int32 number = 1;
+  // Why this attempt failed (capped at 500 chars).
+  string failure_reason = 2;
+  // Unix epoch milliseconds when this attempt occurred.
+  int64 timestamp_ms = 3;
+}
+
+// ScoreRetryHistory tracks each correction loop attempt.
+message ScoreRetryHistory {
+  // Total number of attempts made.
+  int32 attempt_count = 1;
+  // Maximum retries allowed.
+  int32 max_retries = 2;
+  // Per-attempt detail.
+  repeated ScoreRetryAttempt attempts = 3;
+}
+
+// Score contains the assembled quality gate results for a passing Sweep.
+// Populated by the Fixer after a successful Lookout run and attached to
+// the ReviewItem in the queue.
+message Score {
+  // Test run outcome.
+  ScoreTestResults test_results = 1;
+  // Git diff statistics at sweep time.
+  ScoreDiffSummary diff_summary = 2;
+  // Correction loop history (empty if tests passed on the first attempt).
+  ScoreRetryHistory retry_history = 3;
 }
 
 // PRInfo contains metadata about a GitHub pull request.

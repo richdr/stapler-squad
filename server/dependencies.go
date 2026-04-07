@@ -1,6 +1,7 @@
 package server
 
 import (
+	"github.com/tstapler/stapler-squad/config"
 	"github.com/tstapler/stapler-squad/log"
 	"github.com/tstapler/stapler-squad/server/crew"
 	"github.com/tstapler/stapler-squad/server/events"
@@ -517,7 +518,11 @@ func BuildRuntimeDeps(svc *ServiceDeps) (*RuntimeDeps, error) {
 
 	// Crew Autonomy supervisor: subscribes to ReviewQueue and manages Lookout goroutines.
 	// Start() is deferred to NewServer so it receives a cancellable context.
-	fixer := crew.NewFixer(reviewQueue, reviewQueuePoller, nil)
+	cfg := config.LoadConfig()
+	fixer := crew.NewFixer(reviewQueue, reviewQueuePoller, nil, cfg.MaxGoingDarkSessions)
+	// Wire the Fixer as the FixerStateProvider so GetSession/UpdateSession can enrich
+	// Session responses with the current Lookout state.
+	sessionService.SetFixer(fixer)
 
 	return &RuntimeDeps{
 		ServiceDeps:             svc,

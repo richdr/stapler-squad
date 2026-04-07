@@ -44,6 +44,8 @@ func InstanceToProto(inst *session.Instance) *sessionv1.Session {
 		// Instance type and external metadata
 		InstanceType:     instanceTypeToProto(inst.InstanceType),
 		ExternalMetadata: externalMetadataToProto(inst.ExternalMetadata),
+		// Crew autonomy fields (domain: AutonomousMode → API: going_dark)
+		GoingDark: inst.AutonomousMode,
 	}
 
 	// Convert git worktree data if available

@@ -3,6 +3,7 @@ package adapters
 import (
 	sessionv1 "github.com/tstapler/stapler-squad/gen/proto/go/session/v1"
 	"github.com/tstapler/stapler-squad/session"
+	"github.com/tstapler/stapler-squad/session/queue"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -41,7 +42,58 @@ func ReviewItemToProto(item *session.ReviewItem) *sessionv1.ReviewItem {
 		}
 	}
 
+	// Add Score if available (assembled by Fixer after a successful Lookout run)
+	if item.Score != nil {
+		protoItem.Score = scoreToProto(item.Score)
+	}
+
 	return protoItem
+}
+
+// scoreToProto converts a queue.Score to a proto Score message.
+func scoreToProto(s *queue.Score) *sessionv1.Score {
+	if s == nil {
+		return nil
+	}
+	proto := &sessionv1.Score{}
+
+	if s.TestResults != nil {
+		proto.TestResults = &sessionv1.ScoreTestResults{
+			Passed:          s.TestResults.Passed,
+			OutputExcerpt:   s.TestResults.OutputExcerpt,
+			DurationMs:      s.TestResults.DurationMs,
+			TestsRun:        s.TestResults.TestsRun,
+			TestsFailed:     s.TestResults.TestsFailed,
+			FailingTestNames: s.TestResults.FailingTestNames,
+		}
+	}
+
+	if s.DiffSummary != nil {
+		proto.DiffSummary = &sessionv1.ScoreDiffSummary{
+			FilesChanged: s.DiffSummary.FilesChanged,
+			ChangedFiles: s.DiffSummary.ChangedFiles,
+			LinesAdded:   s.DiffSummary.LinesAdded,
+			LinesDeleted: s.DiffSummary.LinesDeleted,
+			Excerpt:      s.DiffSummary.Excerpt,
+		}
+	}
+
+	if s.RetryHistory != nil {
+		rh := &sessionv1.ScoreRetryHistory{
+			AttemptCount: s.RetryHistory.AttemptCount,
+			MaxRetries:   s.RetryHistory.MaxRetries,
+		}
+		for _, a := range s.RetryHistory.Attempts {
+			rh.Attempts = append(rh.Attempts, &sessionv1.ScoreRetryAttempt{
+				Number:        a.Number,
+				FailureReason: a.FailureReason,
+				TimestampMs:   a.TimestampMs,
+			})
+		}
+		proto.RetryHistory = rh
+	}
+
+	return proto
 }
 
 // ReviewQueueToProto converts session.ReviewQueue to proto ReviewQueue with statistics.

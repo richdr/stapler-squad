@@ -99,6 +99,42 @@
   margin-left: 4px;
 }
 
+.lookoutBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: #f59e0b;
+  color: white;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid #d97706;
+}
+
+.lookoutBadgeFallen {
+  background: #ef4444;
+  border-color: #dc2626;
+}
+
+.goingDarkBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: #1e3a5f;
+  color: #93c5fd;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid #3b82f6;
+}
+
+.toggleDarkError {
+  font-size: 12px;
+  color: #ef4444;
+}
+
 .reviewInfo {
   margin-top: 8px;
   padding: 8px;
@@ -339,6 +375,28 @@
 .restartButton:hover {
   background: #fcd34d;
   border-color: #fbbf24;
+}
+
+.goingDarkButton {
+  background: var(--button-bg);
+  color: var(--button-text);
+  border-color: var(--button-border);
+}
+
+.goingDarkButton:hover {
+  background: var(--button-bg-hover);
+  border-color: var(--button-border-hover);
+}
+
+.goingDarkActive {
+  background: #1e3a5f;
+  color: #93c5fd;
+  border-color: #3b82f6;
+}
+
+.goingDarkActive:hover {
+  background: #1e40af;
+  border-color: #60a5fa;
 }
 
 /* Rename and Restart dialogs */
@@ -655,6 +713,22 @@
   .dangerButton:hover:not(:disabled) {
     background: #b91c1c;
     border-color: #dc2626;
+  }
+
+  .lookoutBadge {
+    background: #b45309;
+    border-color: #92400e;
+  }
+
+  .lookoutBadgeFallen {
+    background: #991b1b;
+    border-color: #b91c1c;
+  }
+
+  .goingDarkBadge {
+    background: #1e40af;
+    border-color: #60a5fa;
+    color: #bfdbfe;
   }
 }
 

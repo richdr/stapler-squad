@@ -24,6 +24,13 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
+// crewStopper is a minimal interface satisfied by *crew.Fixer. It is used here to avoid
+// importing the crew package (which would create a circular dependency) while still
+// allowing the server to stop the Fixer goroutines on shutdown.
+type crewStopper interface {
+	Stop()
+}
+
 // Server manages the HTTP server with ConnectRPC handlers.
 type Server struct {
 	addr           string
@@ -34,6 +41,7 @@ type Server struct {
 	httpsURL       string                          // set when remote access is enabled
 	hostnames      []string                        // detected LAN hostnames
 	origins        []string                        // allowed CORS origins
+	fixer          crewStopper                     // stopped on Shutdown(); nil if crew is not started
 }
 
 // NewServer creates a new HTTP server instance with SessionService registered.
@@ -83,6 +91,7 @@ func NewServer(addr string) *Server {
 
 		// Start Crew Autonomy supervisor (Fixer subscribes to ReviewQueue).
 		deps.Fixer.Start(serverCtx)
+		srv.fixer = deps.Fixer
 		log.InfoLog.Printf("[Fixer] started")
 
 		// Initialize notification history store and EventBus subscriber.
@@ -275,7 +284,7 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 }
 
-// Shutdown gracefully shuts down the HTTP server.
+// Shutdown gracefully shuts down the HTTP server and background components.
 func (s *Server) Shutdown() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -284,8 +293,14 @@ func (s *Server) Shutdown() error {
 		log.ErrorLog.Printf("HTTP server shutdown error: %v", err)
 		return err
 	}
-
 	log.InfoLog.Printf("HTTP server stopped gracefully")
+
+	// Stop the Crew Autonomy supervisor after the HTTP server has drained.
+	// This ensures in-flight requests that may write to the ReviewQueue complete first.
+	if s.fixer != nil {
+		s.fixer.Stop()
+	}
+
 	return nil
 }
 

@@ -207,6 +207,11 @@ function HomeContent() {
     console.warn('Tag updates not yet implemented in proto');
   };
 
+  // Toggle Going Dark (autonomous) mode for crew autonomy
+  const handleToggleGoingDark = async (sessionId: string, enabled: boolean) => {
+    await updateSession(sessionId, { goingDark: enabled });
+  };
+
   // Handle session selection with URL update
   const handleSessionClick = (session: Session) => {
     setSelectedSession(session);
@@ -258,6 +263,7 @@ function HomeContent() {
             onRenameSession={renameSession}
             onRestartSession={restartSession}
             onUpdateTags={handleUpdateTags}
+            onToggleGoingDark={handleToggleGoingDark}
           />
         )}
       </main>

@@ -31,6 +31,14 @@ type ReactiveQueueManager interface {
 	RemoveStreamClient(clientID string)
 }
 
+// FixerStateProvider allows SessionService to query Lookout states without importing
+// the crew package (which would create an import cycle: server/services → server/crew → session).
+type FixerStateProvider interface {
+	// LookoutStateFor returns the numeric LookoutState for the given session.
+	// Returns 0 (LookoutIdle) if no Lookout is active for that session.
+	LookoutStateFor(sessionID string) int
+}
+
 // SessionService implements the SessionServiceHandler interface for ConnectRPC.
 type SessionService struct {
 	storage           *session.Storage
@@ -57,6 +65,9 @@ type SessionService struct {
 
 	// databaseSvc handles workspace/database switcher RPCs.
 	databaseSvc *DatabaseService
+
+	// fixer provides Lookout state queries for enriching Session responses.
+	fixer FixerStateProvider
 }
 
 // NewSessionService creates a new SessionService with the given storage and event bus.
@@ -322,6 +333,40 @@ func (s *SessionService) SetConfigService(svc *ConfigService) {
 	s.configSvc = svc
 }
 
+// SetFixer wires a FixerStateProvider so Session responses can be enriched with
+// Lookout state. Must be called during server startup after the Fixer is created.
+func (s *SessionService) SetFixer(f FixerStateProvider) {
+	s.fixer = f
+}
+
+// enrichLookoutState sets the lookout_state field on a proto Session by querying the Fixer.
+// The conversion from int -> proto enum mirrors crew.LookoutState without importing the crew package.
+// If no Fixer is wired, the field is left at its zero value (LOOKOUT_STATE_UNSPECIFIED).
+func (s *SessionService) enrichLookoutState(protoSess *sessionv1.Session) *sessionv1.Session {
+	if protoSess == nil || s.fixer == nil {
+		return protoSess
+	}
+	crewState := s.fixer.LookoutStateFor(protoSess.Id)
+	// Map crew.LookoutState ints to proto LookoutState enum values.
+	// crew constants: Idle=0, Active=1, Sweeping=2, AwaitingRetry=3, Fallen=4, Stopped=5
+	switch crewState {
+	case 0: // LookoutIdle — no active sweep; leave at zero value (UNSPECIFIED)
+	case 1: // LookoutActive
+		protoSess.LookoutState = sessionv1.LookoutState_LOOKOUT_STATE_ACTIVE
+	case 2: // LookoutSweeping
+		protoSess.LookoutState = sessionv1.LookoutState_LOOKOUT_STATE_SWEEPING
+	case 3: // LookoutAwaitingRetry
+		protoSess.LookoutState = sessionv1.LookoutState_LOOKOUT_STATE_AWAITING_RETRY
+	case 4: // LookoutFallen
+		protoSess.LookoutState = sessionv1.LookoutState_LOOKOUT_STATE_FALLEN
+	case 5: // LookoutStopped
+		protoSess.LookoutState = sessionv1.LookoutState_LOOKOUT_STATE_STOPPED
+	default:
+		protoSess.LookoutState = sessionv1.LookoutState_LOOKOUT_STATE_UNSPECIFIED
+	}
+	return protoSess
+}
+
 // ListSessions returns all sessions with optional filtering.
 // This includes both managed sessions and external mux-enabled sessions.
 func (s *SessionService) ListSessions(
@@ -357,7 +402,7 @@ func (s *SessionService) ListSessions(
 			continue
 		}
 
-		sessions = append(sessions, adapters.InstanceToProto(inst))
+		sessions = append(sessions, s.enrichLookoutState(adapters.InstanceToProto(inst)))
 	}
 
 	// Include external sessions from mux discovery if available
@@ -399,7 +444,7 @@ func (s *SessionService) GetSession(
 	if s.reviewQueuePoller != nil {
 		if inst := s.reviewQueuePoller.FindInstance(req.Msg.Id); inst != nil {
 			return connect.NewResponse(&sessionv1.GetSessionResponse{
-				Session: adapters.InstanceToProto(inst),
+				Session: s.enrichLookoutState(adapters.InstanceToProto(inst)),
 			}), nil
 		}
 		// Not in poller — also check external sessions
@@ -423,7 +468,7 @@ func (s *SessionService) GetSession(
 	for _, inst := range instances {
 		if inst.Title == req.Msg.Id {
 			return connect.NewResponse(&sessionv1.GetSessionResponse{
-				Session: adapters.InstanceToProto(inst),
+				Session: s.enrichLookoutState(adapters.InstanceToProto(inst)),
 			}), nil
 		}
 	}
@@ -643,6 +688,12 @@ func (s *SessionService) UpdateSession(
 		updatedFields = append(updatedFields, "program")
 	}
 
+	// Handle Going Dark toggle (crew autonomy autonomous mode)
+	if req.Msg.GoingDark != nil {
+		instance.AutonomousMode = *req.Msg.GoingDark
+		updatedFields = append(updatedFields, "going_dark")
+	}
+
 	// Update the instance in the list and save
 	instances[instanceIndex] = instance
 	if err := s.storage.SaveInstances(instances); err != nil {
@@ -666,7 +717,7 @@ func (s *SessionService) UpdateSession(
 	}
 
 	return connect.NewResponse(&sessionv1.UpdateSessionResponse{
-		Session: adapters.InstanceToProto(instance),
+		Session: s.enrichLookoutState(adapters.InstanceToProto(instance)),
 	}), nil
 }
 

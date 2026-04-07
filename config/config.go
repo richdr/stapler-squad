@@ -236,6 +236,10 @@ type Config struct {
 	VCSPreference string `json:"vcs_preference"`
 	// AvailablePrograms is a list of detected CLI programs
 	AvailablePrograms []string `json:"available_programs"`
+	// MaxGoingDarkSessions caps the number of concurrent Going Dark (autonomous) sessions.
+	// Beyond this limit, new sessions fall back to supervised mode to prevent runaway
+	// autonomous correction loops. Default: 5.
+	MaxGoingDarkSessions int `json:"max_going_dark_sessions"`
 }
 
 // DefaultConfig returns the default configuration
@@ -277,6 +281,7 @@ func DefaultConfig() *Config {
 		TerminalStreamingMode:         "raw",  // Default to raw streaming (simpler, more reliable)
 		VCSPreference:                 "auto", // Default to auto-detection (prefer JJ if available)
 		AvailablePrograms:             availablePrograms,
+		MaxGoingDarkSessions:          5, // Conservative default: prevents runaway autonomous loops
 	}
 }
 

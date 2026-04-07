@@ -5,7 +5,7 @@ import { useReviewQueueContext } from "@/lib/contexts/ReviewQueueContext";
 import { useApprovalsContext } from "@/lib/contexts/ApprovalsContext";
 import { useReviewQueueNavigation } from "@/lib/hooks/useReviewQueueNavigation";
 import { ReviewQueueBadge } from "./ReviewQueueBadge";
-import { Priority, AttentionReason, ReviewItem } from "@/gen/session/v1/types_pb";
+import { Priority, AttentionReason, ReviewItem, Score } from "@/gen/session/v1/types_pb";
 import styles from "./ReviewQueuePanel.module.css";
 
 interface ReviewQueuePanelProps {
@@ -50,6 +50,20 @@ export function ReviewQueuePanel({
   );
   // Track whether queue ever had items so we can show "all done" vs generic empty state
   const [hadItems, setHadItems] = useState(false);
+  // Track which score blocks have their failing test list expanded
+  const [expandedScores, setExpandedScores] = useState<Set<string>>(new Set());
+
+  const toggleScoreExpand = (sessionId: string) => {
+    setExpandedScores((prev) => {
+      const next = new Set(prev);
+      if (next.has(sessionId)) {
+        next.delete(sessionId);
+      } else {
+        next.add(sessionId);
+      }
+      return next;
+    });
+  };
 
   // Live region announcement text for screen readers
   const [liveAnnouncement, setLiveAnnouncement] = useState('');
@@ -424,6 +438,64 @@ export function ReviewQueuePanel({
                       )}
                     </div>
                   </div>
+                  {/* Score block: shown after a successful Lookout sweep */}
+                  {item.score && (
+                    <div className={styles.scoreBlock}>
+                      {item.score.testResults && (
+                        <div className={styles.scoreSection}>
+                          <span className={item.score.testResults.passed ? styles.scorePassed : styles.scoreFailed}>
+                            {item.score.testResults.passed ? "✓ Tests passed" : "✗ Tests failed"}
+                          </span>
+                          {item.score.testResults.testsRun > 0 && (
+                            <span className={styles.scoreDetail}>
+                              {item.score.testResults.testsRun} run
+                              {item.score.testResults.testsFailed > 0 && `, ${item.score.testResults.testsFailed} failed`}
+                              {item.score.testResults.durationMs > 0 && ` · ${(Number(item.score.testResults.durationMs) / 1000).toFixed(1)}s`}
+                            </span>
+                          )}
+                          {item.score.testResults.failingTestNames.length > 0 && (
+                            <button
+                              className={styles.scoreExpandToggle}
+                              onClick={(e) => { e.stopPropagation(); toggleScoreExpand(item.sessionId); }}
+                              aria-expanded={expandedScores.has(item.sessionId)}
+                              aria-label={expandedScores.has(item.sessionId) ? "Hide failing test names" : "Show failing test names"}
+                            >
+                              {expandedScores.has(item.sessionId) ? "▲" : "▼"} {item.score.testResults.failingTestNames.length} test{item.score.testResults.failingTestNames.length !== 1 ? "s" : ""}
+                            </button>
+                          )}
+                          {expandedScores.has(item.sessionId) && item.score.testResults.failingTestNames.length > 0 && (
+                            <ul className={styles.failingTestList}>
+                              {item.score.testResults.failingTestNames.map((name, idx) => (
+                                <li key={idx} className={styles.failingTestName}>{name}</li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      )}
+                      {item.score.diffSummary && item.score.diffSummary.filesChanged > 0 && (
+                        <div className={styles.scoreSection}>
+                          <span className={styles.scoreDetail}>
+                            {item.score.diffSummary.filesChanged} file{item.score.diffSummary.filesChanged !== 1 ? "s" : ""} changed
+                            {(item.score.diffSummary.linesAdded > 0 || item.score.diffSummary.linesDeleted > 0) && (
+                              <>
+                                {" "}
+                                <span className={styles.diffAdded}>+{item.score.diffSummary.linesAdded}</span>
+                                {" "}
+                                <span className={styles.diffRemoved}>-{item.score.diffSummary.linesDeleted}</span>
+                              </>
+                            )}
+                          </span>
+                        </div>
+                      )}
+                      {item.score.retryHistory && item.score.retryHistory.attemptCount > 1 && (
+                        <div className={styles.scoreSection}>
+                          <span className={styles.scoreDetail}>
+                            {item.score.retryHistory.attemptCount} correction{item.score.retryHistory.attemptCount !== 1 ? "s" : ""} needed
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <div className={styles.itemFooter}>
                     <span className={styles.itemAge}>
                       Last Activity: {formatTimestamp(item.lastActivity?.seconds ?? BigInt(0))}{" "}

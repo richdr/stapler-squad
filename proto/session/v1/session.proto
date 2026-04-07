@@ -260,6 +260,10 @@ message UpdateSessionRequest {
 
   // Update program command.
   optional string program = 5;
+
+  // Toggle Going Dark (autonomous) mode for crew autonomy.
+  // When true, the Fixer injects correction prompts automatically without human review.
+  optional bool going_dark = 6;
 }
 
 message UpdateSessionResponse {

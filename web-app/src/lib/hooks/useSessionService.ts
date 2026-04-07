@@ -176,6 +176,7 @@ export function useSessionService(
           category: updates.category,
           title: updates.title,
           program: updates.program,
+          goingDark: updates.goingDark,
         });
 
         // Update in store

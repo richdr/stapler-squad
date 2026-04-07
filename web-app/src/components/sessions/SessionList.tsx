@@ -18,6 +18,7 @@ interface SessionListProps {
   onRenameSession?: (sessionId: string, newTitle: string) => Promise<boolean>;
   onRestartSession?: (sessionId: string) => Promise<boolean>;
   onUpdateTags?: (sessionId: string, tags: string[]) => void;
+  onToggleGoingDark?: (sessionId: string, enabled: boolean) => void;
 }
 
 type SortField = 'lastActivity' | 'name' | 'createdAt' | 'updatedAt';
@@ -71,6 +72,7 @@ export function SessionList({
   onRenameSession,
   onRestartSession,
   onUpdateTags,
+  onToggleGoingDark,
 }: SessionListProps) {
   // Initialize state from local storage
   const [searchQuery, setSearchQuery] = useState(() => loadFromStorage(STORAGE_KEYS.SEARCH_QUERY, ""));
@@ -510,6 +512,7 @@ export function SessionList({
                       onRename={onRenameSession}
                       onRestart={onRestartSession}
                       onUpdateTags={onUpdateTags}
+                      onToggleGoingDark={onToggleGoingDark}
                       selectMode={selectMode}
                       isSelected={selectedSessions.has(session.id)}
                       onToggleSelect={() => handleToggleSession(session.id)}

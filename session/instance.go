@@ -107,6 +107,7 @@ type Instance struct {
 	// AutonomousMode enables autonomous Earpiece mode (crew autonomy).
 	// When true, the Fixer will inject correction prompts without user confirmation.
 	// When false (default), the session runs in supervised mode.
+	// This field is called "going_dark" / "goingDark" in the proto/API layer (see adapters/instance_adapter.go).
 	AutonomousMode bool `json:"autonomous_mode,omitempty"`
 
 	// GitHub integration fields for PR/URL-based session creation

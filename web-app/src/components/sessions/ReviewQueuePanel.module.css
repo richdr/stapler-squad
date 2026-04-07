@@ -512,3 +512,66 @@
     animation: none;
   }
 }
+
+/* Score block — crew autonomy quality gate results */
+.scoreBlock {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--panel-bg-secondary, rgba(0,0,0,0.06));
+  border-radius: 6px;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.scoreSection {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.scorePassed {
+  color: var(--color-success, #22c55e);
+  font-weight: 600;
+}
+
+.scoreFailed {
+  color: var(--color-error, #ef4444);
+  font-weight: 600;
+}
+
+.scoreDetail {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.scoreExpandToggle {
+  background: none;
+  border: none;
+  padding: 0 4px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.scoreExpandToggle:hover {
+  color: var(--text-primary);
+}
+
+.failingTestList {
+  margin: 4px 0 0 0;
+  padding: 0 0 0 16px;
+  list-style: disc;
+  width: 100%;
+}
+
+.failingTestName {
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--color-error, #ef4444);
+  word-break: break-all;
+  line-height: 1.5;
+}

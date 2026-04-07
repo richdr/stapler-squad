@@ -9,6 +9,10 @@ import (
 	"github.com/tstapler/stapler-squad/session/queue"
 )
 
+// defaultMaxGoingDarkSessions is the fallback cap when none is specified at construction.
+// 5 is a conservative default for a solo developer running a typical sprint workload.
+const defaultMaxGoingDarkSessions = 5
+
 // Fixer is the Crew Autonomy supervisor. It subscribes to the ReviewQueue and,
 // when a session completes a task (ReasonTaskComplete), spawns a Lookout to run
 // The Sweep quality gate. If the Sweep passes, it enriches the ReviewItem with
@@ -20,10 +24,11 @@ type Fixer struct {
 	mu       sync.RWMutex
 	lookouts map[string]*Lookout // keyed by sessionID
 
-	doneCh  chan LookoutResult // all Lookouts report here
-	queue   *session.ReviewQueue
-	poller  InstanceFinder // ReviewQueuePoller.FindInstance
-	checker TmuxPaneChecker
+	doneCh               chan LookoutResult // all Lookouts report here
+	queue                *session.ReviewQueue
+	poller               InstanceFinder // ReviewQueuePoller.FindInstance
+	checker              TmuxPaneChecker
+	maxGoingDarkSessions int // configurable cap on concurrent autonomous sessions
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -33,20 +38,26 @@ type Fixer struct {
 // NewFixer creates a new Fixer.
 // queue is the shared ReviewQueue; poller is used to look up instances by sessionID.
 // checker is the TmuxPaneChecker used by InjectEarpiece (pass nil for the default).
+// maxGoingDark caps concurrent autonomous (Going Dark) sessions; pass 0 to use the default (5).
 func NewFixer(
 	reviewQueue *session.ReviewQueue,
 	poller InstanceFinder,
 	checker TmuxPaneChecker,
+	maxGoingDark int,
 ) *Fixer {
 	if checker == nil {
 		checker = &DefaultTmuxPaneChecker{}
 	}
+	if maxGoingDark <= 0 {
+		maxGoingDark = defaultMaxGoingDarkSessions
+	}
 	return &Fixer{
-		lookouts: make(map[string]*Lookout),
-		doneCh:   make(chan LookoutResult, 32),
-		queue:    reviewQueue,
-		poller:   poller,
-		checker:  checker,
+		lookouts:             make(map[string]*Lookout),
+		doneCh:               make(chan LookoutResult, 32),
+		queue:                reviewQueue,
+		poller:               poller,
+		checker:              checker,
+		maxGoingDarkSessions: maxGoingDark,
 	}
 }
 
@@ -135,6 +146,16 @@ func (f *Fixer) spawnLookout(item *session.ReviewItem) {
 				workingDir = inst.WorkingDir
 			}
 			autonomousMode = inst.AutonomousMode
+		}
+	}
+
+	// Enforce the Going Dark concurrency cap: if the maximum number of autonomous
+	// sessions is already active, fall back to supervised mode for this session.
+	if autonomousMode {
+		if currentDark := f.countGoingDarkLocked(); currentDark >= f.maxGoingDarkSessions {
+			log.WarningLog.Printf("[Fixer] Going Dark cap reached (%d/%d), session %s will run supervised",
+				currentDark, f.maxGoingDarkSessions, item.SessionID)
+			autonomousMode = false
 		}
 	}
 
@@ -269,6 +290,31 @@ func (f *Fixer) enrichReviewItemScore(sessionID string, score *queue.Score) {
 	// Re-add to queue (Add performs an upsert, preserving DetectedAt).
 	f.queue.Add(&itemCopy)
 	log.InfoLog.Printf("[Fixer] attached Score to ReviewItem for session %s", sessionID)
+}
+
+// LookoutStateForID returns the current LookoutState integer for the given session, or
+// 0 (LookoutIdle) if no Lookout is active for that session. It satisfies the
+// services.FixerStateProvider interface without introducing an import cycle.
+func (f *Fixer) LookoutStateFor(sessionID string) int {
+	f.mu.RLock()
+	l, ok := f.lookouts[sessionID]
+	f.mu.RUnlock()
+	if !ok {
+		return int(LookoutIdle)
+	}
+	return int(l.State())
+}
+
+// countGoingDarkLocked counts active Lookouts whose config has GoingDark=true.
+// Caller must hold f.mu (at least a read lock).
+func (f *Fixer) countGoingDarkLocked() int {
+	count := 0
+	for _, l := range f.lookouts {
+		if l.cfg.GoingDark {
+			count++
+		}
+	}
+	return count
 }
 
 // escalateToMastermind adds a ReasonTestsFailing ReviewItem to the queue so a human
