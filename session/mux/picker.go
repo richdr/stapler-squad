@@ -100,14 +100,14 @@ func InteractiveSessionPicker() (string, error) {
 
 	for {
 		// Clear screen and move cursor to top
-		fmt.Print("\033[2J\033[H")
+		fmt.Print("\033[2J\033[H") //nolint:forbidigo
 
 		// Print header
-		fmt.Println("\033[1;36m┌─────────────────────────────────────────────────────────────────────────┐\033[0m")
-		fmt.Println("\033[1;36m│\033[0m  \033[1mSelect a session to attach\033[0m                                            \033[1;36m│\033[0m")
-		fmt.Println("\033[1;36m│\033[0m  \033[2mUse ↑/↓ or j/k to navigate, Enter to select, q to quit\033[0m               \033[1;36m│\033[0m")
-		fmt.Println("\033[1;36m└─────────────────────────────────────────────────────────────────────────┘\033[0m")
-		fmt.Println()
+		fmt.Println("\033[1;36m┌─────────────────────────────────────────────────────────────────────────┐\033[0m")         //nolint:forbidigo
+		fmt.Println("\033[1;36m│\033[0m  \033[1mSelect a session to attach\033[0m                                            \033[1;36m│\033[0m") //nolint:forbidigo
+		fmt.Println("\033[1;36m│\033[0m  \033[2mUse ↑/↓ or j/k to navigate, Enter to select, q to quit\033[0m               \033[1;36m│\033[0m") //nolint:forbidigo
+		fmt.Println("\033[1;36m└─────────────────────────────────────────────────────────────────────────┘\033[0m") //nolint:forbidigo
+		fmt.Println() //nolint:forbidigo
 
 		// Print sessions
 		for i, s := range sessions {
@@ -136,11 +136,11 @@ func InteractiveSessionPicker() (string, error) {
 				attachedStr = " \033[1;33m[attached]\033[0m"
 			}
 
-			fmt.Printf("%s%s%-40s\033[0m%s\n", prefix, nameStyle, displayName, attachedStr)
+			fmt.Printf("%s%s%-40s\033[0m%s\n", prefix, nameStyle, displayName, attachedStr) //nolint:forbidigo
 			if i == selected {
-				fmt.Printf("     \033[2mPath: %s\033[0m\n", displayPath)
-				fmt.Printf("     \033[2mLast activity: %s\033[0m\n", timeAgo)
-				fmt.Println()
+				fmt.Printf("     \033[2mPath: %s\033[0m\n", displayPath)               //nolint:forbidigo
+				fmt.Printf("     \033[2mLast activity: %s\033[0m\n", timeAgo)          //nolint:forbidigo
+				fmt.Println() //nolint:forbidigo
 			}
 		}
 
@@ -168,12 +168,12 @@ func InteractiveSessionPicker() (string, error) {
 					}
 				default:
 					// Plain ESC - quit
-					fmt.Print("\033[2J\033[H") // Clear screen
+					fmt.Print("\033[2J\033[H") //nolint:forbidigo // Clear screen
 					return "", fmt.Errorf("cancelled")
 				}
 			} else {
 				// q or Q - quit
-				fmt.Print("\033[2J\033[H") // Clear screen
+				fmt.Print("\033[2J\033[H") //nolint:forbidigo // Clear screen
 				return "", fmt.Errorf("cancelled")
 			}
 		case 'j', 'J': // vim down
@@ -185,7 +185,7 @@ func InteractiveSessionPicker() (string, error) {
 				selected--
 			}
 		case 13: // Enter
-			fmt.Print("\033[2J\033[H") // Clear screen
+			fmt.Print("\033[2J\033[H") //nolint:forbidigo // Clear screen
 			return sessions[selected].Name, nil
 		}
 	}

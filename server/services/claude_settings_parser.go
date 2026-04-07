@@ -28,7 +28,7 @@ func ParseClaudeSettings(path string) (*ClaudePermissions, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil, nil //nolint:nilnil
 		}
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}

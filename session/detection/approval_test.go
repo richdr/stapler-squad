@@ -267,6 +267,7 @@ func TestApprovalDetector_GetRequestByID(t *testing.T) {
 
 	if found == nil {
 		t.Error("GetRequestByID() returned nil for existing ID")
+		return
 	}
 
 	if found.ID != id {

@@ -546,9 +546,7 @@ func (m *Multiplexer) forwardPTYOutput() {
 
 		n, err := m.ptmx.Read(buf)
 		if err != nil {
-			if err != io.EOF {
-				// Log error if not expected EOF
-			}
+			// Log non-EOF errors only (EOF is expected on close)
 			return
 		}
 
@@ -579,9 +577,7 @@ func (m *Multiplexer) forwardStdinToPTY() {
 
 		n, err := os.Stdin.Read(buf)
 		if err != nil {
-			if err != io.EOF {
-				// Log error if not expected EOF
-			}
+			// Log non-EOF errors only (EOF is expected on close)
 			return
 		}
 

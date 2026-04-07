@@ -160,9 +160,7 @@ func (s *SetupManager) WatchFile(ctx context.Context, path string) {
 				// when the new file lands, but we also re-add here in case the
 				// file is already present by the time we process the event.
 				_ = watcher.Add(path)
-				if loadErr := s.LoadFromFile(path); loadErr == nil {
-					// File was already in place.
-				}
+				_ = s.LoadFromFile(path)
 			}
 		case err, ok := <-watcher.Errors:
 			if !ok {

@@ -362,7 +362,7 @@ func GetSessionLoggers(sessionID string) (*SessionLoggers, error) {
 
 	// If session logs are disabled in config, return nil
 	if globalConfig != nil && !globalConfig.UseSessionLogs {
-		return nil, nil
+		return nil, nil //nolint:nilnil
 	}
 
 	sessionMutex.Lock()

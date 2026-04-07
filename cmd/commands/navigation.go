@@ -36,10 +36,8 @@ func UpCommand(ctx *interfaces.CommandContext) error {
 		model, teaCmd := navigationHandlers.OnUp()
 		ctx.Args["model"] = model
 		ctx.Args["cmd"] = teaCmd
-	} else {
-		// Handler not initialized - this is the bug!
-		// Don't log here as it would spam, let HandleKeyString log it
 	}
+	// If handler not initialized, let HandleKeyString log it (not here to avoid spam)
 	return nil
 }
 

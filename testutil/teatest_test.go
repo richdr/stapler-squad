@@ -12,7 +12,7 @@ func TestCreateMinimalApp(t *testing.T) {
 	model := CreateMinimalApp(t)
 
 	// Test that it implements tea.Model interface
-	var _ tea.Model = model
+	var _ tea.Model = model //nolint:staticcheck
 
 	// Test that Init() returns nil (no initial commands)
 	cmd := model.Init()

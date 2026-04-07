@@ -60,10 +60,8 @@ func GetOrCloneRepository(opts CloneOptions) (*CloneResult, error) {
 
 		// If a specific branch is requested, fetch and checkout
 		if opts.Branch != "" {
-			if err := FetchBranch(existingPath, opts.Branch); err != nil {
-				// Fetch might fail if branch doesn't exist remotely, try checkout anyway
-				// as it might be a local branch
-			}
+			// Fetch might fail if branch doesn't exist remotely; try checkout anyway.
+			_ = FetchBranch(existingPath, opts.Branch)
 
 			// Create worktree or checkout the branch
 			if err := CheckoutBranch(existingPath, opts.Branch); err != nil {
@@ -104,9 +102,8 @@ func GetOrCloneRepository(opts CloneOptions) (*CloneResult, error) {
 
 	// If a specific branch is requested, checkout
 	if opts.Branch != "" {
-		if err := FetchBranch(clonePath, opts.Branch); err != nil {
-			// Might be the default branch, continue
-		}
+		// Might be the default branch; continue even if fetch fails.
+		_ = FetchBranch(clonePath, opts.Branch)
 		if err := CheckoutBranch(clonePath, opts.Branch); err != nil {
 			return nil, fmt.Errorf("failed to checkout branch '%s': %w", opts.Branch, err)
 		}

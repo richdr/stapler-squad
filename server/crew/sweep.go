@@ -70,7 +70,7 @@ func DetectTestRunner(dir string) (*TestRunner, error) {
 	}
 
 	// No runner detected
-	return nil, nil
+	return nil, nil //nolint:nilnil
 }
 
 // hasGoTestFiles returns true if any *_test.go files exist anywhere under dir.
@@ -100,32 +100,32 @@ func hasGoTestFiles(dir string) (bool, error) {
 func detectNodeRunner(dir string) (*TestRunner, error) {
 	data, err := os.ReadFile(filepath.Join(dir, "package.json"))
 	if err != nil {
-		return nil, nil
+		return nil, nil //nolint:nilnil
 	}
 
 	// Look for "test" script field
 	content := string(data)
 	if !strings.Contains(content, `"test"`) {
-		return nil, nil
+		return nil, nil //nolint:nilnil
 	}
 
 	// Extract test script value
 	testScript := extractJSONStringField(content, "test")
 	if testScript == "" {
-		return nil, nil
+		return nil, nil //nolint:nilnil
 	}
 
 	// Skip npm placeholder: "echo "Error: no test specified" && exit 1"
 	// The script value extraction may be truncated at inner quotes, so we check
 	// both the extracted script and the raw content for the npm default placeholder.
 	if strings.HasPrefix(testScript, "echo ") {
-		return nil, nil
+		return nil, nil //nolint:nilnil
 	}
 	if strings.Contains(content, "Error: no test specified") {
-		return nil, nil
+		return nil, nil //nolint:nilnil
 	}
 	if testScript == "exit 1" || testScript == "exit 0" {
-		return nil, nil
+		return nil, nil //nolint:nilnil
 	}
 
 	// Detect package manager from lockfiles

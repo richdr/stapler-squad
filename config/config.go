@@ -131,7 +131,7 @@ func GetConfigDir() (string, error) {
 		legacyDir := filepath.Join(homeDir, ".claude-squad")
 		if _, legacyErr := os.Stat(legacyDir); legacyErr == nil {
 			if migrateErr := os.Rename(legacyDir, baseDir); migrateErr == nil {
-				fmt.Printf("Migrated data directory: %s → %s\n", legacyDir, baseDir)
+				log.InfoLog.Printf("Migrated data directory: %s → %s", legacyDir, baseDir)
 			}
 		}
 	}

@@ -273,7 +273,7 @@ func (s *IndexStore) LoadSyncMetadata() (*IndexSyncMetadata, error) {
 
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		return nil, nil // No metadata yet, this is fine
+		return nil, nil //nolint:nilnil // No metadata yet, this is fine
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to read sync metadata: %w", err)

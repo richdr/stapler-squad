@@ -230,10 +230,8 @@ func (l *Lookout) run() {
 			}
 
 		case LookoutFallen:
-			select {
-			case <-l.ctx.Done():
-				return
-			}
+			<-l.ctx.Done()
+			return
 
 		case LookoutStopped:
 			return
@@ -307,8 +305,8 @@ func (l *Lookout) handleSweepResult(result *SweepResult) {
 		return
 	}
 
-	switch {
-	case result.Status == SweepStatusPass || result.Status == SweepStatusNoTestsFound:
+	switch result.Status {
+	case SweepStatusPass, SweepStatusNoTestsFound:
 		// Sweep passed (or no tests to run -- treat as success).
 		score := l.assembleScore(result)
 

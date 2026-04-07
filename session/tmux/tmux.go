@@ -1056,7 +1056,7 @@ func (t *TmuxSession) DoesSessionExist() bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "tmux")
+	var cmd *exec.Cmd
 	// Add server socket isolation if specified
 	if t.serverSocket != "" {
 		cmd = exec.CommandContext(ctx, "tmux", "-L", t.serverSocket, "list-sessions", "-F", "#{session_name}")
@@ -1115,7 +1115,7 @@ func (t *TmuxSession) DoesSessionExistNoCache() bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "tmux")
+	var cmd *exec.Cmd
 	// Add server socket isolation if specified
 	if t.serverSocket != "" {
 		cmd = exec.CommandContext(ctx, "tmux", "-L", t.serverSocket, "list-sessions", "-F", "#{session_name}")

@@ -54,7 +54,7 @@ func TestDeltaGenerator_BasicOperations(t *testing.T) {
 			}
 
 			// Verify delta type is correct
-			var _ *sessionv1.TerminalDelta = delta1
+			var _ *sessionv1.TerminalDelta = delta1 //nolint:staticcheck
 
 			// Verify initial state
 			if delta1.FromState != 0 {

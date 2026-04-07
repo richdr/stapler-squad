@@ -269,7 +269,7 @@ func ensureBinary(binaryPath string) error {
 		return nil // Binary is recent enough.
 	}
 
-	fmt.Println("Building stapler-squad binary...")
+	fmt.Println("Building stapler-squad binary...") //nolint:forbidigo
 	root := filepath.Dir(binaryPath)
 	cmd := exec.Command("go", "build", "-o", binaryPath, ".")
 	cmd.Dir = root
@@ -278,6 +278,6 @@ func ensureBinary(binaryPath string) error {
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("go build failed: %w", err)
 	}
-	fmt.Println("Binary built.")
+	fmt.Println("Binary built.") //nolint:forbidigo
 	return nil
 }

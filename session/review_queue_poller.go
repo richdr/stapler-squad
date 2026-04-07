@@ -354,7 +354,7 @@ func (rqp *ReviewQueuePoller) checkSession(inst *Instance) {
 	isNewPrompt := inst.detectAndTrackPrompt(content, statusInfo)
 
 	// STEP 3: Check if user responded to current prompt
-	userRespondedToPrompt := inst.ReviewState.UserRespondedAfterPrompt()
+	userRespondedToPrompt := inst.UserRespondedAfterPrompt()
 
 	// STEP 4: Check if session is actively processing after user response
 	isProcessing := false
@@ -363,7 +363,7 @@ func (rqp *ReviewQueuePoller) checkSession(inst *Instance) {
 	}
 
 	// STEP 5: Check grace period for temporary removal
-	inGracePeriod := inst.ReviewState.IsInProcessingGracePeriod()
+	inGracePeriod := inst.IsInProcessingGracePeriod()
 
 	log.InfoLog.Printf("[ReviewQueue] Session '%s': isNewPrompt=%v, userResponded=%v, isProcessing=%v, gracePeriod=%v",
 		inst.Title, isNewPrompt, userRespondedToPrompt, isProcessing, inGracePeriod)
@@ -688,7 +688,7 @@ func (rqp *ReviewQueuePoller) checkSession(inst *Instance) {
 
 	// Check if user has acknowledged this session after it became stale
 	// If acknowledged after last output, don't re-flag as stale
-	alreadyAcknowledged := inst.ReviewState.IsAcknowledgedAfterOutput()
+	alreadyAcknowledged := inst.IsAcknowledgedAfterOutput()
 
 	if timeSinceOutput > rqp.config.StalenessThreshold {
 		if alreadyAcknowledged {
@@ -730,7 +730,7 @@ func (rqp *ReviewQueuePoller) checkSession(inst *Instance) {
 	if !shouldAdd || priority == PriorityLow || !statusInfo.IsControllerActive {
 		// Check if user dismissed this session.
 		// Sessions are snoozed when LastAcknowledged is newer than LastMeaningfulOutput.
-		if inst.ReviewState.IsAcknowledgedAfterOutput() {
+		if inst.IsAcknowledgedAfterOutput() {
 			log.DebugLog.Printf("[ReviewQueue] Session '%s': User acknowledged (snoozed until new output), removing from queue", inst.Title)
 			rqp.queue.Remove(inst.Title)
 			return

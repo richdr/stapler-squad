@@ -240,7 +240,7 @@ func (t *EarpieceTemplate) Render(attempt int, testOutput string, gitDiff string
 
 	// Attempt-specific escalation
 	if attempt >= 3 {
-		sb.WriteString(fmt.Sprintf("IMPORTANT: This is attempt %d of %d. ", attempt, maxRetries))
+		fmt.Fprintf(&sb, "IMPORTANT: This is attempt %d of %d. ", attempt, maxRetries)
 		sb.WriteString("Do not repeat the same approach as previous attempts. ")
 		if attempt >= maxRetries {
 			sb.WriteString("WARNING: The next failure will require human review. ")

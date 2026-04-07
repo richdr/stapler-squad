@@ -190,7 +190,7 @@ func (r *WorkspaceRegistry) Get(ctx context.Context, path string) (*TrackedWorks
 
 	workspace, exists := r.workspaces[path]
 	if !exists {
-		return nil, nil
+		return nil, nil //nolint:nilnil
 	}
 	return workspace, nil
 }
@@ -239,7 +239,7 @@ func (r *WorkspaceRegistry) GetStatus(ctx context.Context, path string, opts Sta
 		return nil, err
 	}
 	if len(statuses) == 0 {
-		return nil, nil
+		return nil, nil //nolint:nilnil
 	}
 	return statuses[0], nil
 }

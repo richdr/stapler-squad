@@ -673,9 +673,7 @@ func getDNSSearchDomains() []string {
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "search ") {
-			for _, d := range strings.Fields(line)[1:] {
-				domains = append(domains, d)
-			}
+			domains = append(domains, strings.Fields(line)[1:]...)
 		}
 	}
 	return domains
