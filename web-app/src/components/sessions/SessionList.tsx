@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { AppLink } from "@/components/ui/AppLink";
-import { Session, SessionStatus } from "@/gen/session/v1/types_pb";
+import { Session, SessionStatus, CheckpointProto } from "@/gen/session/v1/types_pb";
 import { SessionCard } from "./SessionCard";
 import { BulkActions } from "./BulkActions";
 import { GroupingStrategy, GroupingStrategyLabels, groupSessions, cycleGroupingStrategy } from "@/lib/grouping/strategies";
@@ -19,6 +19,9 @@ interface SessionListProps {
   onRestartSession?: (sessionId: string) => Promise<boolean>;
   onUpdateTags?: (sessionId: string, tags: string[]) => void;
   onToggleGoingDark?: (sessionId: string, enabled: boolean) => void;
+  onCreateCheckpoint?: (sessionId: string, label: string) => Promise<boolean>;
+  onListCheckpoints?: (sessionId: string) => Promise<CheckpointProto[]>;
+  onForkFromCheckpoint?: (sessionId: string, checkpointId: string, newTitle: string) => Promise<Session | null>;
 }
 
 type SortField = 'lastActivity' | 'name' | 'createdAt' | 'updatedAt';
@@ -73,6 +76,9 @@ export function SessionList({
   onRestartSession,
   onUpdateTags,
   onToggleGoingDark,
+  onCreateCheckpoint,
+  onListCheckpoints,
+  onForkFromCheckpoint,
 }: SessionListProps) {
   // Initialize state from local storage
   const [searchQuery, setSearchQuery] = useState(() => loadFromStorage(STORAGE_KEYS.SEARCH_QUERY, ""));
@@ -513,6 +519,9 @@ export function SessionList({
                       onRestart={onRestartSession}
                       onUpdateTags={onUpdateTags}
                       onToggleGoingDark={onToggleGoingDark}
+                      onCreateCheckpoint={onCreateCheckpoint}
+                      onListCheckpoints={onListCheckpoints}
+                      onForkFromCheckpoint={onForkFromCheckpoint}
                       selectMode={selectMode}
                       isSelected={selectedSessions.has(session.id)}
                       onToggleSelect={() => handleToggleSession(session.id)}

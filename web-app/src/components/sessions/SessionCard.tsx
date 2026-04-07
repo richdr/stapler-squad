@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Session, SessionStatus, ReviewItem, InstanceType, LookoutState } from "@/gen/session/v1/types_pb";
+import { Session, SessionStatus, ReviewItem, InstanceType, LookoutState, CheckpointProto } from "@/gen/session/v1/types_pb";
 import { ReviewQueueBadge } from "./ReviewQueueBadge";
 import { GitHubBadge } from "./GitHubBadge";
 import { TagEditor } from "./TagEditor";
@@ -18,6 +18,9 @@ interface SessionCardProps {
   onRestart?: (sessionId: string) => Promise<boolean>;
   onUpdateTags?: (sessionId: string, tags: string[]) => void;
   onToggleGoingDark?: (sessionId: string, enabled: boolean) => Promise<void> | void;
+  onCreateCheckpoint?: (sessionId: string, label: string) => Promise<boolean>;
+  onListCheckpoints?: (sessionId: string) => Promise<CheckpointProto[]>;
+  onForkFromCheckpoint?: (sessionId: string, checkpointId: string, newTitle: string) => Promise<Session | null>;
   selectMode?: boolean;
   isSelected?: boolean;
   onToggleSelect?: () => void;
@@ -35,6 +38,9 @@ export function SessionCard({
   onRestart,
   onUpdateTags,
   onToggleGoingDark,
+  onCreateCheckpoint,
+  onListCheckpoints,
+  onForkFromCheckpoint,
   selectMode = false,
   isSelected = false,
   onToggleSelect,
@@ -45,6 +51,14 @@ export function SessionCard({
   const [showActions, setShowActions] = useState(false);
   const [newTitle, setNewTitle] = useState(session.title);
   const [isRestartConfirmOpen, setIsRestartConfirmOpen] = useState(false);
+  const [isCheckpointOpen, setIsCheckpointOpen] = useState(false);
+  const [checkpointLabel, setCheckpointLabel] = useState("");
+  const [isCreatingCheckpoint, setIsCreatingCheckpoint] = useState(false);
+  const [isForkOpen, setIsForkOpen] = useState(false);
+  const [forkCheckpoints, setForkCheckpoints] = useState<CheckpointProto[]>([]);
+  const [forkTitle, setForkTitle] = useState("");
+  const [activeForkCheckpointId, setActiveForkCheckpointId] = useState("");
+  const [isForking, setIsForking] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [isRestarting, setIsRestarting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -52,6 +66,8 @@ export function SessionCard({
   const [isTogglingDark, setIsTogglingDark] = useState(false);
   const [toggleDarkError, setToggleDarkError] = useState("");
   const [isGoingDarkConfirmOpen, setIsGoingDarkConfirmOpen] = useState(false);
+  const [checkpointError, setCheckpointError] = useState("");
+  const [forkError, setForkError] = useState("");
   const getStatusColor = (status: SessionStatus): string => {
     switch (status) {
       case SessionStatus.RUNNING:
@@ -276,6 +292,71 @@ export function SessionCard({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [isGoingDarkConfirmOpen]);
 
+  const handleCheckpointClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setCheckpointLabel("");
+    setIsCheckpointOpen(true);
+  };
+
+  const handleCheckpointSubmit = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!checkpointLabel.trim()) return;
+    setIsCreatingCheckpoint(true);
+    setCheckpointError("");
+    try {
+      const success = await onCreateCheckpoint?.(session.id, checkpointLabel.trim());
+      if (success) {
+        setIsCheckpointOpen(false);
+      } else {
+        setCheckpointError("Failed to create checkpoint");
+      }
+    } catch (error) {
+      setCheckpointError(error instanceof Error ? error.message : "Failed to create checkpoint");
+    } finally {
+      setIsCreatingCheckpoint(false);
+    }
+  };
+
+  const handleCheckpointCancel = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsCheckpointOpen(false);
+    setCheckpointError("");
+  };
+
+  const handleForkClick = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const cps = await onListCheckpoints?.(session.id) ?? [];
+    setForkCheckpoints(cps);
+    setForkTitle(`${session.title}-fork`);
+    setActiveForkCheckpointId(cps.length > 0 ? cps[cps.length - 1].id : "");
+    setIsForkOpen(true);
+  };
+
+  const handleForkSubmit = async (checkpointId: string) => {
+    if (!forkTitle.trim() || !checkpointId) return;
+    setIsForking(true);
+    setForkError("");
+    try {
+      const result = await onForkFromCheckpoint?.(session.id, checkpointId, forkTitle.trim());
+      if (result) {
+        setIsForkOpen(false);
+      } else {
+        setForkError("Failed to fork session");
+      }
+    } catch (error) {
+      setForkError(error instanceof Error ? error.message : "Failed to fork session");
+    } finally {
+      setIsForking(false);
+    }
+  };
+
+  const handleForkCancel = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsForkOpen(false);
+    setForkError("");
+  };
+
+
   return (
     <>
       {isTagEditorOpen && (
@@ -374,6 +455,118 @@ export function SessionCard({
                 onClick={handleGoingDarkCancel}
                 disabled={isTogglingDark}
                 className={styles.cancelButton}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {isCheckpointOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="checkpointDialogTitle"
+          className={styles.renameDialog}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className={styles.dialogContent}>
+            <h3 id="checkpointDialogTitle">Create Checkpoint</h3>
+            <p>Enter a label for this checkpoint of &quot;{session.title}&quot;:</p>
+            <input
+              type="text"
+              value={checkpointLabel}
+              onChange={(e) => setCheckpointLabel(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleCheckpointSubmit(e as unknown as React.MouseEvent);
+                if (e.key === "Escape") handleCheckpointCancel(e as unknown as React.MouseEvent);
+              }}
+              placeholder="e.g. before refactor, working state"
+              className={styles.renameInput}
+              autoFocus
+            />
+            {checkpointError && <span className={styles.errorMessage}>{checkpointError}</span>}
+            <div className={styles.dialogActions}>
+              <button
+                onClick={handleCheckpointSubmit}
+                disabled={isCreatingCheckpoint || !checkpointLabel.trim()}
+                className={styles.submitButton}
+              >
+                {isCreatingCheckpoint ? "Saving..." : "📍 Save Checkpoint"}
+              </button>
+              <button
+                onClick={handleCheckpointCancel}
+                disabled={isCreatingCheckpoint}
+                className={styles.cancelButton}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {isForkOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="forkDialogTitle"
+          className={styles.renameDialog}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className={styles.dialogContent}>
+            <h3 id="forkDialogTitle">Fork Session</h3>
+            <p>Fork &quot;{session.title}&quot; from a checkpoint into a new independent session.</p>
+            <label className={styles.renameLabel}>New session title:</label>
+            <input
+              type="text"
+              value={forkTitle}
+              onChange={(e) => setForkTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") handleForkCancel(e as unknown as React.MouseEvent);
+              }}
+              placeholder="e.g. my-session-fork"
+              className={styles.renameInput}
+              autoFocus
+            />
+            {forkCheckpoints.length === 0 ? (
+              <p className={styles.forkEmptyMessage}>
+                No checkpoints found. Create a checkpoint first.
+              </p>
+            ) : (
+              <ul className={styles.forkCheckpointList}>
+                {forkCheckpoints.map((cp) => (
+                  <li key={cp.id} className={styles.forkCheckpointItem}>
+                    <input
+                      type="radio"
+                      name="forkCheckpoint"
+                      value={cp.id}
+                      checked={activeForkCheckpointId === cp.id}
+                      onChange={() => setActiveForkCheckpointId(cp.id)}
+                      id={`cp-${cp.id}`}
+                    />
+                    <label htmlFor={`cp-${cp.id}`} className={styles.forkCheckpointLabel}>
+                      <strong>{cp.label}</strong>
+                      {cp.gitCommitSha && <span className={styles.forkGitSha}>{cp.gitCommitSha.slice(0, 7)}</span>}
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {forkError && <span className={styles.errorMessage}>{forkError}</span>}
+            <div className={styles.dialogActions}>
+              {forkCheckpoints.length > 0 && (
+                <button
+                  className={styles.submitButton}
+                  onClick={() => handleForkSubmit(activeForkCheckpointId)}
+                  disabled={isForking || !forkTitle.trim() || !activeForkCheckpointId}
+                >
+                  {isForking ? "Forking..." : "Fork from checkpoint"}
+                </button>
+              )}
+              <button
+                onClick={handleForkCancel}
+                className={styles.cancelButton}
+                disabled={isForking}
               >
                 Cancel
               </button>
@@ -641,6 +834,26 @@ export function SessionCard({
           >
             🔄 Restart
           </button>
+          {onCreateCheckpoint && (
+            <button
+              className={styles.actionButton}
+              onClick={handleCheckpointClick}
+              title="Save a named checkpoint of the current session state"
+              aria-label={`Create checkpoint for session ${session.title}`}
+            >
+              📍 Checkpoint
+            </button>
+          )}
+          {onForkFromCheckpoint && (
+            <button
+              className={styles.actionButton}
+              onClick={handleForkClick}
+              title="Fork this session from a checkpoint"
+              aria-label={`Fork session ${session.title} from checkpoint`}
+            >
+              🍴 Fork
+            </button>
+          )}
           <button
             className={styles.actionButton}
             onClick={(e) => {
