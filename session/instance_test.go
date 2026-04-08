@@ -179,7 +179,7 @@ func TestTildeExpansionInNewInstance(t *testing.T) {
 				// Convert to absolute for comparison
 				tt.expectStartsWith, _ = filepath.Abs(tt.expectStartsWith)
 			}
-			if tt.expectStartsWith != "" && !strings.HasPrefix(instance.Path,tt.expectStartsWith) {
+			if tt.expectStartsWith != "" && !strings.HasPrefix(instance.Path, tt.expectStartsWith) {
 				t.Errorf("Expected path to start with %s, got: %s", tt.expectStartsWith, instance.Path)
 			}
 
@@ -246,7 +246,7 @@ func TestMigrationOfCorruptedPaths(t *testing.T) {
 				}
 
 				// Path should start with home directory
-				if !filepath.IsAbs(instance.Path) || !strings.HasPrefix(instance.Path,tt.expectedPrefix) {
+				if !filepath.IsAbs(instance.Path) || !strings.HasPrefix(instance.Path, tt.expectedPrefix) {
 					t.Errorf("Expected migrated path to start with %s, got: %s", tt.expectedPrefix, instance.Path)
 				}
 

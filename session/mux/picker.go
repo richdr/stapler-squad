@@ -103,11 +103,11 @@ func InteractiveSessionPicker() (string, error) {
 		fmt.Print("\033[2J\033[H") //nolint:forbidigo
 
 		// Print header
-		fmt.Println("\033[1;36m┌─────────────────────────────────────────────────────────────────────────┐\033[0m")         //nolint:forbidigo
+		fmt.Println("\033[1;36m┌─────────────────────────────────────────────────────────────────────────┐\033[0m")                               //nolint:forbidigo
 		fmt.Println("\033[1;36m│\033[0m  \033[1mSelect a session to attach\033[0m                                            \033[1;36m│\033[0m") //nolint:forbidigo
-		fmt.Println("\033[1;36m│\033[0m  \033[2mUse ↑/↓ or j/k to navigate, Enter to select, q to quit\033[0m               \033[1;36m│\033[0m") //nolint:forbidigo
-		fmt.Println("\033[1;36m└─────────────────────────────────────────────────────────────────────────┘\033[0m") //nolint:forbidigo
-		fmt.Println() //nolint:forbidigo
+		fmt.Println("\033[1;36m│\033[0m  \033[2mUse ↑/↓ or j/k to navigate, Enter to select, q to quit\033[0m               \033[1;36m│\033[0m")  //nolint:forbidigo
+		fmt.Println("\033[1;36m└─────────────────────────────────────────────────────────────────────────┘\033[0m")                               //nolint:forbidigo
+		fmt.Println()                                                                                                                             //nolint:forbidigo
 
 		// Print sessions
 		for i, s := range sessions {
@@ -138,9 +138,9 @@ func InteractiveSessionPicker() (string, error) {
 
 			fmt.Printf("%s%s%-40s\033[0m%s\n", prefix, nameStyle, displayName, attachedStr) //nolint:forbidigo
 			if i == selected {
-				fmt.Printf("     \033[2mPath: %s\033[0m\n", displayPath)               //nolint:forbidigo
-				fmt.Printf("     \033[2mLast activity: %s\033[0m\n", timeAgo)          //nolint:forbidigo
-				fmt.Println() //nolint:forbidigo
+				fmt.Printf("     \033[2mPath: %s\033[0m\n", displayPath)      //nolint:forbidigo
+				fmt.Printf("     \033[2mLast activity: %s\033[0m\n", timeAgo) //nolint:forbidigo
+				fmt.Println()                                                 //nolint:forbidigo
 			}
 		}
 

@@ -59,11 +59,11 @@ func scoreToProto(s *queue.Score) *sessionv1.Score {
 
 	if s.TestResults != nil {
 		proto.TestResults = &sessionv1.ScoreTestResults{
-			Passed:          s.TestResults.Passed,
-			OutputExcerpt:   s.TestResults.OutputExcerpt,
-			DurationMs:      s.TestResults.DurationMs,
-			TestsRun:        s.TestResults.TestsRun,
-			TestsFailed:     s.TestResults.TestsFailed,
+			Passed:           s.TestResults.Passed,
+			OutputExcerpt:    s.TestResults.OutputExcerpt,
+			DurationMs:       s.TestResults.DurationMs,
+			TestsRun:         s.TestResults.TestsRun,
+			TestsFailed:      s.TestResults.TestsFailed,
 			FailingTestNames: s.TestResults.FailingTestNames,
 		}
 	}

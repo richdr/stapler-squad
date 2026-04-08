@@ -95,8 +95,8 @@ func TestLookoutStopIsIdempotent(t *testing.T) {
 // TestLookoutBackoffDuration verifies backoff durations grow as expected.
 func TestLookoutBackoffDuration(t *testing.T) {
 	tests := []struct {
-		attempt  int
-		wantMin  time.Duration
+		attempt   int
+		wantMin   time.Duration
 		wantExact time.Duration
 	}{
 		{0, 5 * time.Second, 5 * time.Second},

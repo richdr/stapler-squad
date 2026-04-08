@@ -38,7 +38,7 @@ func (s SweepStatus) String() string {
 // SweepResult holds the structured output of a Sweep run.
 type SweepResult struct {
 	Status        SweepStatus
-	TestOutput    string   // ANSI-stripped, capped at 4000 chars
+	TestOutput    string // ANSI-stripped, capped at 4000 chars
 	FailingTests  []string
 	FailureHash   string // SHA256 of sorted failing test names (for oscillation detection)
 	Duration      time.Duration
