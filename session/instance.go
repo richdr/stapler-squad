@@ -949,6 +949,10 @@ func (i *Instance) Destroy() error {
 	// Stop the controller first
 	i.StopController()
 
+	// Mark as not started immediately so any concurrent ReviewQueuePoller cycle
+	// sees this instance as dead and removes it from the queue rather than re-adding it.
+	i.started = false
+
 	var errs []error
 
 	// Always try to cleanup both resources, even if one fails
