@@ -48,9 +48,6 @@ function HomeContent() {
     resumeSession,
     renameSession,
     restartSession,
-    createCheckpoint,
-    listCheckpoints,
-    forkSession,
     listSessions,
     updateSession,
   } = useSessionService({

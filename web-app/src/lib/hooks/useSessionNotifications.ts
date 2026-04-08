@@ -61,8 +61,9 @@ function mapNotificationType(type: NotificationType): NotificationData["notifica
   switch (type) {
     case NotificationType.APPROVAL_NEEDED:
     case NotificationType.CONFIRMATION_NEEDED:
-    case NotificationType.INPUT_REQUIRED:
       return "approval_needed";
+    case NotificationType.INPUT_REQUIRED:
+      return "question";
     case NotificationType.ERROR:
     case NotificationType.FAILURE:
       return "error";
@@ -270,8 +271,9 @@ export function useSessionNotifications(options: UseSessionNotificationsOptions 
       }
     }
 
-    // Never suppress approval_needed notifications — each one blocks Claude and requires a response.
-    const isApproval = event.notificationType === NotificationType.APPROVAL_NEEDED;
+    // Never suppress approval_needed or question notifications — each one blocks Claude and requires a response.
+    const isApproval = event.notificationType === NotificationType.APPROVAL_NEEDED ||
+      event.notificationType === NotificationType.INPUT_REQUIRED;
     if (!isApproval && lastShown && now - lastShown < DEDUP_WINDOW_MS) {
       // Duplicate toast suppressed — event still reaches history store via server
       return;

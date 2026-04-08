@@ -162,36 +162,24 @@ func (h *ApprovalHandler) HandlePermissionRequest(w http.ResponseWriter, r *http
 	}
 
 	// Domain age check: if a Bash command is contacting a newly-registered domain,
-	// escalate immediately regardless of other rules.
+	// escalate immediately to manual review regardless of other rules.
 	if h.domainChecker != nil {
 		if cmd, ok := payload.ToolInput["command"].(string); ok && cmd != "" {
-			domains := ExtractDomainsFromCommand(cmd)
-			for _, domain := range domains {
-				isNew, err := h.domainChecker.IsNewlyRegistered(r.Context(), domain)
-				if err != nil {
-					log.WarningLog.Printf("[ApprovalHandler] Domain age check error for %s: %v", domain, err)
-					continue
-				}
-				if isNew {
-					threshDays := int(h.domainChecker.NewDomainThreshold().Hours() / 24)
-					reason := fmt.Sprintf("Domain %q was registered within the last %d days — possible phishing or supply-chain risk.", domain, threshDays)
-					log.InfoLog.Printf("[ApprovalHandler] Escalating %s/%s — newly-registered domain %s", sessionID, payload.ToolName, domain)
-					if h.analyticsStore != nil {
-						h.analyticsStore.RecordFromResult(payload, ClassificationResult{
-							Decision:  Escalate,
-							RiskLevel: RiskHigh,
-							RuleID:    "new-domain-check",
-							RuleName:  "New Domain Check",
-							Reason:    reason,
-						}, sessionID, "", 0)
-					}
-					// Fall through to manual review queue (do NOT return here).
-					// The domain reason will appear in the pending approval context.
-					_ = reason // will be surfaced when the approval is shown in review queue
-					goto createApproval
-				}
+			if h.checkDomainAgeEscalation(r.Context(), sessionID, payload, cmd) {
+				h.createApprovalAndWait(w, r, sessionID, payload)
+				return
 			}
 		}
+	}
+
+	// AskUserQuestion: fire an informational notification so the user knows to check the
+	// terminal, then immediately allow. No approval_id is included in the notification
+	// metadata so the UI renders a plain ❓ toast with no Approve/Deny buttons.
+	if strings.EqualFold(payload.ToolName, "AskUserQuestion") {
+		log.InfoLog.Printf("[ApprovalHandler] AskUserQuestion from session %s — notifying and allowing", sessionID)
+		h.broadcastQuestionNotification(sessionID, payload)
+		h.writeDecision(w, "allow", "")
+		return
 	}
 
 	// Classify the request: auto-allow/deny if a rule matches; escalate to manual review otherwise.
@@ -222,9 +210,41 @@ func (h *ApprovalHandler) HandlePermissionRequest(w http.ResponseWriter, r *http
 		}
 	}
 
-createApproval:
+	h.createApprovalAndWait(w, r, sessionID, payload)
+}
 
-	// Create a pending approval record
+// checkDomainAgeEscalation checks whether a command contacts a newly-registered domain.
+// Returns true if the request should be escalated to manual review.
+func (h *ApprovalHandler) checkDomainAgeEscalation(ctx context.Context, sessionID string, payload PermissionRequestPayload, cmd string) bool {
+	domains := ExtractDomainsFromCommand(cmd)
+	for _, domain := range domains {
+		isNew, err := h.domainChecker.IsNewlyRegistered(ctx, domain)
+		if err != nil {
+			log.WarningLog.Printf("[ApprovalHandler] Domain age check error for %s: %v", domain, err)
+			continue
+		}
+		if isNew {
+			threshDays := int(h.domainChecker.NewDomainThreshold().Hours() / 24)
+			reason := fmt.Sprintf("Domain %q was registered within the last %d days — possible phishing or supply-chain risk.", domain, threshDays)
+			log.InfoLog.Printf("[ApprovalHandler] Escalating %s/%s — newly-registered domain %s", sessionID, payload.ToolName, domain)
+			if h.analyticsStore != nil {
+				h.analyticsStore.RecordFromResult(payload, ClassificationResult{
+					Decision:  Escalate,
+					RiskLevel: RiskHigh,
+					RuleID:    "new-domain-check",
+					RuleName:  "New Domain Check",
+					Reason:    reason,
+				}, sessionID, "", 0)
+			}
+			return true
+		}
+	}
+	return false
+}
+
+// createApprovalAndWait creates a pending approval record, notifies the UI,
+// and blocks until the user decides, the server times out, or the connection closes.
+func (h *ApprovalHandler) createApprovalAndWait(w http.ResponseWriter, r *http.Request, sessionID string, payload PermissionRequestPayload) {
 	approvalID := uuid.New().String()
 	approval := &PendingApproval{
 		ID:              approvalID,
@@ -281,13 +301,12 @@ createApproval:
 				log.WarningLog.Printf("[ApprovalHandler] Could not stamp timeout on notification %s: %v", approvalID, err)
 			}
 		}
-		log.InfoLog.Printf("[ApprovalHandler] Approval %s timed out — returning empty response (native dialog fallback)", approvalID)
-		w.WriteHeader(http.StatusOK)
+		log.InfoLog.Printf("[ApprovalHandler] Approval %s timed out — deferring to native terminal dialog", approvalID)
+		h.writeDeferDecision(w)
 		return
 	case <-r.Context().Done():
 		// Claude Code disconnected (e.g., stapler-squad restarted, network issue)
 		h.store.Remove(approvalID)
-		decision = ApprovalDecision{Behavior: "allow", Message: ""}
 		log.InfoLog.Printf("[ApprovalHandler] Approval %s context canceled", approvalID)
 		return // Don't write to disconnected client
 	}
@@ -331,13 +350,46 @@ func (h *ApprovalHandler) broadcastApprovalNotification(sessionID string, approv
 	h.eventBus.Publish(event)
 }
 
+// maxNotificationMessageLen is the maximum number of runes to include in a
+// notification toast message before truncating with "...".
+const maxNotificationMessageLen = 120
+
+// broadcastQuestionNotification fires an INPUT_REQUIRED notification when Claude uses
+// AskUserQuestion. It omits approval_id from metadata so no Approve/Deny buttons are shown —
+// only a ❓ toast directing the user to respond in the terminal.
+func (h *ApprovalHandler) broadcastQuestionNotification(sessionID string, payload PermissionRequestPayload) {
+	message := "Check the terminal to respond."
+	if prompt, ok := payload.ToolInput["prompt"].(string); ok && prompt != "" {
+		message = truncateString(prompt, maxNotificationMessageLen)
+	}
+
+	event := events.NewNotificationEvent(
+		sessionID,
+		sessionID,
+		uuid.New().String(),
+		int32(sessionv1.NotificationType_NOTIFICATION_TYPE_INPUT_REQUIRED),
+		int32(sessionv1.NotificationPriority_NOTIFICATION_PRIORITY_HIGH),
+		"Claude has a question",
+		message,
+		nil,
+	)
+	h.eventBus.Publish(event)
+}
+
+// truncateString returns s truncated to at most maxRunes Unicode code points,
+// appending "..." when truncation occurs. Safe for any UTF-8 content.
+func truncateString(s string, maxRunes int) string {
+	r := []rune(s)
+	if len(r) <= maxRunes {
+		return s
+	}
+	return string(r[:maxRunes]) + "..."
+}
+
 // buildApprovalMessage builds the human-readable message for an approval notification.
 func buildApprovalMessage(approval *PendingApproval) string {
 	if cmd, ok := approval.ToolInput["command"].(string); ok && cmd != "" {
-		if len(cmd) > 120 {
-			return cmd[:120] + "..."
-		}
-		return cmd
+		return truncateString(cmd, maxNotificationMessageLen)
 	}
 	if filePath, ok := approval.ToolInput["file_path"].(string); ok && filePath != "" {
 		return filePath
@@ -399,6 +451,14 @@ func (h *ApprovalHandler) normalizeSessionID(sessionID string) string {
 		}
 	}
 	return sessionID
+}
+
+// writeDeferDecision returns an empty HTTP 200 with no body.
+// Claude Code interprets the absence of hookSpecificOutput as "no decision made by the hook"
+// and falls back to its native terminal permission dialog.  This is the only way to encode
+// "neither approve nor deny" — the hook API has no formal "pass" or "defer" value.
+func (h *ApprovalHandler) writeDeferDecision(w http.ResponseWriter) {
+	w.WriteHeader(http.StatusOK)
 }
 
 // writeDecision writes the hookSpecificOutput JSON response to the HTTP response.

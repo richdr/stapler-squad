@@ -95,11 +95,6 @@ func NewServer(addr string) *Server {
 		serverCtx := context.Background()
 		go deps.ReactiveQueueMgr.Start(serverCtx)
 		log.InfoLog.Printf("ReactiveQueueManager started")
-		if deps.HistoryLinker != nil {
-			deps.HistoryLinker.Start(serverCtx)
-			log.InfoLog.Printf("HistoryLinker started")
-		}
-		deps.SessionService.SetScrollbackManager(deps.ScrollbackManager)
 
 		// Start Crew Autonomy supervisor (Fixer subscribes to ReviewQueue).
 		deps.Fixer.Start(serverCtx)
@@ -211,26 +206,6 @@ func NewServer(addr string) *Server {
 		cbHandler := services.NewCircuitBreakerHandler()
 		cbHandler.RegisterRoutes(srv.mux)
 		log.InfoLog.Printf("Registered Circuit Breaker debug handler at /api/debug/circuit-breakers")
-
-		// Wire shutdown hook: capture live session state before process exits.
-		// This persists the current working directory of each running session so
-		// cold restore can resume in the right directory.
-		srv.shutdownHook = func() {
-			instances := deps.ReviewQueuePoller.GetInstances()
-			log.InfoLog.Printf("Shutdown: capturing current state for %d instances", len(instances))
-			for _, inst := range instances {
-				if inst.Started() && !inst.Paused() {
-					if err := inst.CaptureCurrentState(); err != nil {
-						log.WarningLog.Printf("Shutdown: failed to capture state for '%s': %v", inst.Title, err)
-					}
-				}
-			}
-			if err := deps.Storage.SaveInstances(instances); err != nil {
-				log.WarningLog.Printf("Shutdown: failed to save instances: %v", err)
-			} else {
-				log.InfoLog.Printf("Shutdown: saved state for %d instances", len(instances))
-			}
-		}
 	}
 
 	// Register server-info endpoint for settings UI
@@ -334,11 +309,6 @@ func (s *Server) Start(ctx context.Context) error {
 
 // Shutdown gracefully shuts down the HTTP server and background components.
 func (s *Server) Shutdown() error {
-	// Capture live session state (e.g. working directory) before process exit.
-	if s.shutdownHook != nil {
-		s.shutdownHook()
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 

@@ -1330,14 +1330,14 @@ func TestClassify_AgentTools_AutoAllow(t *testing.T) {
 	}
 }
 
-func TestClassify_AskUserQuestion_Escalates(t *testing.T) {
+func TestClassify_AskUserQuestion_AutoAllows(t *testing.T) {
 	c := NewRuleBasedClassifier()
 	ctx := ClassificationContext{}
 
 	payload := PermissionRequestPayload{ToolName: "AskUserQuestion", ToolInput: map[string]interface{}{}}
 	result := c.Classify(payload, ctx)
-	if result.Decision != Escalate {
-		t.Errorf("AskUserQuestion: expected Escalate, got %v (rule=%s, reason=%s)", result.Decision, result.RuleID, result.Reason)
+	if result.Decision != AutoAllow {
+		t.Errorf("AskUserQuestion: expected AutoAllow, got %v (rule=%s, reason=%s)", result.Decision, result.RuleID, result.Reason)
 	}
 }
 
