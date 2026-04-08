@@ -38,6 +38,9 @@ type FixerStateProvider interface {
 	// LookoutStateFor returns the numeric LookoutState for the given session.
 	// Returns 0 (LookoutIdle) if no Lookout is active for that session.
 	LookoutStateFor(sessionID string) int
+	// LookoutRetryFor returns the current retry count and max retries for the given session.
+	// Returns (0, 0) if no Lookout is active.
+	LookoutRetryFor(sessionID string) (int, int)
 }
 
 // SessionService implements the SessionServiceHandler interface for ConnectRPC.
@@ -358,11 +361,10 @@ func (s *SessionService) enrichLookoutState(protoSess *sessionv1.Session) *sessi
 	}
 	crewState := s.fixer.LookoutStateFor(protoSess.Id)
 	// Map crew.LookoutState ints to proto LookoutState enum values.
-	// crew constants: Idle=0, Active=1, Sweeping=2, AwaitingRetry=3, Fallen=4, Stopped=5
+	// crew constants: Idle=0, Sweeping=2, AwaitingRetry=3, Fallen=4, Stopped=5
+	// Value 1 is reserved in the proto enum but not produced by Go code.
 	switch crewState {
 	case 0: // LookoutIdle — no active sweep; leave at zero value (UNSPECIFIED)
-	case 1: // LookoutActive
-		protoSess.LookoutState = sessionv1.LookoutState_LOOKOUT_STATE_ACTIVE
 	case 2: // LookoutSweeping
 		protoSess.LookoutState = sessionv1.LookoutState_LOOKOUT_STATE_SWEEPING
 	case 3: // LookoutAwaitingRetry
@@ -374,6 +376,9 @@ func (s *SessionService) enrichLookoutState(protoSess *sessionv1.Session) *sessi
 	default:
 		protoSess.LookoutState = sessionv1.LookoutState_LOOKOUT_STATE_UNSPECIFIED
 	}
+	retryCount, maxRetries := s.fixer.LookoutRetryFor(protoSess.Id)
+	protoSess.LookoutRetryCount = int32(retryCount)
+	protoSess.LookoutMaxRetries = int32(maxRetries)
 	return protoSess
 }
 

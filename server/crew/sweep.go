@@ -295,7 +295,7 @@ func parseFailingTests(output, ecosystem string) []string {
 		for _, line := range lines {
 			line = strings.TrimSpace(line)
 			if strings.HasPrefix(line, "✕ ") || strings.HasPrefix(line, "× ") ||
-				strings.HasPrefix(line, "FAIL ") || strings.Contains(line, "● ") {
+				strings.HasPrefix(line, "FAIL ") || (strings.HasPrefix(line, "● ") && strings.Contains(line, " > ")) {
 				name := line
 				for _, pfx := range []string{"✕ ", "× ", "FAIL "} {
 					name = strings.TrimPrefix(name, pfx)

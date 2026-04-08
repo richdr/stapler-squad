@@ -305,6 +305,18 @@ func (f *Fixer) LookoutStateFor(sessionID string) int {
 	return int(l.State())
 }
 
+// LookoutRetryFor returns the current retry count and max retries for the given session.
+// Returns (0, 0) if no Lookout is active. Used by SessionService for live retry progress.
+func (f *Fixer) LookoutRetryFor(sessionID string) (int, int) {
+	f.mu.RLock()
+	l, ok := f.lookouts[sessionID]
+	f.mu.RUnlock()
+	if !ok {
+		return 0, 0
+	}
+	return l.RetryCount(), l.MaxRetries()
+}
+
 // countGoingDarkLocked counts active Lookouts whose config has GoingDark=true.
 // Caller must hold f.mu (at least a read lock).
 func (f *Fixer) countGoingDarkLocked() int {

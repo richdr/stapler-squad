@@ -123,6 +123,12 @@ message Session {
   // When true, the Fixer injects correction prompts automatically without human review.
   // Mirrors session.Instance.AutonomousMode.
   bool going_dark = 36;
+
+  // Live retry progress for the Lookout supervisor (crew autonomy).
+  // lookout_retry_count is the current attempt number; lookout_max_retries is the configured cap.
+  // Both are zero when no Lookout is active or no retry has been attempted yet.
+  int32 lookout_retry_count = 37;
+  int32 lookout_max_retries = 38;
 }
 
 // SessionStatus represents the current state of a session.

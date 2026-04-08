@@ -15,6 +15,10 @@ func (m *mockFixerStateProvider) LookoutStateFor(sessionID string) int {
 	return m.state
 }
 
+func (m *mockFixerStateProvider) LookoutRetryFor(sessionID string) (int, int) {
+	return 0, 0
+}
+
 // newTestSessionServiceForEnrich builds the minimal SessionService needed to test
 // enrichLookoutState — only the fixer field is relevant for these tests.
 func newTestSessionServiceForEnrich(fixer FixerStateProvider) *SessionService {
@@ -59,23 +63,21 @@ func TestEnrichLookoutState_IdleState(t *testing.T) {
 	}
 }
 
-// TestEnrichLookoutState_ActiveState verifies that crewState=1 (LookoutActive) maps to
-// proto LOOKOUT_STATE_ACTIVE (2) via the +1 offset.
-func TestEnrichLookoutState_ActiveState(t *testing.T) {
-	// crew.LookoutActive = 1 → proto offset +1 → LOOKOUT_STATE_ACTIVE = 2
+// TestEnrichLookoutState_ReservedValue1 verifies that crewState=1 (reserved proto value,
+// not produced by Go code after LookoutActive removal) maps to UNSPECIFIED.
+func TestEnrichLookoutState_ReservedValue1(t *testing.T) {
+	// Value 1 is reserved in the proto LookoutState enum but not produced by Go code.
 	svc := newTestSessionServiceForEnrich(&mockFixerStateProvider{state: 1})
-	sess := &sessionv1.Session{Id: "session-active"}
+	sess := &sessionv1.Session{Id: "session-reserved"}
 	result := svc.enrichLookoutState(sess)
-	if result.LookoutState != sessionv1.LookoutState_LOOKOUT_STATE_ACTIVE {
-		t.Errorf("crewState=1 (Active): expected LOOKOUT_STATE_ACTIVE (%d), got %v",
-			sessionv1.LookoutState_LOOKOUT_STATE_ACTIVE, result.LookoutState)
+	if result.LookoutState != sessionv1.LookoutState_LOOKOUT_STATE_UNSPECIFIED {
+		t.Errorf("crewState=1 (reserved): expected LOOKOUT_STATE_UNSPECIFIED, got %v", result.LookoutState)
 	}
 }
 
 // TestEnrichLookoutState_SweepingState verifies that crewState=2 (LookoutSweeping) maps to
-// proto LOOKOUT_STATE_SWEEPING (3) via the +1 offset.
+// proto LOOKOUT_STATE_SWEEPING.
 func TestEnrichLookoutState_SweepingState(t *testing.T) {
-	// crew.LookoutSweeping = 2 → proto offset +1 → LOOKOUT_STATE_SWEEPING = 3
 	svc := newTestSessionServiceForEnrich(&mockFixerStateProvider{state: 2})
 	sess := &sessionv1.Session{Id: "session-sweeping"}
 	result := svc.enrichLookoutState(sess)
@@ -150,4 +152,8 @@ type FixerStateProviderFunc func(sessionID string) int
 
 func (f FixerStateProviderFunc) LookoutStateFor(sessionID string) int {
 	return f(sessionID)
+}
+
+func (f FixerStateProviderFunc) LookoutRetryFor(sessionID string) (int, int) {
+	return 0, 0
 }

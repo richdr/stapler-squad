@@ -17,17 +17,16 @@ type LookoutState int
 
 const (
 	// LookoutIdle: Waiting for a TaskComplete event.
-	LookoutIdle LookoutState = iota
-	// LookoutActive: Session is working; seen at least one tool use.
-	LookoutActive
+	LookoutIdle LookoutState = 0
 	// LookoutSweeping: TaskComplete received; quality gate pipeline executing.
-	LookoutSweeping
+	// Explicit value 2 preserves proto wire mapping (value 1 is reserved in the proto enum).
+	LookoutSweeping LookoutState = 2
 	// LookoutAwaitingRetry: Sweep failed; Earpiece injected; waiting for session to resume.
-	LookoutAwaitingRetry
+	LookoutAwaitingRetry LookoutState = 3
 	// LookoutFallen: maxRetries exhausted or oscillation detected; escalated to Mastermind.
-	LookoutFallen
+	LookoutFallen LookoutState = 4
 	// LookoutStopped: Context cancelled; goroutine exited cleanly.
-	LookoutStopped
+	LookoutStopped LookoutState = 5
 )
 
 // String returns a human-readable name for the LookoutState.
@@ -35,8 +34,6 @@ func (s LookoutState) String() string {
 	switch s {
 	case LookoutIdle:
 		return "Idle"
-	case LookoutActive:
-		return "Active"
 	case LookoutSweeping:
 		return "Sweeping"
 	case LookoutAwaitingRetry:
@@ -130,6 +127,18 @@ func (l *Lookout) State() LookoutState {
 	return l.state
 }
 
+// RetryCount returns the current retry attempt count. Safe for concurrent reads.
+func (l *Lookout) RetryCount() int {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.retryCount
+}
+
+// MaxRetries returns the configured maximum retry count.
+func (l *Lookout) MaxRetries() int {
+	return l.cfg.MaxRetries
+}
+
 // setState transitions the Lookout to a new state. Must be called within run() goroutine.
 func (l *Lookout) setState(s LookoutState) {
 	l.mu.Lock()
@@ -177,14 +186,15 @@ func (l *Lookout) EarpieceCh() <-chan *SweepResult {
 //	AwaitingRetry -> Sweeping  (after backoff; increments retryCount)
 //	Fallen -> (stays until ctx.Done)
 //
-// Note: LookoutActive is declared but not used in the current retry loop.
-// AwaitingRetry transitions directly to Sweeping (not through Active) because
+// AwaitingRetry transitions directly to Sweeping (not through Idle) because
 // a new TaskComplete signal is not required to re-run the sweep after a correction.
 func (l *Lookout) run() {
 	defer func() {
 		if r := recover(); r != nil {
 			log.ErrorLog.Printf("%s: %s: %v", lookoutRunRecoverMsg, l.cfg.SessionID, r)
 		}
+		// Close earpieceCh so any watchEarpiece goroutine in Fixer exits cleanly.
+		close(l.earpieceCh)
 		l.setState(LookoutStopped)
 	}()
 

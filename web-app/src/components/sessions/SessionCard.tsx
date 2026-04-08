@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Session, SessionStatus, ReviewItem, InstanceType, LookoutState, CheckpointProto } from "@/gen/session/v1/types_pb";
 import { ReviewQueueBadge } from "./ReviewQueueBadge";
 import { GitHubBadge } from "./GitHubBadge";
@@ -66,6 +66,8 @@ export function SessionCard({
   const [isTogglingDark, setIsTogglingDark] = useState(false);
   const [toggleDarkError, setToggleDarkError] = useState("");
   const [isGoingDarkConfirmOpen, setIsGoingDarkConfirmOpen] = useState(false);
+  const [showDarkDisabledToast, setShowDarkDisabledToast] = useState(false);
+  const goingDarkDialogRef = useRef<HTMLDivElement>(null);
   const [checkpointError, setCheckpointError] = useState("");
   const [forkError, setForkError] = useState("");
   const getStatusColor = (status: SessionStatus): string => {
@@ -122,10 +124,16 @@ export function SessionCard({
 
   const getLookoutStateLabel = (state: LookoutState): string | null => {
     switch (state) {
-      case LookoutState.SWEEPING:        return "Sweeping";
-      case LookoutState.AWAITING_RETRY:  return "Retrying";
-      case LookoutState.FALLEN:          return "Fallen";
-      default: return null; // Idle/Active/Stopped/Unspecified — don't show badge
+      case LookoutState.SWEEPING:
+        return "Sweeping";
+      case LookoutState.AWAITING_RETRY: {
+        const retryCount = session.lookoutRetryCount;
+        const maxRetries = session.lookoutMaxRetries;
+        return maxRetries > 0 ? `Retrying (${retryCount}/${maxRetries})` : "Retrying";
+      }
+      case LookoutState.FALLEN:
+        return "Needs Attention";
+      default: return null; // Idle/Stopped/Unspecified — don't show badge
     }
   };
 
@@ -266,8 +274,11 @@ export function SessionCard({
       // Enabling: show confirmation dialog first
       setIsGoingDarkConfirmOpen(true);
     } else {
-      // Disabling: proceed immediately, no confirmation needed
-      void executeGoingDarkToggle(false);
+      // Disabling: proceed immediately and show brief confirmation toast
+      void executeGoingDarkToggle(false).then(() => {
+        setShowDarkDisabledToast(true);
+        setTimeout(() => setShowDarkDisabledToast(false), 3000);
+      });
     }
   };
 
@@ -282,14 +293,11 @@ export function SessionCard({
     setIsGoingDarkConfirmOpen(false);
   };
 
-  // Close the Going Dark confirmation dialog when the user presses Escape.
+  // Focus the first button when the Going Dark dialog opens (WCAG 2.4.3).
   useEffect(() => {
-    if (!isGoingDarkConfirmOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setIsGoingDarkConfirmOpen(false);
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
+    if (!isGoingDarkConfirmOpen || !goingDarkDialogRef.current) return;
+    const firstButton = goingDarkDialogRef.current.querySelector<HTMLElement>("button:not([disabled])");
+    firstButton?.focus();
   }, [isGoingDarkConfirmOpen]);
 
   const handleCheckpointClick = (e: React.MouseEvent) => {
@@ -430,11 +438,27 @@ export function SessionCard({
       )}
       {isGoingDarkConfirmOpen && (
         <div
+          ref={goingDarkDialogRef}
           className={styles.confirmDialog}
           onClick={(e) => e.stopPropagation()}
           role="dialog"
           aria-modal="true"
           aria-labelledby={`going-dark-dialog-title-${session.id}`}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") { setIsGoingDarkConfirmOpen(false); return; }
+            if (e.key !== "Tab" || !goingDarkDialogRef.current) return;
+            const focusable = Array.from(
+              goingDarkDialogRef.current.querySelectorAll<HTMLElement>("button:not([disabled])")
+            );
+            if (focusable.length === 0) return;
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (e.shiftKey && document.activeElement === first) {
+              e.preventDefault(); last.focus();
+            } else if (!e.shiftKey && document.activeElement === last) {
+              e.preventDefault(); first.focus();
+            }
+          }}
         >
           <div className={styles.dialogContent}>
             <h3 id={`going-dark-dialog-title-${session.id}`}>Enable Going Dark Mode</h3>
@@ -633,11 +657,14 @@ export function SessionCard({
             )}
             {(() => {
               const lookoutLabel = getLookoutStateLabel(session.lookoutState);
+              const isFallen = session.lookoutState === LookoutState.FALLEN;
               return lookoutLabel ? (
                 <span
-                  className={`${styles.lookoutBadge} ${session.lookoutState === LookoutState.FALLEN ? styles.lookoutBadgeFallen : ""}`}
-                  title={`Lookout: ${lookoutLabel}`}
-                  aria-label={`Lookout state: ${lookoutLabel}`}
+                  className={`${styles.lookoutBadge} ${isFallen ? styles.lookoutBadgeFallen : ""}`}
+                  title={isFallen
+                    ? "Lookout: retries exhausted — review session output and resume manually"
+                    : `Lookout: ${lookoutLabel}`}
+                  aria-label={`Lookout state: ${lookoutLabel}${isFallen ? " — review required" : ""}`}
                 >
                   🔍 {lookoutLabel}
                 </span>
@@ -818,6 +845,28 @@ export function SessionCard({
               ⏸️ Pause
             </button>
           )}
+          {onToggleGoingDark && (
+            <>
+              <button
+                className={`${styles.actionButton} ${session.goingDark ? styles.goingDarkActive : styles.goingDarkButton}`}
+                onClick={handleGoingDarkToggleClick}
+                disabled={isTogglingDark}
+                title={session.goingDark ? "Disable Going Dark (autonomous) mode" : "Enable Going Dark (autonomous) mode — requires confirmation"}
+                aria-label={`${session.goingDark ? "Disable" : "Enable"} Going Dark mode for ${session.title}`}
+                aria-pressed={session.goingDark}
+              >
+                {isTogglingDark
+                    ? (session.goingDark ? "Disabling..." : "Enabling...")
+                    : session.goingDark ? "🌙 Going Dark: ON" : "☀️ Going Dark: OFF"}
+              </button>
+              {toggleDarkError && <span className={styles.toggleDarkError}>{toggleDarkError}</span>}
+              {showDarkDisabledToast && (
+                <span className={styles.toggleDarkError} role="status" aria-live="polite" style={{color: "var(--color-success, #22c55e)"}}>
+                  ☀️ Going Dark disabled
+                </span>
+              )}
+            </>
+          )}
           <button
             className={styles.actionButton}
             onClick={handleRenameClick}
@@ -882,23 +931,6 @@ export function SessionCard({
           >
             {isDeleting ? "Deleting..." : "🗑️ Delete"}
           </button>
-          {onToggleGoingDark && (
-            <>
-              <button
-                className={`${styles.actionButton} ${session.goingDark ? styles.goingDarkActive : styles.goingDarkButton}`}
-                onClick={handleGoingDarkToggleClick}
-                disabled={isTogglingDark}
-                title={session.goingDark ? "Disable Going Dark (autonomous) mode" : "Enable Going Dark (autonomous) mode — requires confirmation"}
-                aria-label={`${session.goingDark ? "Disable" : "Enable"} Going Dark mode for ${session.title}`}
-                aria-pressed={session.goingDark}
-              >
-                {isTogglingDark
-                    ? (session.goingDark ? "Disabling..." : "Enabling...")
-                    : session.goingDark ? "🌙 Going Dark: ON" : "☀️ Going Dark: OFF"}
-              </button>
-              {toggleDarkError && <span className={styles.toggleDarkError}>{toggleDarkError}</span>}
-            </>
-          )}
         </div>
       </div>
     </div>
