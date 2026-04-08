@@ -213,6 +213,11 @@ func RunSweep(ctx context.Context, dir string, runner *TestRunner) (*SweepResult
 	// user-controlled input, so sh injection is not a risk here.
 	cmd := exec.CommandContext(timeoutCtx, "sh", "-c", runner.Command)
 	cmd.Dir = dir
+	// WaitDelay forces the OS to kill the process group (including sh child
+	// processes that may outlive the shell) if the process does not exit
+	// promptly after the context deadline. Without this, cmd.Run() can block
+	// indefinitely because orphaned children keep the pipe open.
+	cmd.WaitDelay = runner.Timeout + 500*time.Millisecond
 
 	var outBuf bytes.Buffer
 	cmd.Stdout = &outBuf
