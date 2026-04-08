@@ -388,8 +388,8 @@ func parseDiffStat(output string) *queue.DiffSummary {
 		}
 		// Parse "N insertions(+)"
 		var added, deleted int32
-		fmt.Sscanf(parseStatValue(line, "insertion"), "%d", &added)
-		fmt.Sscanf(parseStatValue(line, "deletion"), "%d", &deleted)
+		_, _ = fmt.Sscanf(parseStatValue(line, "insertion"), "%d", &added)
+		_, _ = fmt.Sscanf(parseStatValue(line, "deletion"), "%d", &deleted)
 		summary.LinesAdded = added
 		summary.LinesDeleted = deleted
 		break

@@ -131,10 +131,6 @@ func TestEnrichLookoutState_StoppedState(t *testing.T) {
 // LookoutStateFor — i.e. protoSess.Id is used, not some other field.
 func TestEnrichLookoutState_UsesSessionID(t *testing.T) {
 	// Use a state provider that captures the sessionID it was called with.
-	type capturingProvider struct {
-		capturedID string
-		state      int
-	}
 	var captured string
 	svc := newTestSessionServiceForEnrich(FixerStateProviderFunc(func(sessionID string) int {
 		captured = sessionID

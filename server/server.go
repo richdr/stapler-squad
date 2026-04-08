@@ -46,9 +46,6 @@ type Server struct {
 	hostnames      []string                        // detected LAN hostnames
 	origins        []string                        // allowed CORS origins
 	fixer          crewStopper                     // stopped on Shutdown(); nil if crew is not started
-	// shutdownHook is called during graceful shutdown before the HTTP server stops.
-	// Used to capture session state (e.g. working directory) before process exit.
-	shutdownHook func()
 }
 
 // NewServer creates a new HTTP server instance with SessionService registered.
