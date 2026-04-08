@@ -159,7 +159,7 @@ func TestRunSweep_ANSIStripped(t *testing.T) {
 	dir := t.TempDir()
 	runner := &TestRunner{
 		Name:    "test",
-		Command: `sh -c 'printf "\x1b[31mRED\x1b[0m OUTPUT"; exit 1'`,
+		Command: `sh -c 'printf "\033[31mRED\033[0m OUTPUT"; exit 1'`,
 		Timeout: 10 * time.Second,
 	}
 	result, err := RunSweep(context.Background(), dir, runner)
