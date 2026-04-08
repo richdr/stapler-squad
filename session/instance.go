@@ -848,6 +848,12 @@ func (i *Instance) initTmuxSession() {
 	}
 	commandBuilder := NewClaudeCommandBuilder(i.Program, i.claudeSession)
 	enrichedProgram := commandBuilder.Build()
+
+	// Add initial prompt if provided and not resuming an existing session
+	if i.Prompt != "" && i.claudeSession == nil {
+		enrichedProgram = fmt.Sprintf("%s %q", enrichedProgram, i.Prompt)
+	}
+
 	log.InfoLog.Printf("Creating tmux session for instance '%s' with program '%s'", i.Title, enrichedProgram)
 
 	tmuxPrefix := i.TmuxPrefix
