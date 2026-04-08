@@ -51,6 +51,14 @@ export function SessionCard({
   const [showActions, setShowActions] = useState(false);
   const [newTitle, setNewTitle] = useState(session.title);
   const [isRestartConfirmOpen, setIsRestartConfirmOpen] = useState(false);
+  const [isCheckpointOpen, setIsCheckpointOpen] = useState(false);
+  const [checkpointLabel, setCheckpointLabel] = useState("");
+  const [isCreatingCheckpoint, setIsCreatingCheckpoint] = useState(false);
+  const [isForkOpen, setIsForkOpen] = useState(false);
+  const [forkCheckpoints, setForkCheckpoints] = useState<CheckpointProto[]>([]);
+  const [forkTitle, setForkTitle] = useState("");
+  const [activeForkCheckpointId, setActiveForkCheckpointId] = useState("");
+  const [isForking, setIsForking] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [isRestarting, setIsRestarting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);

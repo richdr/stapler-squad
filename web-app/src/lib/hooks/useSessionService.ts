@@ -4,7 +4,7 @@ import { useEffect, useCallback, useRef, useMemo } from "react";
 import { createClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 import { SessionService } from "@/gen/session/v1/session_pb";
-import { Session, SessionStatus, NotificationPriority } from "@/gen/session/v1/types_pb";
+import { Session, SessionStatus, NotificationPriority, CheckpointProto } from "@/gen/session/v1/types_pb";
 import {
   CreateSessionRequest,
   UpdateSessionRequest,
@@ -49,6 +49,9 @@ interface UseSessionServiceReturn {
   renameSession: (id: string, newTitle: string) => Promise<boolean>;
   restartSession: (id: string) => Promise<boolean>;
   acknowledgeSession: (id: string) => Promise<boolean>;
+  createCheckpoint: (sessionId: string, label: string) => Promise<boolean>;
+  listCheckpoints: (sessionId: string) => Promise<CheckpointProto[]>;
+  forkSession: (sessionId: string, checkpointId: string, newTitle: string) => Promise<Session | null>;
 
   // Real-time updates
   watchSessions: (options?: { categoryFilter?: string; statusFilter?: SessionStatus }) => void;
@@ -408,6 +411,54 @@ export function useSessionService(
     listSessions();
   }, [enabled, listSessions]);
 
+  // Create checkpoint for a session
+  const createCheckpoint = useCallback(
+    async (sessionId: string, label: string): Promise<boolean> => {
+      if (!clientRef.current) return false;
+      try {
+        const response = await clientRef.current.createCheckpoint({ sessionId, label });
+        return !!response.checkpoint;
+      } catch (err) {
+        console.error("Failed to create checkpoint:", err);
+        return false;
+      }
+    },
+    []
+  );
+
+  // List checkpoints for a session
+  const listCheckpoints = useCallback(
+    async (sessionId: string): Promise<CheckpointProto[]> => {
+      if (!clientRef.current) return [];
+      try {
+        const response = await clientRef.current.listCheckpoints({ sessionId });
+        return response.checkpoints;
+      } catch (err) {
+        console.error("Failed to list checkpoints:", err);
+        return [];
+      }
+    },
+    []
+  );
+
+  // Fork a session from a checkpoint
+  const forkSession = useCallback(
+    async (sessionId: string, checkpointId: string, newTitle: string): Promise<Session | null> => {
+      if (!clientRef.current) return null;
+      try {
+        const response = await clientRef.current.forkSession({ sessionId, checkpointId, newTitle });
+        if (response.session) {
+          dispatch(upsertSession(response.session));
+        }
+        return response.session ?? null;
+      } catch (err) {
+        console.error("Failed to fork session:", err);
+        return null;
+      }
+    },
+    [dispatch]
+  );
+
   // Convert error string back to Error object for backward compatibility
   const error = useMemo(() => (errorStr ? new Error(errorStr) : null), [errorStr]);
 
@@ -425,6 +476,9 @@ export function useSessionService(
     renameSession,
     restartSession,
     acknowledgeSession,
+    createCheckpoint,
+    listCheckpoints,
+    forkSession,
     watchSessions,
     stopWatching,
   };

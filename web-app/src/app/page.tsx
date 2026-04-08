@@ -50,6 +50,9 @@ function HomeContent() {
     restartSession,
     listSessions,
     updateSession,
+    createCheckpoint,
+    listCheckpoints,
+    forkSession,
   } = useSessionService({
     baseUrl: getApiBaseUrl(),
     autoWatch: true,
